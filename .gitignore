@@ -9,3 +9,7 @@ dist/
 coverage/
 .vscode/
 .DS_Store
+
+.npm-cache/
+
+public/uploads/

@@ -4,35 +4,35 @@ USE jbm_pro_auto;
 
 CREATE TABLE IF NOT EXISTS vehicles (
   id VARCHAR(64) PRIMARY KEY,
-  receiptNo VARCHAR(100),
-  ownerName VARCHAR(255),
-  phone VARCHAR(64),
-  plateNo VARCHAR(64),
-  brand VARCHAR(128),
-  model VARCHAR(256),
-  color VARCHAR(128),
-  status INT,
-  statusText TEXT,
-  entryDate DATE,
-  bookingTime VARCHAR(32),
-  estimatedCompletion DATE,
-  mileage INT,
-  cost INT,
-  vin VARCHAR(128),
-  receiptName VARCHAR(255),
-  receiptUrl MEDIUMTEXT,
-  logs JSON,
-  createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  invoice_number VARCHAR(100) NOT NULL,
+  license_plate VARCHAR(64) NOT NULL,
+  owner_name VARCHAR(255) NULL,
+  phone VARCHAR(64) NULL,
+  brand VARCHAR(128) NOT NULL,
+  model VARCHAR(256) NOT NULL,
+  color VARCHAR(128) NULL,
+  vin VARCHAR(128) NULL,
+  mileage INT NULL,
+  status VARCHAR(64) NOT NULL DEFAULT 'จองคิว',
+  status_code INT NOT NULL DEFAULT 1,
+  status_note TEXT NULL,
+  repair_cost DECIMAL(12,2) NOT NULL DEFAULT 0,
+  appointment_date DATE NULL,
+  received_date DATE NULL,
+  due_date DATE NULL,
+  delivered_date DATE NULL,
+  note TEXT NULL,
+  image_path MEDIUMTEXT NULL,
+  image_name VARCHAR(255) NULL,
+  logs JSON NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_vehicles_license_plate (license_plate),
+  INDEX idx_vehicles_phone (phone),
+  INDEX idx_vehicles_invoice_number (invoice_number),
+  INDEX idx_vehicles_status (status),
+  INDEX idx_vehicles_received_date (received_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE INDEX idx_vehicles_entry_date ON vehicles(entryDate);
-CREATE INDEX idx_vehicles_entry_created ON vehicles(entryDate, createdAt);
-CREATE INDEX idx_vehicles_status ON vehicles(status);
-CREATE INDEX idx_vehicles_owner_name ON vehicles(ownerName(100));
-CREATE INDEX idx_vehicles_phone ON vehicles(phone);
-CREATE INDEX idx_vehicles_receipt_no ON vehicles(receiptNo);
-CREATE INDEX idx_vehicles_plate_no ON vehicles(plateNo);
 
 CREATE TABLE IF NOT EXISTS employees (
   id VARCHAR(64) PRIMARY KEY,

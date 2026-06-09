@@ -1,103 +1,34 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Noto+Sans+Thai:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
 
-@font-face {
-  font-family: "TH Sarabun New";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("/fonts/thsarabunnew-webfont.ttf") format("truetype");
-}
-
-@font-face {
-  font-family: "TH Sarabun New";
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url("/fonts/thsarabunnew_bold-webfont.ttf") format("truetype");
-}
-
 :root {
-  --font-outfit: "Outfit", "Inter", "Segoe UI", Arial, sans-serif;
-  --font-noto-sans-thai: "TH Sarabun New", "Noto Sans Thai", "Noto Sans", "Segoe UI", Tahoma, Arial, sans-serif;
-  --app-shell-padding-x: 16px;
-}
-
-@theme {
-  --font-sans: var(--font-noto-sans-thai), var(--font-outfit), "Noto Sans", "Segoe UI", Tahoma, Arial, sans-serif;
-  --font-display: var(--font-outfit), var(--font-noto-sans-thai), "Noto Sans", "Segoe UI", Tahoma, Arial, sans-serif;
-}
-
-@media (min-width: 768px) {
-  :root {
-    --app-shell-padding-x: 24px;
-  }
-}
-
-@media (min-width: 1280px) {
-  :root {
-    --app-shell-padding-x: 32px;
-  }
-}
-
-/* Root scrolling */
-html {
-  scroll-behavior: smooth;
-  overflow-x: hidden;
-  scrollbar-width: none;
+  --font-thai: "Noto Sans Thai", "Segoe UI", Tahoma, Arial, sans-serif;
   color-scheme: light;
-  background-color: #ffffff !important;
-  background-image: none !important;
 }
 
-html::-webkit-scrollbar {
-  width: 8px;
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
-html::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-html::-webkit-scrollbar-thumb {
-  background: #AEAEB2;
-  border-radius: 10px;
-  border: 2px solid transparent;
-  background-clip: content-box;
+html {
+  min-height: 100%;
+  scroll-behavior: smooth;
+  background: #f8fafc;
 }
 
 body {
-  margin: 0;
-  padding: 0;
   min-height: 100vh;
-  font-family: var(--font-noto-sans-thai), var(--font-outfit), "Noto Sans", "Segoe UI", Tahoma, Arial, sans-serif;
-  line-height: 1.7;
+  margin: 0;
+  background: #f8fafc;
   color: #0f172a;
-  background-color: #ffffff !important;
-  background-image: none !important;
-  background-attachment: scroll;
-  background-repeat: no-repeat;
+  font-family: var(--font-thai);
+  line-height: 1.65;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow-x: hidden;
-}
-
-h1,
-h2,
-h3,
-h4,
-button,
-input,
-textarea,
-select {
-  font-family: var(--font-outfit), var(--font-noto-sans-thai), "Noto Sans", "Segoe UI", Tahoma, Arial, sans-serif;
-}
-
-h1,
-h2,
-h3,
-h4 {
-  letter-spacing: 0.02em;
 }
 
 button,
@@ -107,33 +38,15 @@ select {
   font: inherit;
 }
 
-::selection {
-  background: rgba(251,191,36,0.35);
-  color: #f8fafc;
-}
-
-body > div,
-#__next {
-  width: 100%;
-  min-width: 0;
-  background-color: #ffffff !important;
-  background-image: none !important;
-}
-
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
+button,
+a {
+  touch-action: manipulation;
 }
 
 img,
 svg,
 video,
-canvas {
-  max-width: 100%;
-  height: auto;
-}
-
+canvas,
 iframe {
   max-width: 100%;
 }
@@ -142,320 +55,28 @@ table {
   border-collapse: collapse;
 }
 
-/* Fix mobile browser viewport jump */
-main,
-section,
-article {
-  min-width: 0;
+th,
+td {
+  vertical-align: top;
 }
 
-/* Force the app background to white */
-html,
-body,
-#__next,
-body > div {
-  background: #ffffff !important;
-  background-color: #ffffff !important;
-  background-image: none !important;
-  color: #0f172a !important;
+h1,
+h2,
+h3,
+h4,
+p {
+  overflow-wrap: anywhere;
+  letter-spacing: 0;
 }
 
-main,
-section,
-article,
-header,
-footer,
-nav,
-aside {
-  background: #ffffff !important;
+::selection {
+  background: rgba(37, 99, 235, 0.18);
+  color: #0f172a;
 }
 
-/* Keep legacy selectors working, but unify on Noto Sans Thai stack */
-:lang(th),
-[lang="th"],
-[lang^="th-"] {
-  font-family: var(--font-noto-sans-thai), var(--font-outfit), "Noto Sans", "Segoe UI", Tahoma, Arial, sans-serif;
-}
-
-.font-thai-sarabun {
-  font-family: var(--font-noto-sans-thai), var(--font-outfit), "Noto Sans", "Segoe UI", Tahoma, Arial, sans-serif !important;
-}
-
-/* Custom UI Utilities */
 @layer utilities {
-  .glass-card {
-    background: rgba(255, 255, 255, 0.7);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.5);
-    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.05);
-  }
-
-  .glass-panel {
-    background: rgba(255, 255, 255, 0.85);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(209, 227, 251, 0.6);
-  }
-
-  .premium-shadow {
-    box-shadow: 0 10px 40px -10px rgba(5, 33, 67, 0.08);
-  }
-
-  .hover-lift {
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  .hover-lift:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 14px 28px rgba(0, 0, 0, 0.05), 0 10px 10px rgba(0, 0, 0, 0.02);
-  }
-
-  .text-gradient-primary {
-    background: linear-gradient(135deg, #5271FF 0%, #8C52FF 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-
-  .app-shell-x {
-    padding-left: var(--app-shell-padding-x);
-    padding-right: var(--app-shell-padding-x);
-  }
-
-  .responsive-table-wrap {
-    width: 100%;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .responsive-table-wrap > table {
-    min-width: 700px;
-  }
-
   .text-wrap-anywhere {
     overflow-wrap: anywhere;
     word-break: break-word;
   }
-
-  .hide-scrollbar {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-
-  .hide-scrollbar::-webkit-scrollbar {
-    display: none;
-  }
-}
-
-/* ------------------------------------------------------------
-   Global responsive hardening (mobile/tablet first)
-   Keeps legacy fixed-width layouts usable on small screens.
------------------------------------------------------------- */
-@media (max-width: 1279px) {
-  :root {
-    --app-shell-padding-x: 16px;
-  }
-
-  [class*="max-w-[1840px]"],
-  [class*="max-w-[1760px]"],
-  [class*="max-w-[1400px]"],
-  [class*="max-w-[1290px]"],
-  [class*="max-w-[1240px]"],
-  [class*="max-w-[1200px]"],
-  [class*="max-w-[1100px]"] {
-    max-width: 100% !important;
-  }
-}
-
-@media (max-width: 1024px) {
-  body {
-    font-size: 15px;
-  }
-
-  /* Prevent any page from causing horizontal overflow */
-  body > div,
-  body main,
-  body section,
-  body article {
-    min-width: 0;
-    max-width: 100%;
-  }
-
-  /* Clamp arbitrary fixed widths so cards/forms don't overflow tablet screens */
-  [class*="w-["] {
-    max-width: 100% !important;
-  }
-
-  /* Keep explicit table widths scrollable, but avoid forcing non-table blocks */
-  table[class*="min-w-[1180px]"],
-  table[class*="min-w-[960px]"],
-  table[class*="min-w-[860px]"],
-  table[class*="min-w-[760px]"],
-  table[class*="min-w-[700px]"],
-  table[class*="min-w-[680px]"] {
-    min-width: 700px !important;
-  }
-
-  .overflow-x-auto {
-    overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .overflow-x-auto > table {
-    min-width: max(680px, 100%) !important;
-  }
-
-  /* Long labels/content should wrap instead of breaking layout */
-  h1, h2, h3, h4, h5, h6, p, span, a, button, th, td, label {
-    overflow-wrap: anywhere;
-    word-break: break-word;
-  }
-}
-
-@media (max-width: 768px) {
-  :root {
-    --app-shell-padding-x: 12px;
-  }
-
-  body {
-    font-size: 14px;
-  }
-
-  /* Compact common fixed heights on small screens */
-  [class*="h-[340px]"],
-  [class*="h-[320px]"],
-  [class*="h-[280px]"],
-  [class*="h-[236px]"],
-  [class*="h-[230px]"],
-  [class*="h-[220px]"] {
-    height: auto !important;
-    min-height: 160px;
-  }
-
-  .overflow-x-auto > table {
-    min-width: 560px !important;
-  }
-
-  /* Keep popovers/modals inside viewport */
-  [class*="absolute"][class*="right-0"][class*="w-[320px]"],
-  [class*="absolute"][class*="right-0"][class*="w-[367px]"],
-  [class*="fixed"][class*="w-[360px]"] {
-    width: min(92vw, 360px) !important;
-    max-width: min(92vw, 360px) !important;
-    right: 12px !important;
-    left: auto !important;
-  }
-
-  [class*="fixed"][class*="inset-y-0"][class*="max-w-[340px]"],
-  [class*="fixed"][class*="inset-y-0"][class*="max-w-[320px]"],
-  [class*="fixed"][class*="inset-y-0"][class*="max-w-[300px]"] {
-    width: min(90vw, 340px) !important;
-    max-width: min(90vw, 340px) !important;
-  }
-}
-
-/* JBM public app light theme */
-.jbm-light-theme {
-  color: #0f172a;
-  background-color: #ffffff !important;
-  background-image: none !important;
-}
-
-.jbm-light-theme main,
-.jbm-light-theme section,
-.jbm-light-theme article {
-  background-color: #ffffff !important;
-  background-image: none !important;
-}
-
-.jbm-light-theme nav,
-.jbm-light-theme footer {
-  background: #ffffff !important;
-  border-color: #e2e8f0 !important;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
-}
-
-.jbm-light-theme [class*="from-slate-900"][class*="via-slate-950"],
-.jbm-light-theme [class*="from-slate-900"][class*="to-slate-900"] {
-  background-color: #ffffff !important;
-  background-image: none !important;
-  border-color: #e2e8f0 !important;
-  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.08) !important;
-}
-
-.jbm-light-theme [class~="bg-slate-950"],
-.jbm-light-theme [class~="bg-slate-900"],
-.jbm-light-theme [class~="bg-slate-800"],
-.jbm-light-theme [class~="bg-slate-900/50"],
-.jbm-light-theme [class~="bg-slate-950/80"],
-.jbm-light-theme [class~="bg-slate-100/90"] {
-  background-color: #ffffff !important;
-}
-
-.jbm-light-theme [class~="bg-slate-100"],
-.jbm-light-theme [class~="bg-slate-50"] {
-  background-color: #ffffff !important;
-}
-
-.jbm-light-theme [class~="border-slate-900"],
-.jbm-light-theme [class~="border-slate-800"],
-.jbm-light-theme [class~="border-slate-800/60"],
-.jbm-light-theme [class~="border-slate-800/80"],
-.jbm-light-theme [class~="border-slate-200/80"] {
-  border-color: #e2e8f0 !important;
-}
-
-.jbm-light-theme [class~="divide-slate-800/60"] > :not([hidden]) ~ :not([hidden]),
-.jbm-light-theme [class~="divide-slate-900/60"] > :not([hidden]) ~ :not([hidden]) {
-  border-color: #e2e8f0 !important;
-}
-
-.jbm-light-theme [class~="text-slate-100"],
-.jbm-light-theme [class~="text-slate-200"],
-.jbm-light-theme [class~="text-slate-300"],
-.jbm-light-theme [class~="text-slate-950"] {
-  color: #0f172a !important;
-}
-
-.jbm-light-theme [class~="text-slate-400"] {
-  color: #475569 !important;
-}
-
-.jbm-light-theme [class~="text-slate-500"],
-.jbm-light-theme [class~="text-slate-600"] {
-  color: #64748b !important;
-}
-
-.jbm-light-theme h1.text-transparent {
-  background: linear-gradient(90deg, #111827 0%, #b45309 48%, #d97706 100%) !important;
-  -webkit-background-clip: text !important;
-  background-clip: text !important;
-  color: transparent !important;
-}
-
-.jbm-light-theme input,
-.jbm-light-theme textarea,
-.jbm-light-theme select {
-  background-color: #ffffff !important;
-  border-color: #cbd5e1 !important;
-  color: #0f172a !important;
-}
-
-.jbm-light-theme input::placeholder,
-.jbm-light-theme textarea::placeholder {
-  color: #94a3b8 !important;
-}
-
-.jbm-light-theme table tbody tr:hover {
-  background-color: #f8fafc !important;
-}
-
-.jbm-light-theme [class*="shadow-2xl"],
-.jbm-light-theme [class*="shadow-xl"] {
-  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.08) !important;
-}
-
-.jbm-light-theme iframe {
-  background: #f8fafc;
 }

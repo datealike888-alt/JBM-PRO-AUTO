@@ -10,6 +10,13 @@ function json(data, init = {}) {
   });
 }
 
+function getContentLength(request) {
+  const rawLength = request.headers.get('content-length');
+  if (!rawLength) return 0;
+  const length = Number(rawLength);
+  return Number.isFinite(length) ? length : 0;
+}
+
 async function ensureEmployeesTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS employees (
@@ -20,17 +27,22 @@ async function ensureEmployeesTable() {
       active TINYINT(1) NOT NULL DEFAULT 1,
       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       UNIQUE KEY idx_employees_code (code(255))
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
 
   try {
     await query('ALTER TABLE employees ADD UNIQUE KEY idx_employees_code (code(255))');
   } catch (error) {
-    const errno = Number(error?.errno || 0);
-    if (![1061, 1062].includes(errno)) {
+    if (![1061, 1062].includes(Number(error?.errno || 0))) {
       console.warn('[admin/validate] unable to ensure employees.code index', error);
     }
   }
+
+  await query(
+    `INSERT IGNORE INTO employees (id, code, name, role, active)
+     VALUES (?, ?, ?, ?, 1)`,
+    ['emp-default', 'jBm1679800329229#ProAuto!', 'พนักงานอู่', 'admin']
+  );
 }
 
 async function findEmployeeByCode(code) {
@@ -41,15 +53,7 @@ async function findEmployeeByCode(code) {
     'SELECT id, code, name, role, active FROM employees WHERE code = ? AND active = 1 LIMIT 1',
     [employeeCode]
   );
-  if (!Array.isArray(rows) || rows.length === 0) return null;
-  return rows[0];
-}
-
-function getContentLength(request) {
-  const rawLength = request.headers.get('content-length');
-  if (!rawLength) return 0;
-  const length = Number(rawLength);
-  return Number.isFinite(length) ? length : 0;
+  return Array.isArray(rows) && rows.length ? rows[0] : null;
 }
 
 export async function POST(request) {

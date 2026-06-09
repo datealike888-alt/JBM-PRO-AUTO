@@ -1,49 +1,31 @@
 import { query } from '../../../lib/db';
-import fs from 'fs/promises';
-import path from 'path';
+import { v2 as cloudinary } from 'cloudinary';
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
-const MAX_REQUEST_BYTES = 12 * 1024 * 1024; // increased to allow larger base64 image payloads
-const VALID_STATUSES = new Set([1, 2, 3, 4, 5]);
+const MAX_REQUEST_BYTES = 12 * 1024 * 1024;
+const FINAL_STATUS = 'เสร็จรอส่ง';
+const BOOKING_STATUS = 'จองคิว';
+const HOLD_STATUSES = new Set([BOOKING_STATUS, FINAL_STATUS]);
+const STATUS_OPTIONS = [
+  'จองคิว',
+  'กำลังตรวจเช็ค',
+  'รออะไหล่',
+  'กำลังซ่อม',
+  'ซ่อมเสร็จรอส่ง',
+  FINAL_STATUS,
+];
 
 function json(data, init = {}) {
   return new Response(JSON.stringify(data), {
     ...init,
     headers: { ...JSON_HEADERS, ...(init.headers || {}) },
   });
-}
-
-async function findEmployeeByToken(token) {
-  const employeeCode = String(token || '').trim();
-  if (!employeeCode) return null;
-  await ensureEmployeesTable();
-  const rows = await query(
-    'SELECT id, code, name, role, active FROM employees WHERE code = ? AND active = 1 LIMIT 1',
-    [employeeCode]
-  );
-  if (!Array.isArray(rows) || rows.length === 0) return null;
-  return rows[0];
-}
-
-async function isAuthorizedToken(request) {
-  const suppliedToken = String(request.headers.get('x-vehicle-admin-token') || '').trim();
-  if (!suppliedToken) return false;
-
-  const configuredToken = process.env.VEHICLE_ADMIN_TOKEN;
-  if (configuredToken && suppliedToken === configuredToken) {
-    return true;
-  }
-
-  const employee = await findEmployeeByToken(suppliedToken);
-  return Boolean(employee);
-}
-
-async function isAuthorizedMutation(request) {
-  return isAuthorizedToken(request);
-}
-
-async function isAuthorizedRead(request) {
-  return isAuthorizedToken(request);
 }
 
 function getContentLength(request) {
@@ -53,40 +35,170 @@ function getContentLength(request) {
   return Number.isFinite(length) ? length : 0;
 }
 
+function cleanString(value, maxLength = 255) {
+  if (value === null || value === undefined) return '';
+  return String(value).trim().slice(0, maxLength);
+}
+
+function cleanNullableString(value, maxLength = 255) {
+  const text = cleanString(value, maxLength);
+  return text || null;
+}
+
+function cleanDate(value) {
+  const text = cleanString(value, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+}
+
+function normalizeStatus(value) {
+  const raw = cleanString(value, 64);
+  if (STATUS_OPTIONS.includes(raw)) return raw;
+  const numeric = Number.parseInt(raw, 10);
+  return STATUS_OPTIONS[numeric - 1] || BOOKING_STATUS;
+}
+
+function statusCode(status) {
+  const index = STATUS_OPTIONS.indexOf(normalizeStatus(status));
+  return index >= 0 ? index + 1 : 1;
+}
+
+function normalizeMoney(value) {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? Math.max(value, 0) : 0;
+  }
+  const cleaned = String(value ?? '').replace(/[^0-9.-]/g, '');
+  const parsed = Number.parseFloat(cleaned);
+  return Number.isFinite(parsed) ? Math.max(parsed, 0) : 0;
+}
+
+function normalizeMileage(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number.parseInt(String(value).replace(/[^0-9]/g, ''), 10);
+  return Number.isFinite(parsed) ? Math.max(parsed, 0) : null;
+}
+
+function formatSqlDate(value) {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+  return String(value).slice(0, 10);
+}
+
+function parseJsonLogs(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return [];
+  }
+}
+
+async function ensureColumn(sql) {
+  try {
+    await query(sql);
+  } catch (error) {
+    if (Number(error?.errno || 0) !== 1060) throw error;
+  }
+}
+
+async function ensureIndex(sql) {
+  try {
+    await query(sql);
+  } catch (error) {
+    if (![1061, 1062].includes(Number(error?.errno || 0))) throw error;
+  }
+}
+
 async function ensureVehiclesTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS vehicles (
       id VARCHAR(64) PRIMARY KEY,
-      receiptNo VARCHAR(100),
-      ownerName VARCHAR(255),
-      phone VARCHAR(64),
-      plateNo VARCHAR(64),
-      brand VARCHAR(128),
-      model VARCHAR(256),
-      color VARCHAR(128),
-      status INT,
-      statusText TEXT,
-      entryDate DATE,
-      bookingTime VARCHAR(32),
-      estimatedCompletion DATE,
-      mileage INT,
-      cost INT,
-      vin VARCHAR(128),
-      receiptName VARCHAR(255),
-      receiptUrl MEDIUMTEXT,
-      logs JSON,
-      createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+      invoice_number VARCHAR(100) NOT NULL,
+      license_plate VARCHAR(64) NOT NULL,
+      owner_name VARCHAR(255) NULL,
+      phone VARCHAR(64) NULL,
+      brand VARCHAR(128) NOT NULL,
+      model VARCHAR(256) NOT NULL,
+      color VARCHAR(128) NULL,
+      vin VARCHAR(128) NULL,
+      mileage INT NULL,
+      status VARCHAR(64) NOT NULL DEFAULT 'จองคิว',
+      status_code INT NOT NULL DEFAULT 1,
+      status_note TEXT NULL,
+      repair_cost DECIMAL(12,2) NOT NULL DEFAULT 0,
+      appointment_date DATE NULL,
+      received_date DATE NULL,
+      due_date DATE NULL,
+      delivered_date DATE NULL,
+      note TEXT NULL,
+      image_path MEDIUMTEXT NULL,
+      image_name VARCHAR(255) NULL,
+      logs JSON NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      receiptNo VARCHAR(100) NULL,
+      ownerName VARCHAR(255) NULL,
+      plateNo VARCHAR(64) NULL,
+      statusText TEXT NULL,
+      entryDate DATE NULL,
+      bookingTime VARCHAR(32) NULL,
+      estimatedCompletion DATE NULL,
+      cost DECIMAL(12,2) NULL,
+      receiptName VARCHAR(255) NULL,
+      receiptUrl MEDIUMTEXT NULL,
+      createdAt TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
 
-  try {
-    await query('ALTER TABLE vehicles ADD COLUMN mileage INT NULL');
-  } catch (error) {
-    const errno = Number(error?.errno || 0);
-    if (errno !== 1060) {
-      console.warn('[vehicles] unable to ensure vehicles.mileage column', error);
-    }
-  }
+  const columns = [
+    "ALTER TABLE vehicles MODIFY COLUMN status VARCHAR(64) NOT NULL DEFAULT 'จองคิว'",
+    'ALTER TABLE vehicles ADD COLUMN invoice_number VARCHAR(100) NULL',
+    'ALTER TABLE vehicles ADD COLUMN license_plate VARCHAR(64) NULL',
+    'ALTER TABLE vehicles ADD COLUMN owner_name VARCHAR(255) NULL',
+    'ALTER TABLE vehicles ADD COLUMN status_code INT NOT NULL DEFAULT 1',
+    'ALTER TABLE vehicles ADD COLUMN status_note TEXT NULL',
+    'ALTER TABLE vehicles ADD COLUMN repair_cost DECIMAL(12,2) NOT NULL DEFAULT 0',
+    'ALTER TABLE vehicles ADD COLUMN appointment_date DATE NULL',
+    'ALTER TABLE vehicles ADD COLUMN received_date DATE NULL',
+    'ALTER TABLE vehicles ADD COLUMN due_date DATE NULL',
+    'ALTER TABLE vehicles ADD COLUMN delivered_date DATE NULL',
+    'ALTER TABLE vehicles ADD COLUMN note TEXT NULL',
+    'ALTER TABLE vehicles ADD COLUMN image_path MEDIUMTEXT NULL',
+    'ALTER TABLE vehicles ADD COLUMN image_name VARCHAR(255) NULL',
+    'ALTER TABLE vehicles ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+  ];
+  for (const sql of columns) await ensureColumn(sql);
+
+  await query(`
+    UPDATE vehicles SET
+      invoice_number = COALESCE(NULLIF(invoice_number, ''), receiptNo, id),
+      license_plate = COALESCE(NULLIF(license_plate, ''), plateNo, ''),
+      owner_name = COALESCE(owner_name, ownerName),
+      status = CASE
+        WHEN status IN ('1', 'จองคิว') THEN 'จองคิว'
+        WHEN status IN ('2', 'เช็ครถ', 'กำลังตรวจเช็ค') THEN 'กำลังตรวจเช็ค'
+        WHEN status IN ('3', 'รออะไหล่') THEN 'รออะไหล่'
+        WHEN status IN ('4', 'กำลังซ่อม') THEN 'กำลังซ่อม'
+        WHEN status IN ('5', 'เสร็จรอส่ง') THEN 'เสร็จรอส่ง'
+        WHEN status IN ('6', 'ซ่อมเสร็จรอส่ง') THEN 'ซ่อมเสร็จรอส่ง'
+        ELSE COALESCE(NULLIF(status, ''), 'จองคิว')
+      END,
+      status_note = COALESCE(status_note, statusText),
+      repair_cost = COALESCE(NULLIF(repair_cost, 0), cost, 0),
+      appointment_date = COALESCE(appointment_date, entryDate),
+      received_date = COALESCE(received_date, entryDate),
+      due_date = COALESCE(due_date, estimatedCompletion),
+      image_path = COALESCE(image_path, receiptUrl),
+      image_name = COALESCE(image_name, receiptName)
+  `);
+
+  await ensureIndex('CREATE INDEX idx_vehicles_license_plate ON vehicles(license_plate)');
+  await ensureIndex('CREATE INDEX idx_vehicles_phone ON vehicles(phone)');
+  await ensureIndex('CREATE INDEX idx_vehicles_invoice_number ON vehicles(invoice_number)');
+  await ensureIndex('CREATE INDEX idx_vehicles_status_new ON vehicles(status)');
+  await ensureIndex('CREATE INDEX idx_vehicles_received_date ON vehicles(received_date)');
 }
 
 async function ensureEmployeesTable() {
@@ -99,93 +211,81 @@ async function ensureEmployeesTable() {
       active TINYINT(1) NOT NULL DEFAULT 1,
       createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       UNIQUE KEY idx_employees_code (code(255))
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
 
-  try {
-    await query('ALTER TABLE employees ADD UNIQUE KEY idx_employees_code (code(255))');
-  } catch (error) {
-    const errno = Number(error?.errno || 0);
-    if (![1061, 1062].includes(errno)) {
-      console.warn('[vehicles] unable to ensure employees.code index', error);
-    }
-  }
-
-  await query(`
-    INSERT IGNORE INTO employees (id, code, name, role, active)
-    VALUES (?, ?, ?, ?, 1)
-  `, [
-    'emp-default',
-    'jBm1679800329229#ProAuto!',
-    'พนักงานอู่',
-    'admin',
-  ]);
+  await ensureIndex('ALTER TABLE employees ADD UNIQUE KEY idx_employees_code (code(255))');
+  await query(
+    `INSERT IGNORE INTO employees (id, code, name, role, active)
+     VALUES (?, ?, ?, ?, 1)`,
+    ['emp-default', 'jBm1679800329229#ProAuto!', 'พนักงานอู่', 'admin']
+  );
 }
 
-function parseJsonLogs(value) {
-  if (!value) return [];
-  if (Array.isArray(value)) return value;
-
-  try {
-    return JSON.parse(value);
-  } catch (error) {
-    console.warn('[vehicles] failed to parse logs JSON', error, value);
-    return [];
-  }
+async function findEmployeeByToken(token) {
+  const employeeCode = String(token || '').trim();
+  if (!employeeCode) return null;
+  await ensureEmployeesTable();
+  const rows = await query(
+    'SELECT id, code, name, role, active FROM employees WHERE code = ? AND active = 1 LIMIT 1',
+    [employeeCode]
+  );
+  return Array.isArray(rows) && rows.length ? rows[0] : null;
 }
 
-function normalizeStatus(value) {
-  const status = Number.parseInt(value, 10);
-  return VALID_STATUSES.has(status) ? status : 1;
-}
-
-function normalizeCost(value) {
-  if (typeof value === 'number') {
-    return Number.isFinite(value) ? Math.max(Math.round(value), 0) : 0;
-  }
-
-  const cleaned = String(value ?? '').replace(/[^0-9.-]/g, '');
-  if (!cleaned) return 0;
-
-  const parsed = Number.parseFloat(cleaned);
-  return Number.isFinite(parsed) ? Math.max(Math.round(parsed), 0) : 0;
-}
-
-function normalizeMileage(value) {
-  if (value === null || value === undefined || value === '') {
-    return null;
-  }
-
-  const cleaned = String(value).replace(/[^0-9]/g, '');
-  if (!cleaned) return null;
-
-  const parsed = Number.parseInt(cleaned, 10);
-  return Number.isFinite(parsed) ? Math.max(parsed, 0) : null;
-}
-
-function formatSqlDate(value) {
-  if (!value) return null;
-  if (value instanceof Date) {
-    const year = value.getFullYear();
-    const month = String(value.getMonth() + 1).padStart(2, '0');
-    const day = String(value.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  }
-  if (typeof value === 'string') {
-    return value.slice(0, 10);
-  }
-  return String(value);
+async function isAuthorizedToken(request) {
+  const suppliedToken = String(request.headers.get('x-vehicle-admin-token') || '').trim();
+  if (!suppliedToken) return false;
+  const configuredToken = process.env.VEHICLE_ADMIN_TOKEN;
+  if (configuredToken && suppliedToken === configuredToken) return true;
+  return Boolean(await findEmployeeByToken(suppliedToken));
 }
 
 function normalizeRow(row) {
+  const status = normalizeStatus(row.status);
+  const invoiceNumber = row.invoice_number || row.receiptNo || '';
+  const licensePlate = row.license_plate || row.plateNo || '';
+  const imagePath = row.image_path || row.receiptUrl || null;
+  const cost = normalizeMoney(row.repair_cost ?? row.cost);
+  const appointmentDate = formatSqlDate(row.appointment_date || row.entryDate);
+  const receivedDate = formatSqlDate(row.received_date || row.entryDate);
+  const dueDate = formatSqlDate(row.due_date || row.estimatedCompletion);
+
   return {
-    ...row,
-    status: normalizeStatus(row.status),
+    id: row.id,
+    invoice_number: invoiceNumber,
+    license_plate: licensePlate,
+    owner_name: row.owner_name || row.ownerName || null,
+    phone: row.phone || null,
+    brand: row.brand || '',
+    model: row.model || '',
+    color: row.color || '',
+    vin: row.vin || '',
     mileage: normalizeMileage(row.mileage),
-    cost: normalizeCost(row.cost),
+    status,
+    status_code: statusCode(status),
+    status_note: row.status_note || row.statusText || '',
+    repair_cost: cost,
+    appointment_date: appointmentDate,
+    received_date: receivedDate,
+    due_date: dueDate,
+    delivered_date: formatSqlDate(row.delivered_date),
+    note: row.note || '',
+    image_path: imagePath,
+    image_name: row.image_name || row.receiptName || null,
+    created_at: row.created_at || row.createdAt || null,
+    updated_at: row.updated_at || null,
     logs: parseJsonLogs(row.logs),
-    entryDate: formatSqlDate(row.entryDate),
-    estimatedCompletion: formatSqlDate(row.estimatedCompletion),
+    receiptNo: invoiceNumber,
+    plateNo: licensePlate,
+    ownerName: row.owner_name || row.ownerName || null,
+    statusText: row.status_note || row.statusText || '',
+    entryDate: receivedDate || appointmentDate,
+    bookingTime: row.bookingTime || '',
+    estimatedCompletion: dueDate,
+    cost,
+    receiptName: row.image_name || row.receiptName || null,
+    receiptUrl: imagePath,
   };
 }
 
@@ -193,39 +293,32 @@ function normalizePublicRow(row) {
   const normalized = normalizeRow(row);
   return {
     id: normalized.id,
-    receiptNo: normalized.receiptNo,
-    ownerName: normalized.ownerName,
-    plateNo: normalized.plateNo,
+    invoice_number: normalized.invoice_number,
+    license_plate: normalized.license_plate,
+    owner_name: normalized.owner_name,
+    phone: normalized.phone,
     brand: normalized.brand,
     model: normalized.model,
-    status: normalized.status,
-    statusText: normalized.statusText,
-    entryDate: normalized.entryDate,
-    estimatedCompletion: normalized.estimatedCompletion,
+    color: normalized.color,
+    vin: normalized.vin,
     mileage: normalized.mileage,
-    receiptName: normalized.receiptName,
-    receiptUrl: normalized.receiptUrl,
+    status: normalized.status,
+    status_code: normalized.status_code,
+    status_note: normalized.status_note,
+    appointment_date: normalized.appointment_date,
+    received_date: normalized.received_date,
+    due_date: normalized.due_date,
+    image_path: normalized.image_path,
+    note: normalized.note,
     logs: normalized.logs,
   };
 }
 
-function cleanString(value, maxLength = 255) {
-  if (value === null || value === undefined) return '';
-  return String(value).trim().slice(0, maxLength);
-}
-
-function cleanDate(value) {
-  const text = cleanString(value, 10);
-  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
-}
-
-const MAX_RECEIPT_URL_LENGTH = 10_000_000;
-
-function cleanReceiptUrl(value) {
-  const text = cleanString(value, MAX_RECEIPT_URL_LENGTH);
+function cleanImagePath(value) {
+  const text = cleanString(value, 10_000_000);
   if (!text) return null;
   if (text.startsWith('data:image/')) return text;
-  if (text.startsWith('/uploads/receipts/') || text.startsWith('/api/receipts/')) return text;
+  if (text.startsWith('/uploads/') || text.startsWith('/api/receipts/')) return text;
   try {
     const url = new URL(text);
     return url.protocol === 'https:' ? text : null;
@@ -235,47 +328,106 @@ function cleanReceiptUrl(value) {
 }
 
 function normalizeVehicleBody(body) {
-  if (!body || typeof body !== 'object') {
-    return { error: 'Invalid request body' };
+  if (!body || typeof body !== 'object') return { error: 'Invalid request body' };
+
+  const status = normalizeStatus(body.status ?? body.status_code);
+  const invoiceNumber = cleanString(body.invoice_number ?? body.receiptNo, 100);
+  const licensePlate = cleanString(body.license_plate ?? body.plateNo, 64);
+  const brand = cleanString(body.brand, 128);
+  const model = cleanString(body.model, 256);
+
+  if (!invoiceNumber || !licensePlate || !brand || !model) {
+    return { error: 'กรุณากรอกเลขใบแจ้งหนี้/ใบเสร็จ ทะเบียนรถ ยี่ห้อ และรุ่นรถ' };
   }
 
-  const status = Number.parseInt(body.status || 1, 10);
-  if (!VALID_STATUSES.has(status)) {
-    return { error: 'Invalid vehicle status' };
+  const appointmentDate = cleanDate(body.appointment_date ?? body.entryDate);
+  const receivedDate = cleanDate(body.received_date ?? body.entryDate);
+  const dueDate = cleanDate(body.due_date ?? body.estimatedCompletion);
+  const deliveredDate = status === FINAL_STATUS
+    ? cleanDate(body.delivered_date) || new Date().toISOString().slice(0, 10)
+    : cleanDate(body.delivered_date);
+
+  return {
+    vehicle: {
+      id: cleanString(body.id, 64) || `job-${Date.now()}`,
+      invoice_number: invoiceNumber,
+      license_plate: licensePlate,
+      owner_name: cleanNullableString(body.owner_name ?? body.ownerName, 255),
+      phone: cleanNullableString(body.phone, 64),
+      brand,
+      model,
+      color: cleanNullableString(body.color, 128),
+      vin: cleanNullableString(body.vin, 128),
+      mileage: normalizeMileage(body.mileage),
+      status,
+      status_code: statusCode(status),
+      status_note: cleanNullableString(body.status_note ?? body.statusText, 2000),
+      repair_cost: normalizeMoney(body.repair_cost ?? body.cost),
+      appointment_date: appointmentDate,
+      received_date: receivedDate,
+      due_date: dueDate,
+      delivered_date: deliveredDate,
+      note: cleanNullableString(body.note, 4000),
+      image_path: cleanImagePath(body.image_path ?? body.receiptUrl),
+      image_name: cleanNullableString(body.image_name ?? body.receiptName, 255),
+      logs: Array.isArray(body.logs)
+        ? body.logs.slice(0, 120).map((log) => ({
+            date: cleanString(log?.date, 64),
+            text: cleanString(log?.text, 2000),
+          }))
+        : [],
+      bookingTime: cleanNullableString(body.bookingTime, 32),
+    },
+  };
+}
+
+function buildDateWhere(url) {
+  const params = [];
+  const where = [];
+  const day = cleanString(url.searchParams.get('day'), 2);
+  const month = cleanString(url.searchParams.get('month'), 2);
+  const year = cleanString(url.searchParams.get('year'), 4);
+
+  if (/^\d{4}$/.test(year)) {
+    where.push('YEAR(COALESCE(received_date, appointment_date, created_at)) = ?');
+    params.push(year);
+  }
+  if (/^\d{2}$/.test(month)) {
+    where.push('MONTH(COALESCE(received_date, appointment_date, created_at)) = ?');
+    params.push(month);
+  }
+  if (/^\d{2}$/.test(day)) {
+    where.push('DAY(COALESCE(received_date, appointment_date, created_at)) = ?');
+    params.push(day);
   }
 
-  const vehicle = {
-    id: cleanString(body.id, 64) || `job-${Date.now()}`,
-    receiptNo: cleanString(body.receiptNo, 100),
-    ownerName: cleanString(body.ownerName, 255),
-    phone: cleanString(body.phone, 64),
-    plateNo: cleanString(body.plateNo, 64),
-    brand: cleanString(body.brand, 128),
-    model: cleanString(body.model, 256),
-    color: cleanString(body.color, 128),
-    status,
-    statusText: cleanString(body.statusText, 2000),
-    entryDate: cleanDate(body.entryDate),
-    bookingTime: cleanString(body.bookingTime, 32),
-    estimatedCompletion: cleanDate(body.estimatedCompletion),
-    mileage: normalizeMileage(body.mileage),
-    cost: normalizeCost(body.cost),
-    vin: cleanString(body.vin, 128),
-    receiptName: body.receiptName ? cleanString(body.receiptName, 255) : null,
-    receiptUrl: cleanReceiptUrl(body.receiptUrl),
-    logs: Array.isArray(body.logs)
-      ? body.logs.slice(0, 100).map((log) => ({
-          date: cleanString(log?.date, 64),
-          text: cleanString(log?.text, 2000),
-        }))
-      : [],
+  return { clause: where.length ? ` AND ${where.join(' AND ')}` : '', params };
+}
+
+function rowsForPeriod(rows, period) {
+  const keyFor = (row) => {
+    const date = row.delivered_date || row.received_date || row.appointment_date || row.created_at;
+    const value = formatSqlDate(date) || '';
+    if (period === 'year') return value.slice(0, 4);
+    if (period === 'month') return value.slice(0, 7);
+    return value.slice(0, 10);
   };
 
-  if (!vehicle.ownerName || !vehicle.phone || !vehicle.entryDate) {
-    return { error: 'Missing required vehicle fields' };
+  const map = new Map();
+  for (const row of rows) {
+    const key = keyFor(row) || 'ไม่ระบุวันที่';
+    const current = map.get(key) || { label: key, vehicles: 0, revenue: 0, in_shop: 0 };
+    current.vehicles += 1;
+    if (normalizeStatus(row.status) === FINAL_STATUS) {
+      current.revenue += normalizeMoney(row.repair_cost);
+    }
+    if (!HOLD_STATUSES.has(normalizeStatus(row.status))) {
+      current.in_shop += 1;
+    }
+    map.set(key, current);
   }
 
-  return { vehicle };
+  return Array.from(map.values()).sort((a, b) => String(a.label).localeCompare(String(b.label)));
 }
 
 export async function GET(request) {
@@ -284,16 +436,57 @@ export async function GET(request) {
 
     const url = new URL(request.url);
     const wantsAdminData = url.searchParams.get('admin') === '1';
-    if (wantsAdminData && !(await isAuthorizedRead(request))) {
+    const wantsSummary = url.searchParams.get('summary') === '1';
+    const wantsInShop = url.searchParams.get('in_shop') === '1';
+    const status = cleanString(url.searchParams.get('status'), 64);
+
+    if ((wantsAdminData || wantsSummary || wantsInShop || status) && !(await isAuthorizedToken(request))) {
       return json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    if (wantsAdminData) {
-      const rows = await query('SELECT * FROM vehicles ORDER BY entryDate DESC, createdAt DESC LIMIT 500');
-      return json(rows.map(normalizeRow), {
-        status: 200,
-        headers: { 'Cache-Control': 'no-store' },
-      });
+    if (wantsSummary) {
+      const rows = (await query('SELECT * FROM vehicles ORDER BY COALESCE(received_date, appointment_date, created_at) ASC LIMIT 5000')).map(normalizeRow);
+      const today = new Date().toISOString().slice(0, 10);
+      const month = today.slice(0, 7);
+      const year = today.slice(0, 4);
+      const finalRows = rows.filter((row) => row.status === FINAL_STATUS);
+      const inShopRows = rows.filter((row) => !HOLD_STATUSES.has(row.status));
+      return json({
+        totals: {
+          all: rows.length,
+          booking: rows.filter((row) => row.status === BOOKING_STATUS).length,
+          checking: rows.filter((row) => row.status === 'กำลังตรวจเช็ค').length,
+          repairing: rows.filter((row) => row.status === 'กำลังซ่อม').length,
+          in_shop: inShopRows.length,
+          ready_to_deliver: rows.filter((row) => row.status === FINAL_STATUS).length,
+          revenue_today: finalRows.filter((row) => (row.delivered_date || row.received_date || '').startsWith(today)).reduce((sum, row) => sum + row.repair_cost, 0),
+          revenue_month: finalRows.filter((row) => (row.delivered_date || row.received_date || '').startsWith(month)).reduce((sum, row) => sum + row.repair_cost, 0),
+          revenue_year: finalRows.filter((row) => (row.delivered_date || row.received_date || '').startsWith(year)).reduce((sum, row) => sum + row.repair_cost, 0),
+        },
+        revenue: rowsForPeriod(finalRows, url.searchParams.get('period') || 'month'),
+        in_shop_chart: rowsForPeriod(inShopRows, url.searchParams.get('period') || 'month'),
+      }, { status: 200, headers: { 'Cache-Control': 'no-store' } });
+    }
+
+    if (wantsAdminData || wantsInShop || status) {
+      const dateWhere = buildDateWhere(url);
+      const filters = [];
+      const params = [];
+      if (wantsInShop) {
+        filters.push('status NOT IN (?, ?)');
+        params.push(BOOKING_STATUS, FINAL_STATUS);
+      }
+      if (status) {
+        filters.push('status = ?');
+        params.push(normalizeStatus(status));
+      }
+      const where = filters.length ? `WHERE ${filters.join(' AND ')}` : 'WHERE 1=1';
+      const rows = await query(
+        `SELECT * FROM vehicles ${where}${dateWhere.clause}
+         ORDER BY COALESCE(received_date, appointment_date, created_at) DESC, created_at DESC LIMIT 1000`,
+        [...params, ...dateWhere.params]
+      );
+      return json(rows.map(normalizeRow), { status: 200, headers: { 'Cache-Control': 'no-store' } });
     }
 
     const search = cleanString(url.searchParams.get('search'), 100);
@@ -305,18 +498,16 @@ export async function GET(request) {
     const likeSearch = `%${search.toLowerCase()}%`;
     const rows = await query(
       `SELECT * FROM vehicles
-       WHERE LOWER(receiptNo) = ?
-          OR LOWER(ownerName) LIKE ?
-          OR (? <> '' AND REPLACE(REPLACE(REPLACE(phone, '-', ''), ' ', ''), '.', '') LIKE ?)
-       ORDER BY entryDate DESC, createdAt DESC
+       WHERE LOWER(invoice_number) = ?
+          OR LOWER(license_plate) LIKE ?
+          OR LOWER(owner_name) LIKE ?
+          OR (? <> '' AND REPLACE(REPLACE(REPLACE(COALESCE(phone, ''), '-', ''), ' ', ''), '.', '') LIKE ?)
+       ORDER BY COALESCE(received_date, appointment_date, created_at) DESC, created_at DESC
        LIMIT 10`,
-      [search.toLowerCase(), likeSearch, phoneSearch, `%${phoneSearch}%`]
+      [search.toLowerCase(), likeSearch, likeSearch, phoneSearch, `%${phoneSearch}%`]
     );
 
-    return json(rows.map(normalizePublicRow), {
-      status: 200,
-      headers: { 'Cache-Control': 'no-store' },
-    });
+    return json(rows.map(normalizePublicRow), { status: 200, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     console.error('[vehicles] GET failed', error);
     return json({ error: 'Vehicle service unavailable' }, { status: 503 });
@@ -324,49 +515,19 @@ export async function GET(request) {
 }
 
 async function saveReceiptFile(base64Data, id) {
-  const matches = base64Data.match(/^data:image\/([a-zA-Z0-9+]+)(?:;[^,]+)*;base64,(.+)$/);
-  if (!matches || matches.length !== 3) {
-    throw new Error('Invalid base64 image format');
+  if (!process.env.CLOUDINARY_CLOUD_NAME) {
+    return base64Data;
   }
-
-  let ext = matches[1].toLowerCase();
-  if (ext === 'jpeg') ext = 'jpg';
-
-  const allowed = new Set(['png', 'jpg', 'webp', 'gif']);
-  if (!allowed.has(ext)) {
-    throw new Error('Unsupported image format');
-  }
-
-  const data = Buffer.from(matches[2], 'base64');
-  const filename = `receipt-${id}-${Date.now()}.${ext}`;
-  const dir = path.join(process.cwd(), 'public', 'uploads', 'receipts');
-  await fs.mkdir(dir, { recursive: true });
-  const filePath = path.join(dir, filename);
-  await fs.writeFile(filePath, data);
-  return `/api/receipts/${filename}`;
-}
-
-async function deleteReceiptFile(urlPath) {
-  if (!urlPath) return;
-
-  const receiptsDir = path.join(process.cwd(), 'public', 'uploads', 'receipts');
-  let filePath = null;
-
-  if (urlPath.startsWith('/uploads/receipts/')) {
-    filePath = path.join(process.cwd(), 'public', urlPath);
-  } else if (urlPath.startsWith('/api/receipts/')) {
-    const filename = path.basename(urlPath);
-    filePath = path.join(receiptsDir, filename);
-  } else {
-    return;
-  }
-
-  await fs.unlink(filePath).catch(() => {});
+  const result = await cloudinary.uploader.upload(base64Data, {
+    folder: 'jbm-pro-auto/receipts',
+    public_id: `vehicle-${id}-${Date.now()}`,
+  });
+  return result.secure_url;
 }
 
 export async function POST(request) {
   try {
-    if (!(await isAuthorizedMutation(request))) {
+    if (!(await isAuthorizedToken(request))) {
       return json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -382,77 +543,91 @@ export async function POST(request) {
     }
 
     const normalized = normalizeVehicleBody(body);
-    if (normalized.error) {
-      return json({ error: normalized.error }, { status: 400 });
-    }
+    if (normalized.error) return json({ error: normalized.error }, { status: 400 });
+
     const { vehicle } = normalized;
-
-    const existing = await query('SELECT receiptUrl FROM vehicles WHERE id = ? LIMIT 1', [vehicle.id]);
-    const oldReceiptUrl = existing?.[0]?.receiptUrl;
-
-    if (vehicle.receiptUrl && vehicle.receiptUrl.startsWith('data:image/')) {
-      try {
-        vehicle.receiptUrl = await saveReceiptFile(vehicle.receiptUrl, vehicle.id);
-        if (oldReceiptUrl && oldReceiptUrl !== vehicle.receiptUrl) {
-          await deleteReceiptFile(oldReceiptUrl);
-        }
-      } catch (err) {
-        console.error('[vehicles] failed to save receipt file', err);
-        return json({ error: 'ไม่สามารถบันทึกไฟล์รูปภาพใบเสร็จได้' }, { status: 500 });
-      }
+    if (vehicle.image_path?.startsWith('data:image/')) {
+      vehicle.image_path = await saveReceiptFile(vehicle.image_path, vehicle.id);
     }
 
     await ensureVehiclesTable();
     await query(
       `INSERT INTO vehicles (
-        id, receiptNo, ownerName, phone, plateNo, brand, model, color,
-        status, statusText, entryDate, bookingTime, estimatedCompletion, mileage,
-        cost, vin, receiptName, receiptUrl, logs
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, invoice_number, license_plate, owner_name, phone, brand, model, color, vin, mileage,
+        status, status_code, status_note, repair_cost, appointment_date, received_date, due_date,
+        delivered_date, note, image_path, image_name, logs,
+        receiptNo, ownerName, plateNo, statusText, entryDate, bookingTime, estimatedCompletion,
+        cost, receiptName, receiptUrl
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
-        receiptNo = VALUES(receiptNo),
-        ownerName = VALUES(ownerName),
+        invoice_number = VALUES(invoice_number),
+        license_plate = VALUES(license_plate),
+        owner_name = VALUES(owner_name),
         phone = VALUES(phone),
-        plateNo = VALUES(plateNo),
         brand = VALUES(brand),
         model = VALUES(model),
         color = VALUES(color),
+        vin = VALUES(vin),
+        mileage = VALUES(mileage),
         status = VALUES(status),
+        status_code = VALUES(status_code),
+        status_note = VALUES(status_note),
+        repair_cost = VALUES(repair_cost),
+        appointment_date = VALUES(appointment_date),
+        received_date = VALUES(received_date),
+        due_date = VALUES(due_date),
+        delivered_date = VALUES(delivered_date),
+        note = VALUES(note),
+        image_path = VALUES(image_path),
+        image_name = VALUES(image_name),
+        logs = VALUES(logs),
+        receiptNo = VALUES(receiptNo),
+        ownerName = VALUES(ownerName),
+        plateNo = VALUES(plateNo),
         statusText = VALUES(statusText),
         entryDate = VALUES(entryDate),
         bookingTime = VALUES(bookingTime),
         estimatedCompletion = VALUES(estimatedCompletion),
-        mileage = VALUES(mileage),
         cost = VALUES(cost),
-        vin = VALUES(vin),
         receiptName = VALUES(receiptName),
-        receiptUrl = VALUES(receiptUrl),
-        logs = VALUES(logs)
-    `,
+        receiptUrl = VALUES(receiptUrl)`,
       [
         vehicle.id,
-        vehicle.receiptNo,
-        vehicle.ownerName,
+        vehicle.invoice_number,
+        vehicle.license_plate,
+        vehicle.owner_name,
         vehicle.phone,
-        vehicle.plateNo,
         vehicle.brand,
         vehicle.model,
         vehicle.color,
-        vehicle.status,
-        vehicle.statusText,
-        vehicle.entryDate,
-        vehicle.bookingTime,
-        vehicle.estimatedCompletion,
-        vehicle.mileage,
-        vehicle.cost,
         vehicle.vin,
-        vehicle.receiptName,
-        vehicle.receiptUrl,
+        vehicle.mileage,
+        vehicle.status,
+        vehicle.status_code,
+        vehicle.status_note,
+        vehicle.repair_cost,
+        vehicle.appointment_date,
+        vehicle.received_date,
+        vehicle.due_date,
+        vehicle.delivered_date,
+        vehicle.note,
+        vehicle.image_path,
+        vehicle.image_name,
         JSON.stringify(vehicle.logs),
+        vehicle.invoice_number,
+        vehicle.owner_name,
+        vehicle.license_plate,
+        vehicle.status_note,
+        vehicle.received_date || vehicle.appointment_date,
+        vehicle.bookingTime,
+        vehicle.due_date,
+        vehicle.repair_cost,
+        vehicle.image_name,
+        vehicle.image_path,
       ]
     );
 
-    return json({ success: true, vehicle }, { status: 200 });
+    return json({ success: true, vehicle: normalizeRow(vehicle) }, { status: 200 });
   } catch (error) {
     console.error('[vehicles] POST failed', error);
     return json({ error: 'Vehicle service unavailable' }, { status: 503 });
@@ -461,19 +636,14 @@ export async function POST(request) {
 
 export async function DELETE(request) {
   try {
-    if (!(await isAuthorizedMutation(request))) {
+    if (!(await isAuthorizedToken(request))) {
       return json({ error: 'Forbidden' }, { status: 403 });
     }
-
     const url = new URL(request.url);
     const id = cleanString(url.searchParams.get('id'), 64);
-    if (!id) {
-      return json({ error: 'Missing id parameter' }, { status: 400 });
-    }
-
+    if (!id) return json({ error: 'Missing id parameter' }, { status: 400 });
     await ensureVehiclesTable();
     await query('DELETE FROM vehicles WHERE id = ?', [id]);
-
     return json({ success: true }, { status: 200 });
   } catch (error) {
     console.error('[vehicles] DELETE failed', error);

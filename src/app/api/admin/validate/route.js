@@ -45,17 +45,6 @@ async function ensureEmployeesTable() {
   );
 }
 
-async function findEmployeeByCode(code) {
-  const employeeCode = String(code || '').trim();
-  if (!employeeCode) return null;
-  await ensureEmployeesTable();
-  const rows = await query(
-    'SELECT id, code, name, role, active FROM employees WHERE code = ? AND active = 1 LIMIT 1',
-    [employeeCode]
-  );
-  return Array.isArray(rows) && rows.length ? rows[0] : null;
-}
-
 export async function POST(request) {
   if (getContentLength(request) > MAX_REQUEST_BYTES) {
     return json({ error: 'Request body too large' }, { status: 413 });
@@ -69,28 +58,26 @@ export async function POST(request) {
   }
 
   const code = String(body?.code || '').trim();
-  if (!code) {
-    return json({ error: 'กรุณากรอกรหัสพนักงาน' }, { status: 400 });
-  }
+  if (!code) return json({ error: 'กรุณากรอกรหัสพนักงาน' }, { status: 400 });
 
   try {
-    const employee = await findEmployeeByCode(code);
-    if (!employee) {
-      return json({ error: 'รหัสพนักงานไม่ถูกต้อง' }, { status: 403 });
-    }
-
-    return json(
-      {
-        success: true,
-        employee: {
-          id: employee.id,
-          code: employee.code,
-          name: employee.name,
-          role: employee.role,
-        },
-      },
-      { status: 200 }
+    await ensureEmployeesTable();
+    const rows = await query(
+      'SELECT id, code, name, role, active FROM employees WHERE code = ? AND active = 1 LIMIT 1',
+      [code]
     );
+    const employee = Array.isArray(rows) && rows.length ? rows[0] : null;
+    if (!employee) return json({ error: 'รหัสพนักงานไม่ถูกต้อง' }, { status: 403 });
+
+    return json({
+      success: true,
+      employee: {
+        id: employee.id,
+        code: employee.code,
+        name: employee.name,
+        role: employee.role,
+      },
+    }, { status: 200 });
   } catch (error) {
     console.error('[admin/validate] POST failed', error);
     return json({ error: 'ระบบตรวจสอบรหัสพนักงานไม่พร้อมใช้งาน' }, { status: 503 });

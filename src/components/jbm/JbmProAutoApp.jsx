@@ -19,6 +19,8 @@ import {
   CheckCircle2,
   Clock,
   ClipboardList,
+  Coins,
+  CreditCard,
   Edit3,
   ExternalLink,
   Eye,
@@ -36,15 +38,19 @@ import {
   ShieldCheck,
   Trash2,
   Upload,
+  Wallet,
   Wrench,
   X,
 } from 'lucide-react';
 
 const API_URL = '/api/vehicles';
+const FINANCIAL_API_URL = '/api/financial-transactions';
 const DEFAULT_STATUS = 'จองคิว';
 const FINAL_STATUS = 'ซ่อมเสร็จรอส่ง';
 const CLOSED_STATUS = 'ปิดงาน';
 const STATUS_OPTIONS = ['จองคิว', 'กำลังตรวจเช็ค', 'รออะไหล่', 'กำลังซ่อม', FINAL_STATUS, CLOSED_STATUS];
+const IN_SHOP_STATUSES = ['กำลังตรวจเช็ค', 'รออะไหล่', 'กำลังซ่อม', FINAL_STATUS];
+const ADMIN_TABLE_STATUSES = STATUS_OPTIONS;
 const BRAND_OPTIONS = [
   'Mercedes-Benz',
   'BMW',
@@ -81,6 +87,7 @@ const MODEL_OPTIONS = {
   Tesla: ['Model 3', 'Model Y', 'Model S', 'Model X'],
 };
 const REPORT_YEARS = Array.from({ length: 12 }, (_, index) => 2025 + index);
+const FINANCIAL_PAYMENT_METHODS = ['รูดบัตร', 'โอน JBM', 'โอน SCB', 'โอน UOB', 'เงินสด', 'อื่น ๆ'];
 const MONTHS_TH = [
   'มกราคม',
   'กุมภาพันธ์',
@@ -163,6 +170,17 @@ const emptyVehicle = {
   estimated_completion_date: '',
   status_detail: '',
   receipt_image: '',
+  receipt_images: [],
+};
+
+const emptyFinancialTransaction = {
+  id: '',
+  date: dateInputValue(new Date()),
+  time: '',
+  type: 'income',
+  payment_method: 'เงินสด',
+  description: '',
+  amount: '',
 };
 
 function money(value) {
@@ -183,6 +201,34 @@ function dateInputValue(date) {
   return local.toISOString().slice(0, 10);
 }
 
+function currentYearMonth() {
+  const today = dateInputValue(new Date());
+  return { year: today.slice(0, 4), month: today.slice(5, 7) };
+}
+
+function daysInMonth(year, month) {
+  const count = new Date(Number(year), Number(month), 0).getDate();
+  return Array.from({ length: count }, (_, index) => `${year}-${month}-${String(index + 1).padStart(2, '0')}`);
+}
+
+function normalizeFinancialTransaction(transaction = {}) {
+  return {
+    ...emptyFinancialTransaction,
+    ...transaction,
+    id: transaction.id || '',
+    date: String(transaction.date || emptyFinancialTransaction.date).slice(0, 10),
+    time: transaction.time ? String(transaction.time).slice(0, 5) : '',
+    type: transaction.type === 'expense' ? 'expense' : 'income',
+    payment_method: transaction.payment_method || 'เงินสด',
+    description: transaction.description || '',
+    amount: transaction.amount ?? '',
+  };
+}
+
+function financialDateKey(transaction) {
+  return String(transaction.date || '').slice(0, 10);
+}
+
 function normalizeVehicle(vehicle = {}) {
   return {
     ...emptyVehicle,
@@ -190,7 +236,15 @@ function normalizeVehicle(vehicle = {}) {
     status: STATUS_OPTIONS.includes(vehicle.status) ? vehicle.status : DEFAULT_STATUS,
     repair_cost: vehicle.repair_cost ?? '',
     mileage: vehicle.mileage ?? '',
+    receipt_images: Array.isArray(vehicle.receipt_images) ? vehicle.receipt_images.filter(Boolean) : [],
   };
+}
+
+function vehicleImages(vehicle = {}) {
+  return Array.from(new Set([
+    ...(Array.isArray(vehicle.receipt_images) ? vehicle.receipt_images : []),
+    vehicle.receipt_image,
+  ].filter(Boolean)));
 }
 
 function dateKey(vehicle) {
@@ -202,7 +256,11 @@ function isFinal(vehicle) {
 }
 
 function isInShop(vehicle) {
-  return vehicle.status !== CLOSED_STATUS;
+  return IN_SHOP_STATUSES.includes(vehicle.status);
+}
+
+function isVisibleInAdminTable(vehicle) {
+  return ADMIN_TABLE_STATUSES.includes(vehicle.status);
 }
 
 function matchesVehicle(vehicle, text) {
@@ -244,6 +302,10 @@ function readFileAsDataUrl(file) {
   });
 }
 
+async function readFilesAsDataUrls(files) {
+  return Promise.all(Array.from(files || []).map(readFileAsDataUrl));
+}
+
 function Header({ admin = false }) {
   const navLinkClass = 'inline-flex min-h-11 items-center rounded-lg px-3 text-base font-extrabold text-slate-700 hover:bg-slate-100 sm:px-4 sm:text-lg';
 
@@ -255,8 +317,7 @@ function Header({ admin = false }) {
             <Wrench className="h-7 w-7" />
           </div>
           <div>
-            <p className="text-xl font-extrabold leading-tight text-slate-950">JBM Pro Auto</p>
-            <p className="text-base font-semibold text-slate-500">ระบบอู่ซ่อมรถ</p>
+            <p className="text-xl font-extrabold leading-tight text-slate-950">JBM PRO AUTO</p>
           </div>
         </Link>
         <nav className="flex min-w-0 items-center gap-1 overflow-x-auto sm:gap-2">
@@ -295,7 +356,7 @@ function CustomerSearch() {
     const text = query.trim();
     if (!text) {
       setResult(null);
-      setError('กรุณากรอกเลขใบแจ้งหนี้ ทะเบียนรถ ชื่อ เบอร์โทร หรือ VIN');
+      setError('กรุณากรอกชื่อเจ้าของรถ เบอร์โทรศัพท์ ทะเบียนรถ หรือเลขใบแจ้งหนี้');
       return;
     }
 
@@ -307,7 +368,7 @@ function CustomerSearch() {
       if (!response.ok) throw new Error(rows?.error || 'search failed');
       const vehicle = Array.isArray(rows) && rows[0] ? normalizeVehicle(rows[0]) : null;
       setResult(vehicle);
-      setError(vehicle ? '' : 'ไม่พบข้อมูลรถจากคำค้นหานี้');
+      setError(vehicle ? '' : 'ไม่พบข้อมูลรถจากคำค้นหานี้ กรุณาตรวจสอบข้อมูลอีกครั้ง');
     } catch {
       setResult(null);
       setError('ระบบค้นหายังไม่พร้อมใช้งาน กรุณาลองใหม่อีกครั้ง');
@@ -317,49 +378,101 @@ function CustomerSearch() {
   };
 
   return (
-    <section className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6">
-      <form onSubmit={submit} className="flex flex-col gap-3 sm:flex-row">
-        <input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          className="min-h-16 flex-1 rounded-lg border border-slate-300 bg-white px-5 text-xl text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
-          placeholder="เลขใบแจ้งหนี้ / ทะเบียน / ชื่อ / เบอร์โทร / VIN"
-        />
-        <button className="inline-flex min-h-16 items-center justify-center gap-2 rounded-lg bg-blue-700 px-7 text-xl font-extrabold text-white hover:bg-blue-800" type="submit">
-          <Search className="h-6 w-6" />
-          {loading ? 'กำลังค้นหา' : 'ค้นหา'}
-        </button>
-      </form>
-      {error && <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-lg font-bold text-rose-700">{error}</p>}
+    <section className="mx-auto w-full max-w-6xl px-4 sm:px-6">
+      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-xl shadow-slate-950/10 sm:p-7">
+        <div className="mb-5 flex items-start gap-4">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-blue-700 text-white">
+            <Search className="h-7 w-7" />
+          </div>
+          <div>
+            <h2 className="text-3xl font-extrabold text-slate-950">ค้นหาสถานะรถ</h2>
+            <p className="mt-1 text-lg font-bold text-slate-600">ชื่อเจ้าของรถ / เบอร์โทรศัพท์ / ทะเบียนรถ / เลขใบแจ้งหนี้</p>
+          </div>
+        </div>
+        <form onSubmit={submit} className="grid gap-3 lg:grid-cols-[1fr_auto]">
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            className="min-h-16 rounded-lg border border-slate-300 bg-white px-5 text-xl font-bold text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
+            placeholder="กรอกชื่อ เบอร์โทร ทะเบียนรถ หรือเลขใบแจ้งหนี้"
+          />
+          <button className="inline-flex min-h-16 items-center justify-center gap-2 rounded-lg bg-blue-700 px-8 text-xl font-extrabold text-white hover:bg-blue-800" type="submit">
+            <Search className="h-6 w-6" />
+            {loading ? 'กำลังค้นหา' : 'ค้นหา'}
+          </button>
+        </form>
+        {error && <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-lg font-bold text-rose-700">{error}</p>}
+      </div>
+
       {result && (
-        <div className="mt-6 space-y-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="text-base font-bold text-slate-500">เลขใบแจ้งหนี้/ใบเสร็จ</p>
-              <h2 className="text-3xl font-extrabold text-slate-950">{result.invoice_number || '-'}</h2>
-              <p className="text-xl text-slate-700">{result.brand || '-'} {result.model || ''} | {result.license_plate || '-'}</p>
+        <div className="mt-6 grid gap-5 xl:grid-cols-[1fr_.9fr]">
+          <div className="space-y-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="flex flex-col gap-3 border-b border-slate-200 pb-5 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-base font-bold text-slate-500">เลขใบแจ้งหนี้/ใบเสร็จ</p>
+                <h2 className="text-3xl font-extrabold text-slate-950">{result.invoice_number || '-'}</h2>
+                <p className="text-xl font-bold text-slate-700">{result.brand || '-'} {result.model || ''}</p>
+              </div>
+              <StatusPill status={result.status} />
             </div>
-            <StatusPill status={result.status} />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Info label="ชื่อลูกค้า" value={result.owner_name || '-'} />
+              <Info label="เบอร์โทรศัพท์" value={result.phone || '-'} />
+              <Info label="ทะเบียนรถ" value={result.license_plate || '-'} />
+              <Info label="เลขใบแจ้งหนี้" value={result.invoice_number || '-'} />
+              <Info label="ยี่ห้อ" value={result.brand || '-'} />
+              <Info label="รุ่น" value={result.model || '-'} />
+              <Info label="วันที่จอง" value={dateText(result.booking_date)} />
+              <Info label="วันที่กำหนดเสร็จ" value={dateText(result.estimated_completion_date)} />
+              <Info label="สถานะปัจจุบัน" value={result.status || DEFAULT_STATUS} />
+            </div>
+            {result.status_detail && <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-lg font-bold text-blue-950">{result.status_detail}</div>}
+            {vehicleImages(result).length > 0 && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <p className="mb-3 text-lg font-extrabold text-slate-800">รูปประกอบ</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {vehicleImages(result).map((image, index) => (
+                    <a key={`${image}-${index}`} className="block rounded-lg border border-slate-200 bg-white p-2 hover:border-blue-300" href={image} target="_blank" rel="noopener noreferrer">
+                      <img className="h-36 w-full rounded-lg object-contain" src={image} alt={`รูปประกอบรถ ${index + 1}`} />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Info label="ชื่อเจ้าของรถ" value={result.owner_name || '-'} />
-            <Info label="เบอร์โทรศัพท์" value={result.phone || '-'} />
-            <Info label="สีรถ" value={result.color || '-'} />
-            <Info label="VIN / เลขตัวถัง" value={result.vin || '-'} />
-            <Info label="เลขไมล์" value={result.mileage ? `${Number(result.mileage).toLocaleString('th-TH')} กม.` : '-'} />
-            <Info label="วันที่จอง" value={dateText(result.booking_date)} />
-            <Info label="วันที่กำหนดเสร็จ" value={dateText(result.estimated_completion_date)} />
-          </div>
-          {result.status_detail && <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-lg text-blue-950">{result.status_detail}</div>}
-          {result.receipt_image && (
-            <a className="inline-flex min-h-12 items-center gap-2 rounded-lg border border-slate-200 px-4 text-lg font-bold text-blue-700 hover:bg-blue-50" href={result.receipt_image} target="_blank" rel="noopener noreferrer">
-              <Upload className="h-5 w-5" />
-              เปิดรูปประกอบ
-            </a>
-          )}
+          <StatusProgress status={result.status} />
         </div>
       )}
     </section>
+  );
+}
+
+function StatusProgress({ status }) {
+  const activeIndex = Math.max(0, STATUS_OPTIONS.indexOf(status || DEFAULT_STATUS));
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      <h2 className="text-2xl font-extrabold text-slate-950">Progress Status</h2>
+      <div className="mt-5 space-y-3">
+        {STATUS_OPTIONS.map((item, index) => {
+          const active = index === activeIndex;
+          const done = index < activeIndex;
+          return (
+            <div key={item} className="grid grid-cols-[auto_1fr] gap-3">
+              <div className="flex flex-col items-center">
+                <div className={`flex h-11 w-11 items-center justify-center rounded-full border-2 text-lg font-extrabold ${active ? 'border-blue-700 bg-blue-700 text-white shadow-lg shadow-blue-900/20' : done ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 bg-white text-slate-500'}`}>
+                  {index + 1}
+                </div>
+                {index < STATUS_OPTIONS.length - 1 && <div className={`h-8 w-1 ${done ? 'bg-emerald-500' : 'bg-slate-200'}`} />}
+              </div>
+              <div className={`min-h-11 rounded-lg border px-4 py-2 ${active ? 'border-blue-200 bg-blue-50 text-blue-900' : done ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
+                <p className="text-xl font-extrabold">{item}</p>
+                {active && <p className="text-base font-bold">สถานะปัจจุบัน</p>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -395,8 +508,11 @@ function HomePage() {
         >
           <div className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-[1440px] items-center px-4 py-12 sm:px-6 lg:px-8">
             <div className="max-w-4xl space-y-7 py-10 text-white">
-              <p className="inline-flex rounded-lg border border-yellow-300/50 bg-yellow-300/15 px-4 py-2 text-lg font-extrabold text-yellow-200">JBM Pro Auto | European Car Service</p>
-              <h1 className="max-w-4xl text-5xl font-extrabold leading-tight sm:text-6xl lg:text-7xl">อู่ซ่อมรถยุโรปพรีเมียม พร้อมระบบติดตามสถานะงานซ่อม</h1>
+              <p className="inline-flex rounded-lg border border-yellow-300/50 bg-yellow-300/15 px-4 py-2 text-lg font-extrabold text-yellow-200">JBM PRO AUTO | European Car Service</p>
+              <h1 className="max-w-5xl text-4xl font-extrabold leading-tight sm:text-5xl lg:text-6xl">
+                JBM PRO AUTO เราเป็นศูนย์บริการ Service รถยุโรปครบวงจร
+                <span className="block mt-3">และจำหน่ายอะไหล่ติดตั้ง จัดส่งทั่วไทย</span>
+              </h1>
               <p className="max-w-3xl text-2xl leading-10 text-blue-50">ดูแลงานซ่อม ตรวจเช็ก และติดตามคิวซ่อมได้ชัดเจน ลูกค้าค้นหาสถานะรถด้วยเลขใบแจ้งหนี้ ทะเบียน เบอร์โทร หรือ VIN ได้ทันที</p>
               <div className="flex flex-col gap-3 sm:flex-row">
                 <Link className="inline-flex min-h-16 items-center justify-center gap-2 rounded-lg bg-yellow-400 px-7 text-xl font-extrabold text-slate-950 shadow-lg shadow-yellow-950/20 hover:bg-yellow-300" href="/status">
@@ -414,7 +530,7 @@ function HomePage() {
                   <p className="text-lg font-bold text-blue-100">โทรสอบถามร้าน</p>
                 </div>
                 <div className="border-l-4 border-yellow-300 pl-4">
-                  <p className="text-3xl font-extrabold">9:00-17:30</p>
+                  <p className="text-3xl font-extrabold">9:30-18:00</p>
                   <p className="text-lg font-bold text-blue-100">จันทร์ - เสาร์</p>
                 </div>
               </div>
@@ -440,7 +556,7 @@ function HomePage() {
             <div className="grid gap-8 lg:grid-cols-[.9fr_1.1fr] lg:items-start">
               <div className="space-y-4">
                 <p className="text-lg font-extrabold text-blue-700">เกี่ยวกับร้าน</p>
-                <h2 className="text-4xl font-extrabold leading-tight">JBM Pro Auto</h2>
+                <h2 className="text-4xl font-extrabold leading-tight">JBM PRO AUTO</h2>
                 <p className="text-xl leading-9 text-slate-600">อู่ซ่อมรถที่เน้นงานตรวจเช็ก วินิจฉัย และซ่อมบำรุงอย่างเป็นขั้นตอน พร้อมระบบหลังบ้านสำหรับติดตามคิวและสถานะงานซ่อมให้พนักงานใช้งานง่าย</p>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
@@ -471,11 +587,11 @@ function HomePage() {
           <div className="mx-auto grid max-w-[1440px] gap-8 px-4 sm:px-6 lg:grid-cols-[.9fr_1.1fr] lg:px-8">
             <div className="space-y-5">
               <p className="text-lg font-extrabold text-yellow-300">ติดต่อร้าน</p>
-              <h2 className="text-4xl font-extrabold">JBM Pro Auto</h2>
+              <h2 className="text-4xl font-extrabold">JBM PRO AUTO</h2>
               <div className="space-y-4 text-xl leading-8 text-blue-50">
                 <p className="flex gap-3"><MapPin className="mt-1 h-6 w-6 shrink-0 text-yellow-300" />616 1B ซอย พัฒนาการ 30 สวนหลวง เขตสวนหลวง กรุงเทพมหานคร 10250</p>
                 <p className="flex gap-3"><Phone className="mt-1 h-6 w-6 shrink-0 text-yellow-300" />099 265 1133</p>
-                <p className="flex gap-3"><Clock className="mt-1 h-6 w-6 shrink-0 text-yellow-300" />วันจันทร์ - วันเสาร์ 9:00-17:30<br />วันอาทิตย์ ปิดทำการ</p>
+                <p className="flex gap-3"><Clock className="mt-1 h-6 w-6 shrink-0 text-yellow-300" />วันจันทร์ - วันเสาร์ 9:30-18:00<br />วันอาทิตย์ ปิดทำการ</p>
               </div>
               <div className="flex flex-wrap gap-3">
                 <a className="inline-flex min-h-14 items-center gap-2 rounded-lg bg-green-500 px-5 text-lg font-extrabold text-white hover:bg-green-400" href="https://line.me/R/ti/p/@JBMPRO" target="_blank" rel="noopener noreferrer">
@@ -497,8 +613,8 @@ function HomePage() {
                 className="h-[360px] w-full border-0 sm:h-[430px]"
                 loading="lazy"
                 referrerPolicy="no-referrer-when-downgrade"
-                src="https://www.google.com/maps?q=JBM%20Pro%20Auto%20616%201B%20%E0%B8%8B%E0%B8%AD%E0%B8%A2%20%E0%B8%9E%E0%B8%B1%E0%B8%92%E0%B8%99%E0%B8%B2%E0%B8%81%E0%B8%B2%E0%B8%A3%2030%20%E0%B8%AA%E0%B8%A7%E0%B8%99%E0%B8%AB%E0%B8%A5%E0%B8%A7%E0%B8%87%20%E0%B8%81%E0%B8%A3%E0%B8%B8%E0%B8%87%E0%B9%80%E0%B8%97%E0%B8%9E%E0%B8%A1%E0%B8%AB%E0%B8%B2%E0%B8%99%E0%B8%84%E0%B8%A3&output=embed"
-                title="แผนที่ JBM Pro Auto"
+                src="https://www.google.com/maps?q=JBM%20PRO%20AUTO%20616%201B%20%E0%B8%8B%E0%B8%AD%E0%B8%A2%20%E0%B8%9E%E0%B8%B1%E0%B8%92%E0%B8%99%E0%B8%B2%E0%B8%81%E0%B8%B2%E0%B8%A3%2030%20%E0%B8%AA%E0%B8%A7%E0%B8%99%E0%B8%AB%E0%B8%A5%E0%B8%A7%E0%B8%87%20%E0%B8%81%E0%B8%A3%E0%B8%B8%E0%B8%87%E0%B9%80%E0%B8%97%E0%B8%9E%E0%B8%A1%E0%B8%AB%E0%B8%B2%E0%B8%99%E0%B8%84%E0%B8%A3&output=embed"
+                title="แผนที่ JBM PRO AUTO"
               />
               <div className="flex flex-col gap-3 border-t border-white/10 p-4 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-lg font-bold text-blue-50">เปิดเส้นทางด้วย Google Maps</p>
@@ -517,14 +633,27 @@ function HomePage() {
 
 function StatusPage() {
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-100">
       <Header />
-      <main className="py-8">
-        <div className="mx-auto max-w-5xl px-4 sm:px-6">
-          <h1 className="text-4xl font-extrabold text-slate-950">ค้นหาสถานะรถ</h1>
-          <p className="mt-2 text-xl text-slate-600">สำหรับลูกค้าเท่านั้น ไม่มีข้อมูลรายได้และไม่มีปุ่มแก้ไข</p>
-        </div>
-        <CustomerSearch />
+      <main>
+        <section className="relative overflow-hidden bg-slate-950">
+          <img
+            className="absolute inset-0 h-full w-full object-cover opacity-35"
+            src="https://images.unsplash.com/photo-1632823471565-1ecdf5c35867?auto=format&fit=crop&w=1800&q=80"
+            alt=""
+          />
+          <div className="absolute inset-0 bg-slate-950/70" />
+          <div className="relative mx-auto max-w-[1440px] px-4 py-14 sm:px-6 sm:py-16 lg:px-8">
+            <div className="max-w-4xl text-white">
+              <p className="inline-flex rounded-lg border border-blue-300/40 bg-blue-400/15 px-4 py-2 text-lg font-extrabold text-blue-100">JBM PRO AUTO Service Tracking</p>
+              <h1 className="mt-5 text-4xl font-extrabold leading-tight sm:text-5xl lg:text-6xl">เช็คสถานะรถเข้าศูนย์บริการ</h1>
+              <p className="mt-5 max-w-3xl text-xl leading-9 text-blue-50 sm:text-2xl">ค้นหาข้อมูลเคสซ่อมด้วยชื่อเจ้าของรถ เบอร์โทรศัพท์ ทะเบียนรถ หรือเลขใบแจ้งหนี้ พร้อมดูสถานะปัจจุบันแบบเป็นขั้นตอน</p>
+            </div>
+          </div>
+        </section>
+        <section className="bg-slate-100 px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
+          <CustomerSearch />
+        </section>
       </main>
     </div>
   );
@@ -617,12 +746,13 @@ function AdminApp() {
     await saveVehicle({ ...vehicle, status });
   };
 
-  const uploadVehicleImage = async (vehicle, file) => {
-    if (!file) return;
+  const uploadVehicleImage = async (vehicle, files) => {
+    if (!files || files.length === 0) return;
     setUploadingId(vehicle.id);
     try {
-      const receiptImage = await readFileAsDataUrl(file);
-      const saved = await saveVehicle({ ...vehicle, receipt_image: receiptImage });
+      const newImages = await readFilesAsDataUrls(files);
+      const images = [...vehicleImages(vehicle), ...newImages];
+      const saved = await saveVehicle({ ...vehicle, receipt_image: images[0] || '', receipt_images: images });
       setSelectedVehicle((current) => (current?.id === vehicle.id ? saved : current));
     } finally {
       setUploadingId('');
@@ -638,10 +768,10 @@ function AdminApp() {
     return {
       all: vehicles.length,
       inShop: vehicles.filter(isInShop).length,
-      booking: vehicles.filter((vehicle) => vehicle.status === 'จองคิว').length,
-      checking: vehicles.filter((vehicle) => vehicle.status === 'กำลังตรวจเช็ค').length,
-      parts: vehicles.filter((vehicle) => vehicle.status === 'รออะไหล่').length,
-      repairing: vehicles.filter((vehicle) => vehicle.status === 'กำลังซ่อม').length,
+      booking: vehicles.filter((vehicle) => vehicle.status === DEFAULT_STATUS).length,
+      checking: vehicles.filter((vehicle) => vehicle.status === IN_SHOP_STATUSES[0]).length,
+      parts: vehicles.filter((vehicle) => vehicle.status === IN_SHOP_STATUSES[1]).length,
+      repairing: vehicles.filter((vehicle) => vehicle.status === IN_SHOP_STATUSES[2]).length,
       final: finalRows.length,
       closed: vehicles.filter((vehicle) => vehicle.status === CLOSED_STATUS).length,
       todayRevenue: revenueFor(today),
@@ -654,6 +784,7 @@ function AdminApp() {
 
   const filteredVehicles = useMemo(() => {
     return vehicles.filter((vehicle) => {
+      if (!isVisibleInAdminTable(vehicle)) return false;
       if (statusFilter === 'inShop' && !isInShop(vehicle)) return false;
       if (statusFilter !== 'all' && statusFilter !== 'inShop' && vehicle.status !== statusFilter) return false;
       const key = dateKey(vehicle);
@@ -701,6 +832,7 @@ function AdminApp() {
     ['all', 'รถทั้งหมดในระบบ', Car],
     ['in-shop', 'รถค้างในร้าน', Wrench],
     ['revenue', 'สรุปรายได้', Banknote],
+    ['finance', 'การเงิน', Coins],
     ['charts', 'กราฟ', ClipboardList],
   ];
 
@@ -771,6 +903,7 @@ function AdminApp() {
             )}
             {active === 'in-shop' && <InShop vehicles={inShopVehicles} query={inShopQuery} setQuery={setInShopQuery} />}
             {active === 'revenue' && <RevenueSummary vehicles={vehicles} />}
+            {active === 'finance' && <FinancialAdmin headers={headers} />}
             {active === 'charts' && (
               <div className="grid gap-5 xl:grid-cols-2">
                 <ChartPanel title="กราฟรายได้จากรถซ่อมเสร็จ" data={aggregateByPeriod(vehicles, period, 'revenue')} period={period} setPeriod={setPeriod} type="revenue" />
@@ -787,21 +920,11 @@ function AdminApp() {
 
 function Dashboard({ stats, vehicles, statusFilter, setStatusFilter }) {
   const filteredVehicles = statusFilter === 'all' ? vehicles : statusFilter === 'inShop' ? vehicles.filter(isInShop) : vehicles.filter((vehicle) => vehicle.status === statusFilter);
-  const bookingDays = ['วันนี้', 'พรุ่งนี้', 'มะรืนนี้'].map((label, index) => {
-    const date = new Date();
-    date.setDate(date.getDate() + index);
-    const key = dateInputValue(date);
-    return {
-      label,
-      date: key,
-      vehicles: vehicles.filter((vehicle) => String(vehicle.booking_date || '').slice(0, 10) === key),
-    };
-  });
 
   return (
     <div className="space-y-6">
       <SummaryGrid stats={stats} activeFilter={statusFilter} onFilter={setStatusFilter} />
-      <BookingCalendar days={bookingDays} />
+      <BookingCalendar vehicles={vehicles} />
       <DashboardVehicleList vehicles={filteredVehicles} statusFilter={statusFilter} />
     </div>
   );
@@ -822,6 +945,22 @@ function SummaryGrid({ stats, compact = false, activeFilter = '', onFilter }) {
     ...dashboardCards,
   ];
   const cards = compact ? compactCards : dashboardCards;
+  if (!compact) {
+    const cardGroups = [
+      cards.slice(0, 3),
+      cards.slice(3, 6),
+      cards.slice(6),
+    ];
+    return (
+      <div className="space-y-4">
+        {cardGroups.map((group, index) => (
+          <div key={index} className={`grid gap-4 ${index < 2 ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}`}>
+            {group.map((card) => <Metric key={card.title} {...card} active={activeFilter === card.filter} onClick={onFilter && card.filter ? () => onFilter(card.filter) : undefined} />)}
+          </div>
+        ))}
+      </div>
+    );
+  }
   return (
     <div className={`grid gap-4 ${compact ? 'sm:grid-cols-2 xl:grid-cols-4' : 'sm:grid-cols-2 xl:grid-cols-3'}`}>
       {cards.map((card) => <Metric key={card.title} {...card} active={activeFilter === card.filter} onClick={onFilter && card.filter ? () => onFilter(card.filter) : undefined} />)}
@@ -843,32 +982,60 @@ function Metric({ title, value, icon, tone = 'all', active = false, onClick }) {
   );
 }
 
-function BookingCalendar({ days }) {
+function BookingCalendar({ vehicles }) {
+  const current = currentYearMonth();
+  const [month, setMonth] = useState(current.month);
+  const [year, setYear] = useState(current.year);
+  const bookingRows = useMemo(() => vehicles.filter((vehicle) => vehicle.status === DEFAULT_STATUS), [vehicles]);
+  const days = useMemo(() => {
+    return daysInMonth(year, month).map((date) => ({
+      date,
+      vehicles: bookingRows.filter((vehicle) => String(vehicle.booking_date || '').slice(0, 10) === date),
+    }));
+  }, [bookingRows, month, year]);
+  const totalBookings = days.reduce((sum, day) => sum + day.vehicles.length, 0);
+
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-2xl font-extrabold text-slate-950">ปฏิทินจองคิว 3 วัน</h2>
-      <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        {days.map((day) => (
-          <div key={day.date} className="rounded-xl border border-blue-100 bg-blue-50/50 p-4">
-            <div className="mb-3 flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xl font-extrabold text-blue-950">{day.label}</p>
-                <p className="text-base font-bold text-blue-700">{dateText(day.date)}</p>
-              </div>
-              <p className="rounded-lg bg-blue-700 px-3 py-1 text-lg font-extrabold text-white">{day.vehicles.length} คัน</p>
-            </div>
-            <div className="space-y-2">
-              {day.vehicles.map((vehicle) => (
-                <div key={vehicle.id} className="rounded-lg border border-slate-200 bg-white p-3">
-                  <p className="text-lg font-extrabold text-slate-950">{vehicle.invoice_number || vehicle.brand || '-'}</p>
-                  <p className="text-base font-bold text-slate-600">ทะเบียน: {vehicle.license_plate || '-'}</p>
-                  <p className="text-base font-bold text-slate-600">ลูกค้า: {vehicle.owner_name || '-'}</p>
+      <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <h2 className="text-2xl font-extrabold text-slate-950">ปฏิทินจองคิวรายเดือน</h2>
+          <p className="text-lg font-bold text-slate-500">แสดงเฉพาะรถสถานะ {DEFAULT_STATUS} รวม {totalBookings} คัน</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <select value={month} onChange={(event) => setMonth(event.target.value)} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 text-lg">
+            {MONTHS_TH.map((item, index) => <option key={item} value={String(index + 1).padStart(2, '0')}>{item}</option>)}
+          </select>
+          <select value={year} onChange={(event) => setYear(event.target.value)} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 text-lg">
+            {REPORT_YEARS.map((item) => <option key={item} value={String(item)}>{item + 543}</option>)}
+          </select>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {days.map((day) => {
+          const hasBookings = day.vehicles.length > 0;
+          return (
+            <div key={day.date} className={`rounded-xl border p-4 ${hasBookings ? 'border-pink-200 bg-pink-50/70' : 'border-blue-100 bg-blue-50/50'}`}>
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div>
+                  <p className={`${hasBookings ? 'text-pink-950' : 'text-blue-950'} text-xl font-extrabold`}>วันที่ {Number(day.date.slice(8, 10))}</p>
+                  <p className={`${hasBookings ? 'text-pink-700' : 'text-blue-700'} text-base font-bold`}>{dateText(day.date)}</p>
                 </div>
-              ))}
-              {day.vehicles.length === 0 && <p className="rounded-lg border border-dashed border-blue-200 bg-white p-4 text-center text-lg font-bold text-slate-500">ไม่มีรถจองวันนี้</p>}
+                <p className={`rounded-lg px-3 py-1 text-lg font-extrabold text-white ${hasBookings ? 'bg-pink-600' : 'bg-blue-700'}`}>{day.vehicles.length} คัน</p>
+              </div>
+              <div className="space-y-2">
+                {day.vehicles.map((vehicle) => (
+                  <div key={vehicle.id} className="rounded-lg border border-slate-200 bg-white p-3">
+                    <p className="text-lg font-extrabold text-slate-950">{vehicle.invoice_number || vehicle.brand || '-'}</p>
+                    <p className="text-base font-bold text-slate-600">ทะเบียน: {vehicle.license_plate || '-'}</p>
+                    <p className="text-base font-bold text-slate-600">ลูกค้า: {vehicle.owner_name || '-'}</p>
+                  </div>
+                ))}
+                {day.vehicles.length === 0 && <p className="rounded-lg border border-dashed border-blue-200 bg-white p-4 text-center text-lg font-bold text-slate-500">ไม่มีรถจองวันนี้</p>}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );
@@ -971,12 +1138,18 @@ function VehicleForm({ initial, onSave, onCancel }) {
   const update = (field, value) => setForm((current) => ({ ...current, [field]: value }));
   const modelChoices = MODEL_OPTIONS[form.brand] || [];
 
-  const uploadImage = (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => update('receipt_image', String(reader.result || ''));
-    reader.readAsDataURL(file);
+  const uploadImage = async (event) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+    const newImages = await readFilesAsDataUrls(files);
+    const images = [...vehicleImages(form), ...newImages];
+    setForm((current) => ({ ...current, receipt_image: images[0] || '', receipt_images: images }));
+    event.target.value = '';
+  };
+
+  const removeImage = (image) => {
+    const images = vehicleImages(form).filter((item) => item !== image);
+    setForm((current) => ({ ...current, receipt_image: images[0] || '', receipt_images: images }));
   };
 
   const submit = async (event) => {
@@ -1042,17 +1215,26 @@ function VehicleForm({ initial, onSave, onCancel }) {
           <div className="grid gap-4 lg:grid-cols-[auto_1fr] lg:items-start">
             <label className="inline-flex min-h-16 cursor-pointer items-center justify-center gap-2 rounded-lg bg-blue-700 px-6 text-xl font-extrabold text-white shadow-sm hover:bg-blue-800">
               <ImagePlus className="h-7 w-7" />
-              อัปโหลดรูป
-              <input className="hidden" type="file" accept="image/*" onChange={uploadImage} />
+              อัปโหลดรูปหลายรูป
+              <input className="hidden" type="file" accept="image/*" multiple onChange={uploadImage} />
             </label>
             <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4">
-              {form.receipt_image ? (
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <img className="h-32 w-full rounded-lg border border-slate-200 bg-white object-contain sm:w-48" src={form.receipt_image} alt="ตัวอย่างรูปที่อัปโหลด" />
-                  <a className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-lg font-bold text-blue-700 hover:bg-blue-50" href={form.receipt_image} target="_blank" rel="noopener noreferrer">
-                    <Upload className="h-5 w-5" />
-                    ดูรูป
-                  </a>
+              {vehicleImages(form).length > 0 ? (
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {vehicleImages(form).map((image, index) => (
+                    <div key={`${image}-${index}`} className="rounded-lg border border-slate-200 bg-white p-3">
+                      <img className="h-32 w-full rounded-lg bg-slate-50 object-contain" src={image} alt={`รูปประกอบรถ ${index + 1}`} />
+                      <div className="mt-3 flex gap-2">
+                        <a className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-base font-bold text-blue-700 hover:bg-blue-50" href={image} target="_blank" rel="noopener noreferrer">
+                          <Upload className="h-4 w-4" />
+                          ดูรูป
+                        </a>
+                        <button className="inline-flex min-h-10 items-center justify-center rounded-lg border border-rose-200 px-3 text-base font-bold text-rose-700 hover:bg-rose-50" onClick={() => removeImage(image)} type="button">
+                          ลบ
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               ) : (
                 <p className="text-lg font-bold text-slate-500">ยังไม่มีรูป Preview</p>
@@ -1278,13 +1460,13 @@ function VehicleTable({
                   <td className="p-4 text-right font-extrabold text-emerald-700">฿{money(vehicle.repair_cost)}</td>
                   <td className="p-4">
                     <div className="flex items-center gap-2">
-                      {vehicle.receipt_image ? (
+                      {vehicleImages(vehicle).length > 0 ? (
                         <>
-                          <a className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-base font-extrabold text-emerald-800 hover:bg-emerald-100" href={vehicle.receipt_image} onClick={(event) => event.stopPropagation()} target="_blank" rel="noopener noreferrer">
+                          <a className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-base font-extrabold text-emerald-800 hover:bg-emerald-100" href={vehicleImages(vehicle)[0]} onClick={(event) => event.stopPropagation()} target="_blank" rel="noopener noreferrer">
                             <Eye className="h-5 w-5" />
-                            ดูรูป
+                            ดูรูป {vehicleImages(vehicle).length}
                           </a>
-                          <img className="h-12 w-16 rounded-lg border border-slate-200 object-cover" src={vehicle.receipt_image} alt="รูปประกอบรถ" />
+                          <img className="h-12 w-16 rounded-lg border border-slate-200 object-cover" src={vehicleImages(vehicle)[0]} alt="รูปประกอบรถ" />
                         </>
                       ) : (
                         <span className="text-base font-bold text-slate-500">ยังไม่มีรูป</span>
@@ -1292,13 +1474,14 @@ function VehicleTable({
                     </div>
                     <label className="mt-2 inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 text-base font-extrabold text-blue-800 hover:bg-blue-100" onClick={(event) => event.stopPropagation()}>
                       <ImagePlus className="h-5 w-5" />
-                      {uploadingId === vehicle.id ? 'กำลังอัปโหลด' : vehicle.receipt_image ? 'เปลี่ยนรูป' : 'อัปโหลดรูป'}
+                      {uploadingId === vehicle.id ? 'กำลังอัปโหลด' : vehicleImages(vehicle).length > 0 ? 'เพิ่มรูป' : 'อัปโหลดรูป'}
                       <input
                         className="hidden"
                         type="file"
                         accept="image/*"
+                        multiple
                         onClick={(event) => event.stopPropagation()}
-                        onChange={(event) => onUpload(vehicle, event.target.files?.[0])}
+                        onChange={(event) => onUpload(vehicle, event.target.files)}
                       />
                     </label>
                   </td>
@@ -1358,7 +1541,7 @@ function InShop({ vehicles, query, setQuery }) {
           <div>
             <p className="text-lg font-extrabold">รถค้างในร้าน</p>
             <p className="text-4xl font-extrabold">{vehicles.length} คัน</p>
-            <p className="mt-1 text-lg font-bold">นับรถทุกคันที่ยังไม่อยู่สถานะ {FINAL_STATUS}</p>
+            <p className="mt-1 text-lg font-bold">แสดงเฉพาะรถที่กำลังตรวจเช็ค รออะไหล่ กำลังซ่อม หรือซ่อมเสร็จรอส่ง</p>
           </div>
           <input
             value={query}
@@ -1431,6 +1614,394 @@ function RevenueSummary({ vehicles }) {
   );
 }
 
+function FinancialAdmin({ headers }) {
+  const current = currentYearMonth();
+  const [transactions, setTransactions] = useState([]);
+  const [summaryTransactions, setSummaryTransactions] = useState([]);
+  const [filters, setFilters] = useState({ search: '', type: 'all', payment_method: 'all', day: 'all', month: 'all', year: 'all' });
+  const [summaryMonth, setSummaryMonth] = useState(current.month);
+  const [summaryMonthYear, setSummaryMonthYear] = useState(current.year);
+  const [summaryYear, setSummaryYear] = useState(current.year);
+  const [editing, setEditing] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const loadTransactions = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const params = new URLSearchParams();
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value && value !== 'all') params.set(key, value);
+      });
+      const response = await fetch(`${FINANCIAL_API_URL}?${params.toString()}`, { headers: headers() });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'โหลดข้อมูลการเงินไม่สำเร็จ');
+      setTransactions((Array.isArray(data.transactions) ? data.transactions : []).map(normalizeFinancialTransaction));
+    } catch (loadError) {
+      setError(loadError.message || 'โหลดข้อมูลการเงินไม่สำเร็จ');
+      setTransactions([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [filters, headers]);
+
+  const loadSummaryTransactions = useCallback(async () => {
+    try {
+      const response = await fetch(FINANCIAL_API_URL, { headers: headers() });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'โหลดข้อมูลสรุปการเงินไม่สำเร็จ');
+      setSummaryTransactions((Array.isArray(data.transactions) ? data.transactions : []).map(normalizeFinancialTransaction));
+    } catch (summaryError) {
+      setError(summaryError.message || 'โหลดข้อมูลสรุปการเงินไม่สำเร็จ');
+      setSummaryTransactions([]);
+    }
+  }, [headers]);
+
+  useEffect(() => {
+    loadTransactions();
+  }, [loadTransactions]);
+
+  useEffect(() => {
+    loadSummaryTransactions();
+  }, [loadSummaryTransactions]);
+
+  const summary = useMemo(() => {
+    const today = dateInputValue(new Date());
+    const selectedMonth = `${summaryMonthYear}-${summaryMonth}`;
+    const calculate = (rows) => {
+      const income = rows.filter((row) => row.type === 'income').reduce((sum, row) => sum + Number(row.amount || 0), 0);
+      const expense = rows.filter((row) => row.type === 'expense').reduce((sum, row) => sum + Number(row.amount || 0), 0);
+      return { income, expense, balance: income - expense };
+    };
+
+    return {
+      day: calculate(summaryTransactions.filter((row) => financialDateKey(row) === today)),
+      month: calculate(summaryTransactions.filter((row) => financialDateKey(row).startsWith(selectedMonth))),
+      year: calculate(summaryTransactions.filter((row) => financialDateKey(row).startsWith(summaryYear))),
+      total: calculate(summaryTransactions),
+      byYear: REPORT_YEARS.map((item) => {
+        const total = calculate(summaryTransactions.filter((row) => financialDateKey(row).startsWith(String(item))));
+        return { year: item, ...total };
+      }),
+    };
+  }, [summaryMonth, summaryMonthYear, summaryTransactions, summaryYear]);
+
+  const saveTransaction = async (transaction) => {
+    setSaving(true);
+    setError('');
+    try {
+      const response = await fetch(FINANCIAL_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers() },
+        body: JSON.stringify(transaction),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'บันทึกรายการการเงินไม่สำเร็จ');
+      setEditing(null);
+      await Promise.all([loadTransactions(), loadSummaryTransactions()]);
+    } catch (saveError) {
+      setError(saveError.message || 'บันทึกรายการการเงินไม่สำเร็จ');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteTransaction = async (id) => {
+    if (!window.confirm('ยืนยันการลบรายการการเงินนี้')) return;
+    setError('');
+    try {
+      const response = await fetch(`${FINANCIAL_API_URL}?id=${encodeURIComponent(id)}`, { method: 'DELETE', headers: headers() });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || 'ลบรายการการเงินไม่สำเร็จ');
+      await Promise.all([loadTransactions(), loadSummaryTransactions()]);
+    } catch (deleteError) {
+      setError(deleteError.message || 'ลบรายการการเงินไม่สำเร็จ');
+    }
+  };
+
+  const paymentMethods = useMemo(() => {
+    const methods = new Set(FINANCIAL_PAYMENT_METHODS);
+    summaryTransactions.forEach((row) => {
+      if (row.payment_method) methods.add(row.payment_method);
+    });
+    return Array.from(methods);
+  }, [summaryTransactions]);
+
+  return (
+    <section className="space-y-5">
+      <div className="grid gap-4 lg:grid-cols-3">
+        <FinancialSummaryCard title="สรุปรายวัน" summary={summary.day} icon={<Clock />} tone="blue" />
+        <FinancialSummaryCard
+          title="งบการเงินรายเดือน"
+          summary={summary.month}
+          icon={<Wallet />}
+          tone="violet"
+        >
+          <div className="mb-3 grid gap-2 sm:grid-cols-2">
+            <select value={summaryMonth} onChange={(event) => setSummaryMonth(event.target.value)} className="min-h-11 rounded-lg border border-violet-200 bg-white px-3 text-base font-bold text-slate-800">
+              {MONTHS_TH.map((item, index) => <option key={item} value={String(index + 1).padStart(2, '0')}>{item}</option>)}
+            </select>
+            <select value={summaryMonthYear} onChange={(event) => setSummaryMonthYear(event.target.value)} className="min-h-11 rounded-lg border border-violet-200 bg-white px-3 text-base font-bold text-slate-800">
+              {REPORT_YEARS.map((item) => <option key={item} value={String(item)}>{item + 543}</option>)}
+            </select>
+          </div>
+        </FinancialSummaryCard>
+        <FinancialSummaryCard
+          title="งบการเงินรายปี"
+          summary={summary.year}
+          icon={<Coins />}
+          tone="emerald"
+        >
+          <div className="mb-3">
+            <select value={summaryYear} onChange={(event) => setSummaryYear(event.target.value)} className="min-h-11 w-full rounded-lg border border-emerald-200 bg-white px-3 text-base font-bold text-slate-800">
+              {REPORT_YEARS.map((item) => <option key={item} value={String(item)}>{item + 543}</option>)}
+            </select>
+          </div>
+        </FinancialSummaryCard>
+      </div>
+      <div className="grid gap-4 lg:grid-cols-3">
+        <FinancialAmountCard title="รายรับ" value={summary.total.income} className="border-emerald-200 bg-emerald-50 text-emerald-800" icon={<Banknote />} />
+        <FinancialAmountCard title="รายจ่าย" value={summary.total.expense} className="border-rose-200 bg-rose-50 text-rose-800" icon={<CreditCard />} />
+        <FinancialAmountCard title="ยอดคงเหลือ" value={summary.total.balance} className="border-blue-200 bg-blue-50 text-blue-800" icon={<Wallet />} />
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+          <div>
+            <h2 className="text-3xl font-extrabold text-slate-950">จัดการการเงิน</h2>
+            <p className="text-lg text-slate-600">ค้นหา กรอง เพิ่ม แก้ไข และลบรายการธุรกรรมของร้าน</p>
+          </div>
+          <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 text-xl font-extrabold text-white hover:bg-blue-800" onClick={() => setEditing({ ...emptyFinancialTransaction })} type="button">
+            <Plus className="h-6 w-6" />
+            เพิ่มรายการธุรกรรม
+          </button>
+        </div>
+
+        <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-[1.4fr_1fr_1fr_1fr_1fr_1fr]">
+          <input value={filters.search} onChange={(event) => setFilters({ ...filters, search: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 px-3 text-lg" placeholder="ค้นหารายละเอียดหรือช่องทาง" />
+          <select value={filters.type} onChange={(event) => setFilters({ ...filters, type: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 px-3 text-lg">
+            <option value="all">ทุกประเภท</option>
+            <option value="income">รายรับ</option>
+            <option value="expense">รายจ่าย</option>
+          </select>
+          <select value={filters.payment_method} onChange={(event) => setFilters({ ...filters, payment_method: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 px-3 text-lg">
+            <option value="all">ทุกช่องทาง</option>
+            {paymentMethods.map((method) => <option key={method} value={method}>{method}</option>)}
+          </select>
+          <select value={filters.day} onChange={(event) => setFilters({ ...filters, day: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 px-3 text-lg">
+            <option value="all">ทุกวัน</option>
+            {Array.from({ length: 31 }, (_, index) => String(index + 1).padStart(2, '0')).map((day) => <option key={day} value={day}>{day}</option>)}
+          </select>
+          <select value={filters.month} onChange={(event) => setFilters({ ...filters, month: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 px-3 text-lg">
+            <option value="all">ทุกเดือน</option>
+            {MONTHS_TH.map((month, index) => <option key={month} value={String(index + 1).padStart(2, '0')}>{month}</option>)}
+          </select>
+          <select value={filters.year} onChange={(event) => setFilters({ ...filters, year: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 px-3 text-lg">
+            <option value="all">ทุกปี</option>
+            {REPORT_YEARS.map((year) => <option key={year} value={String(year)}>{year + 543}</option>)}
+          </select>
+        </div>
+
+        {error && <p className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-lg font-bold text-rose-700">{error}</p>}
+
+        <div className="overflow-x-auto rounded-lg border border-slate-200">
+          <table className="w-full min-w-[980px] text-left text-lg">
+            <thead className="bg-slate-100 text-base font-extrabold text-slate-600">
+              <tr>
+                <th className="p-4">วันที่</th>
+                <th className="p-4">เวลา</th>
+                <th className="p-4">ประเภท</th>
+                <th className="p-4">ช่องทาง</th>
+                <th className="p-4">รายละเอียด</th>
+                <th className="p-4 text-right">จำนวนเงิน</th>
+                <th className="p-4 text-right">จัดการ</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {transactions.map((transaction) => (
+                <tr key={transaction.id} className="hover:bg-slate-50">
+                  <td className="p-4 font-bold text-slate-700">{dateText(transaction.date)}</td>
+                  <td className="p-4 text-slate-700">{transaction.time || '-'}</td>
+                  <td className="p-4"><FinancialTypeBadge type={transaction.type} /></td>
+                  <td className="p-4"><PaymentBadge method={transaction.payment_method} /></td>
+                  <td className="p-4 font-bold text-slate-800">{transaction.description || '-'}</td>
+                  <td className={`p-4 text-right font-extrabold ${transaction.type === 'income' ? 'text-emerald-700' : 'text-rose-700'}`}>฿{money(transaction.amount)}</td>
+                  <td className="p-4">
+                    <div className="flex justify-end gap-2">
+                      <button className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 text-blue-700 hover:bg-blue-50" onClick={() => setEditing(normalizeFinancialTransaction(transaction))} type="button" title="แก้ไข">
+                        <Edit3 className="h-5 w-5" />
+                      </button>
+                      <button className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 text-rose-700 hover:bg-rose-50" onClick={() => deleteTransaction(transaction.id)} type="button" title="ลบ">
+                        <Trash2 className="h-5 w-5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {transactions.length === 0 && <tr><td className="p-8 text-center text-slate-500" colSpan={7}>{loading ? 'กำลังโหลดข้อมูลการเงิน' : 'ไม่พบรายการธุรกรรม'}</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="mb-4 text-2xl font-extrabold text-slate-950">สรุปรายปี พ.ศ. 2568-2579</h2>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {summary.byYear.map((row) => (
+            <div key={row.year} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xl font-extrabold text-slate-950">{row.year + 543}</p>
+              <p className="font-bold text-emerald-700">รับ ฿{money(row.income)}</p>
+              <p className="font-bold text-rose-700">จ่าย ฿{money(row.expense)}</p>
+              <p className="font-extrabold text-blue-700">คงเหลือ ฿{money(row.balance)}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {editing && (
+        <FinancialFormModal
+          initial={editing}
+          saving={saving}
+          onClose={() => setEditing(null)}
+          onSave={saveTransaction}
+        />
+      )}
+    </section>
+  );
+}
+
+function FinancialSummaryCard({ title, summary, icon, tone, children }) {
+  const colors = {
+    blue: 'border-blue-200 bg-blue-50 text-blue-800',
+    violet: 'border-violet-200 bg-violet-50 text-violet-800',
+    emerald: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  };
+  return (
+    <div className={`rounded-xl border p-5 shadow-sm ${colors[tone] || colors.blue}`}>
+      <div className="mb-3 flex items-center justify-between text-lg font-extrabold">
+        <p>{title}</p>
+        {React.cloneElement(icon, { className: 'h-7 w-7' })}
+      </div>
+      {children}
+      <div className="grid gap-2 text-lg font-bold">
+        <p className="text-emerald-700">รายรับ ฿{money(summary.income)}</p>
+        <p className="text-rose-700">รายจ่าย ฿{money(summary.expense)}</p>
+        <p className="text-3xl font-extrabold">คงเหลือ ฿{money(summary.balance)}</p>
+      </div>
+    </div>
+  );
+}
+
+function FinancialAmountCard({ title, value, className, icon }) {
+  return (
+    <div className={`rounded-xl border p-5 shadow-sm ${className}`}>
+      <div className="mb-3 flex items-center justify-between text-lg font-extrabold">
+        <p>{title}</p>
+        {React.cloneElement(icon, { className: 'h-7 w-7' })}
+      </div>
+      <p className="text-4xl font-extrabold">฿{money(value)}</p>
+    </div>
+  );
+}
+
+function FinancialTypeBadge({ type }) {
+  const isIncome = type === 'income';
+  return <span className={`inline-flex rounded-lg border px-3 py-1.5 text-base font-extrabold ${isIncome ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'}`}>{isIncome ? 'รายรับ' : 'รายจ่าย'}</span>;
+}
+
+function PaymentBadge({ method }) {
+  return <span className="inline-flex rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-base font-extrabold text-blue-800">{method || '-'}</span>;
+}
+
+function FinancialFormModal({ initial, saving, onClose, onSave }) {
+  const [form, setForm] = useState(() => normalizeFinancialTransaction(initial));
+  const [paymentMode, setPaymentMode] = useState(FINANCIAL_PAYMENT_METHODS.includes(initial.payment_method) ? 'select' : 'custom');
+  const [error, setError] = useState('');
+
+  const update = (field, value) => setForm((current) => ({ ...current, [field]: value }));
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setError('');
+    if (!form.date) {
+      setError('กรุณาเลือกวันที่ทำรายการ');
+      return;
+    }
+    if (!form.description.trim()) {
+      setError('กรุณากรอกรายละเอียด');
+      return;
+    }
+    if (!form.payment_method.trim()) {
+      setError('กรุณาเลือกหรือกรอกช่องทางการเงิน');
+      return;
+    }
+    if (Number(form.amount) < 0 || !Number.isFinite(Number(form.amount))) {
+      setError('จำนวนเงินต้องเป็นตัวเลขไม่ติดลบ');
+      return;
+    }
+    await onSave({ ...form, time: form.time || null, amount: Number(form.amount) });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/50 p-0 sm:items-center sm:p-4">
+      <form onSubmit={submit} className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:rounded-2xl" role="dialog" aria-modal="true">
+        <div className="mb-5 flex items-start justify-between gap-4 border-b border-slate-200 pb-4">
+          <div>
+            <p className="text-lg font-bold text-blue-700">รายการการเงิน</p>
+            <h2 className="text-3xl font-extrabold text-slate-950">{form.id ? 'แก้ไขรายการธุรกรรม' : 'เพิ่มรายการธุรกรรม'}</h2>
+          </div>
+          <button className="inline-flex h-12 w-12 items-center justify-center rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50" onClick={onClose} type="button" aria-label="ปิดฟอร์ม">
+            <X className="h-6 w-6" />
+          </button>
+        </div>
+        {error && <p className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-lg font-bold text-rose-700">{error}</p>}
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="วันที่ทำรายการ" type="date" value={form.date} onChange={(value) => update('date', value)} />
+          <Field label="เวลาทำรายการ (ไม่บังคับ)" type="time" value={form.time} onChange={(value) => update('time', value)} />
+          <label className="block">
+            <span className="text-xl font-extrabold text-slate-800">ประเภท</span>
+            <select value={form.type} onChange={(event) => update('type', event.target.value)} className="mt-2 min-h-16 w-full rounded-lg border border-slate-300 bg-white px-5 text-xl text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100">
+              <option value="income">รายรับ</option>
+              <option value="expense">รายจ่าย</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xl font-extrabold text-slate-800">ช่องทางการเงิน</span>
+            {paymentMode === 'select' ? (
+              <select value={FINANCIAL_PAYMENT_METHODS.includes(form.payment_method) ? form.payment_method : 'อื่น ๆ'} onChange={(event) => {
+                if (event.target.value === 'อื่น ๆ') {
+                  setPaymentMode('custom');
+                  update('payment_method', '');
+                } else {
+                  update('payment_method', event.target.value);
+                }
+              }} className="mt-2 min-h-16 w-full rounded-lg border border-slate-300 bg-white px-5 text-xl text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100">
+                {FINANCIAL_PAYMENT_METHODS.map((method) => <option key={method} value={method}>{method}</option>)}
+              </select>
+            ) : (
+              <input value={form.payment_method || ''} onChange={(event) => update('payment_method', event.target.value)} className="mt-2 min-h-16 w-full rounded-lg border border-slate-300 bg-white px-5 text-xl text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100" placeholder="กรอกช่องทางเอง" />
+            )}
+            <button className="mt-2 min-h-11 rounded-lg border border-slate-200 bg-white px-4 text-lg font-bold text-blue-700 hover:bg-blue-50" type="button" onClick={() => setPaymentMode(paymentMode === 'select' ? 'custom' : 'select')}>
+              {paymentMode === 'select' ? 'กรอกเอง' : 'เลือกจากรายการ'}
+            </button>
+          </label>
+          <label className="block md:col-span-2">
+            <span className="text-xl font-extrabold text-slate-800">รายละเอียด</span>
+            <textarea value={form.description || ''} onChange={(event) => update('description', event.target.value)} className="mt-2 min-h-32 w-full rounded-lg border border-slate-300 bg-white px-5 py-4 text-xl text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
+          </label>
+          <Field label="จำนวนเงิน" type="number" value={form.amount} onChange={(value) => update('amount', value)} />
+        </div>
+        <div className="mt-6 flex flex-col gap-3 border-t border-slate-200 pt-5 sm:flex-row sm:justify-end">
+          <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-5 text-xl font-extrabold text-slate-700 hover:bg-slate-50" onClick={onClose} type="button"><X className="h-6 w-6" />ยกเลิก</button>
+          <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg bg-blue-700 px-6 text-xl font-extrabold text-white shadow-sm hover:bg-blue-800" type="submit"><Save className="h-6 w-6" />{saving ? 'กำลังบันทึก' : 'บันทึก'}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function VehicleDetailModal({ vehicle, onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/50 p-0 sm:items-center sm:p-4">
@@ -1466,13 +2037,17 @@ function VehicleDetailModal({ vehicle, onClose }) {
         </div>
         <div className="mt-4 rounded-lg border border-slate-200 bg-white p-4">
           <p className="mb-3 text-base font-bold text-slate-500">รูปที่อัปโหลด</p>
-          {vehicle.receipt_image ? (
-            <div className="space-y-3">
-              <img className="max-h-[420px] w-full rounded-xl border border-slate-200 object-contain" src={vehicle.receipt_image} alt="รูปใบเสร็จหรือรูปประกอบรถ" />
-              <a className="inline-flex min-h-12 items-center gap-2 rounded-lg bg-blue-700 px-4 text-lg font-extrabold text-white hover:bg-blue-800" href={vehicle.receipt_image} target="_blank" rel="noopener noreferrer">
-                <Eye className="h-5 w-5" />
-                เปิดดูรูป
-              </a>
+          {vehicleImages(vehicle).length > 0 ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              {vehicleImages(vehicle).map((image, index) => (
+                <div key={`${image}-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <img className="max-h-[320px] w-full rounded-xl bg-white object-contain" src={image} alt={`รูปใบเสร็จหรือรูปประกอบรถ ${index + 1}`} />
+                  <a className="mt-3 inline-flex min-h-12 items-center gap-2 rounded-lg bg-blue-700 px-4 text-lg font-extrabold text-white hover:bg-blue-800" href={image} target="_blank" rel="noopener noreferrer">
+                    <Eye className="h-5 w-5" />
+                    เปิดดูรูป {index + 1}
+                  </a>
+                </div>
+              ))}
             </div>
           ) : (
             <p className="text-xl font-bold text-slate-500">ยังไม่มีรูป</p>

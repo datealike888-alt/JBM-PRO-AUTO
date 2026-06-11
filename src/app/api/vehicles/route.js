@@ -119,6 +119,7 @@ async function ensureVehiclesTable() {
       estimated_completion_date DATE NULL,
       status_detail TEXT NULL,
       receipt_image MEDIUMTEXT NULL,
+      receipt_images MEDIUMTEXT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -140,6 +141,7 @@ async function ensureVehiclesTable() {
     'ALTER TABLE vehicles ADD COLUMN estimated_completion_date DATE NULL',
     'ALTER TABLE vehicles ADD COLUMN status_detail TEXT NULL',
     'ALTER TABLE vehicles ADD COLUMN receipt_image MEDIUMTEXT NULL',
+    'ALTER TABLE vehicles ADD COLUMN receipt_images MEDIUMTEXT NULL',
     'ALTER TABLE vehicles ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
     'ALTER TABLE vehicles ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
   ];
@@ -221,6 +223,7 @@ function normalizeRow(row) {
     estimated_completion_date: formatSqlDate(row.estimated_completion_date),
     status_detail: row.status_detail || null,
     receipt_image: row.receipt_image || null,
+    receipt_images: cleanReceiptImages(row.receipt_images),
     created_at: row.created_at || null,
     updated_at: row.updated_at || null,
   };
@@ -244,6 +247,7 @@ function normalizePublicRow(row) {
     estimated_completion_date: normalized.estimated_completion_date,
     status_detail: normalized.status_detail,
     receipt_image: normalized.receipt_image,
+    receipt_images: normalized.receipt_images,
   };
 }
 
@@ -260,8 +264,27 @@ function cleanReceiptImage(value) {
   }
 }
 
+function parseReceiptImages(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function cleanReceiptImages(value) {
+  return Array.from(new Set(parseReceiptImages(value).map(cleanReceiptImage).filter(Boolean))).slice(0, 20);
+}
+
 function normalizeVehicleBody(body) {
   if (!body || typeof body !== 'object') return { error: 'Invalid request body' };
+  const receiptImage = cleanReceiptImage(body.receipt_image);
+  const receiptImages = cleanReceiptImages(body.receipt_images);
+  const mergedReceiptImages = Array.from(new Set([receiptImage, ...receiptImages].filter(Boolean)));
 
   return {
     vehicle: {
@@ -280,7 +303,8 @@ function normalizeVehicleBody(body) {
       booking_date: cleanDate(body.booking_date),
       estimated_completion_date: cleanDate(body.estimated_completion_date),
       status_detail: cleanNullable(body.status_detail, 2000),
-      receipt_image: cleanReceiptImage(body.receipt_image),
+      receipt_image: mergedReceiptImages[0] || null,
+      receipt_images: mergedReceiptImages,
     },
   };
 }
@@ -334,6 +358,18 @@ async function saveReceiptImage(base64Data, id) {
     public_id: `vehicle-${id}-${Date.now()}`,
   });
   return result.secure_url;
+}
+
+async function saveReceiptImages(images, id) {
+  const saved = [];
+  for (const [index, image] of images.entries()) {
+    if (image?.startsWith('data:image/')) {
+      saved.push(await saveReceiptImage(image, `${id}-${index + 1}`));
+    } else if (image) {
+      saved.push(image);
+    }
+  }
+  return Array.from(new Set(saved));
 }
 
 export async function GET(request) {
@@ -439,16 +475,15 @@ export async function POST(request) {
     if (normalized.error) return json({ error: normalized.error }, { status: 400 });
     const { vehicle } = normalized;
 
-    if (vehicle.receipt_image?.startsWith('data:image/')) {
-      vehicle.receipt_image = await saveReceiptImage(vehicle.receipt_image, vehicle.id);
-    }
+    vehicle.receipt_images = await saveReceiptImages(vehicle.receipt_images, vehicle.id);
+    vehicle.receipt_image = vehicle.receipt_images[0] || vehicle.receipt_image || null;
 
     await ensureVehiclesTable();
     await query(
       `INSERT INTO vehicles (
         id, invoice_number, license_plate, owner_name, phone, brand, model, color, vin, mileage,
-        status, repair_cost, booking_date, estimated_completion_date, status_detail, receipt_image
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        status, repair_cost, booking_date, estimated_completion_date, status_detail, receipt_image, receipt_images
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
         invoice_number = VALUES(invoice_number),
         license_plate = VALUES(license_plate),
@@ -464,7 +499,8 @@ export async function POST(request) {
         booking_date = VALUES(booking_date),
         estimated_completion_date = VALUES(estimated_completion_date),
         status_detail = VALUES(status_detail),
-        receipt_image = VALUES(receipt_image)`,
+        receipt_image = VALUES(receipt_image),
+        receipt_images = VALUES(receipt_images)`,
       [
         vehicle.id,
         vehicle.invoice_number,
@@ -482,6 +518,7 @@ export async function POST(request) {
         vehicle.estimated_completion_date,
         vehicle.status_detail,
         vehicle.receipt_image,
+        JSON.stringify(vehicle.receipt_images),
       ]
     );
 

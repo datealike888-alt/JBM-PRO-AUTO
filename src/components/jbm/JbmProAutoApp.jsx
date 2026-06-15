@@ -28,6 +28,7 @@ import {
   ClipboardList,
   Coins,
   CreditCard,
+  Download,
   Edit3,
   ExternalLink,
   Eye,
@@ -45,7 +46,9 @@ import {
   Settings,
   ShieldCheck,
   Trash2,
+  TrendingUp,
   Upload,
+  UserCheck,
   Wallet,
   Wrench,
   X,
@@ -54,6 +57,7 @@ import {
 const API_URL = '/api/vehicles';
 const FINANCIAL_API_URL = '/api/financial-transactions';
 const ADMIN_TOKEN_STORAGE_KEY = 'jbm-admin-token';
+const SHIFT_LOGS_STORAGE_KEY = 'jbm_shift_logs_v1';
 const DEFAULT_STATUS = 'จองคิว';
 const FINAL_STATUS = 'ซ่อมเสร็จรอส่ง';
 const CLOSED_STATUS = 'ปิดงาน';
@@ -71,41 +75,109 @@ const STATUS_ALIASES = new Map([
   ['เสร็จรอส่ง', FINAL_STATUS],
 ]);
 const BRAND_OPTIONS = [
-  'Mercedes-Benz',
   'BMW',
+  'Mercedes-Benz',
+  'MINI',
+  'Porsche',
   'Audi',
   'Volvo',
-  'Porsche',
-  'MINI',
-  'Toyota',
-  'Honda',
-  'Isuzu',
-  'Mazda',
-  'Ford',
-  'Nissan',
-  'Mitsubishi',
-  'Lexus',
-  'Tesla',
-  'อื่น ๆ',
+  'Lamborghini',
+  'อื่นๆ',
 ];
 const MODEL_OPTIONS = {
-  'Mercedes-Benz': ['C-Class', 'E-Class', 'S-Class', 'GLC', 'GLE', 'GLS', 'CLA', 'CLS'],
-  BMW: ['Series 3', 'Series 5', 'Series 7', 'X1', 'X3', 'X5', 'X6'],
-  Audi: ['A3', 'A4', 'A5', 'A6', 'Q3', 'Q5', 'Q7'],
-  Volvo: ['XC40', 'XC60', 'XC90', 'S60', 'S90'],
-  Porsche: ['Cayenne', 'Macan', 'Panamera', '911', 'Cayman', 'Boxster'],
-  MINI: ['Cooper', 'Countryman', 'Clubman'],
-  Toyota: ['Camry', 'Corolla Cross', 'Fortuner', 'Alphard', 'Yaris'],
-  Honda: ['Civic', 'Accord', 'CR-V', 'HR-V', 'City'],
-  Isuzu: ['D-Max', 'MU-X'],
-  Mazda: ['Mazda2', 'Mazda3', 'CX-3', 'CX-5', 'CX-8'],
-  Ford: ['Ranger', 'Everest', 'Mustang'],
-  Nissan: ['Almera', 'Kicks', 'Terra', 'Navara'],
-  Mitsubishi: ['Triton', 'Pajero Sport', 'Xpander'],
-  Lexus: ['IS', 'ES', 'RX', 'NX', 'LM'],
-  Tesla: ['Model 3', 'Model Y', 'Model S', 'Model X'],
+  BMW: ['Series 3', 'Series 5', 'Series 7', 'X1', 'X3', 'X5', 'X6', 'Z4', 'M3', 'M5', 'iX', 'อื่นๆ'],
+  'Mercedes-Benz': ['C-Class', 'E-Class', 'S-Class', 'GLA', 'GLC', 'GLE', 'GLS', 'G-Class', 'V-Class', 'อื่นๆ'],
+  MINI: ['3 Door', '5 Door', 'Countryman', 'Clubman', 'JCW', 'Electric', 'อื่นๆ'],
+  Porsche: ['911', 'Macan', 'Cayenne', 'Panamera', 'Taycan', '718', 'อื่นๆ'],
+  Audi: ['A4', 'A5', 'A6', 'Q3', 'Q5', 'Q7', 'Q8', 'e-tron', 'อื่นๆ'],
+  Volvo: ['XC40', 'XC60', 'XC90', 'S60', 'S90', 'EX30', 'อื่นๆ'],
+  Lamborghini: ['Huracan', 'Aventador', 'Urus', 'Revuelto', 'อื่นๆ'],
 };
-const REPORT_YEARS = Array.from({ length: 12 }, (_, index) => 2025 + index);
+const OTHER_OPTION = 'อื่นๆ';
+const BASE_YEAR = 2023;
+const CURRENT_YEAR = new Date().getFullYear();
+const REPORT_YEARS = Array.from({ length: CURRENT_YEAR + 10 - BASE_YEAR + 1 }, (_, index) => BASE_YEAR + index);
+const REPORT_YEAR_RANGE_LABEL = `${BASE_YEAR + 543}-${CURRENT_YEAR + 10 + 543}`;
+const DEFAULT_SHIFT_EMPLOYEES = ['JBM Admin', 'ช่างประจำอู่', 'ฝ่ายสต็อก', 'ฝ่ายบัญชี'];
+const SHIFT_TYPES = ['เวรปกติ', 'เวร OT', 'เวรพิเศษ'];
+const EMPLOYEES_STORAGE_KEY = 'jbm_employees_v1';
+const EMPLOYEE_POSITIONS_STORAGE_KEY = 'jbm_employee_positions_v1';
+const EMPLOYEE_ATTENDANCE_STORAGE_KEY = 'jbm_employee_attendance_v1';
+const EMPLOYEE_LEAVES_STORAGE_KEY = 'jbm_employee_leaves_v1';
+const EMPLOYEE_ATTENDANCE_SETTINGS_STORAGE_KEY = 'jbm_employee_attendance_settings_v1';
+const AUDIT_LOGS_STORAGE_KEY = 'jbm_audit_logs_v1';
+const EMPLOYEE_STATUSES = ['ทำงานอยู่', 'พักงาน', 'ลาออก'];
+const DEFAULT_EMPLOYEE_POSITIONS = ['เจ้าของอู่', 'ผู้จัดการ', 'พนักงานบัญชี', 'พนักงานสต๊อก', 'ช่าง'];
+const OTHER_EMPLOYEE_POSITION = 'อื่นๆ';
+const ATTENDANCE_STATUS_KEYS = ['มาทำงาน', 'สายเช้า', 'สายบ่าย', 'สายเช้า+บ่าย', 'ขาดงาน', 'ลาป่วย', 'ลากิจ', 'ลาพักร้อน'];
+const LEAVE_TYPES = ['ลาป่วย', 'ลากิจ', 'ลาพักร้อน'];
+const DEFAULT_ATTENDANCE_SETTINGS = {
+  morningStart: '09:00',
+  morningLateAfter: '09:06',
+  lunchOut: '12:30',
+  afternoonStart: '13:30',
+  afternoonLateAfter: '13:31',
+  workEnd: '18:00',
+};
+const EMPLOYEE_STATUS_THEME = {
+  ทำงานอยู่: {
+    badge: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+    dot: 'bg-emerald-500',
+    card: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  },
+  พักงาน: {
+    badge: 'border-orange-200 bg-orange-50 text-orange-800',
+    dot: 'bg-orange-500',
+    card: 'border-orange-200 bg-orange-50 text-orange-800',
+  },
+  ลาออก: {
+    badge: 'border-rose-200 bg-rose-50 text-rose-800',
+    dot: 'bg-rose-500',
+    card: 'border-rose-200 bg-rose-50 text-rose-800',
+  },
+};
+const ATTENDANCE_STATUS_THEME = {
+  มาทำงาน: {
+    badge: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+    dot: 'bg-emerald-500',
+    card: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  },
+  สายเช้า: {
+    badge: 'border-yellow-200 bg-yellow-50 text-yellow-800',
+    dot: 'bg-yellow-500',
+    card: 'border-yellow-200 bg-yellow-50 text-yellow-800',
+  },
+  สายบ่าย: {
+    badge: 'border-orange-200 bg-orange-50 text-orange-800',
+    dot: 'bg-orange-500',
+    card: 'border-orange-200 bg-orange-50 text-orange-800',
+  },
+  'สายเช้า+บ่าย': {
+    badge: 'border-pink-200 bg-pink-50 text-pink-800',
+    dot: 'bg-pink-500',
+    card: 'border-pink-200 bg-pink-50 text-pink-800',
+  },
+  ขาดงาน: {
+    badge: 'border-rose-200 bg-rose-50 text-rose-800',
+    dot: 'bg-rose-500',
+    card: 'border-rose-200 bg-rose-50 text-rose-800',
+  },
+  ลาป่วย: {
+    badge: 'border-blue-200 bg-blue-50 text-blue-800',
+    dot: 'bg-blue-500',
+    card: 'border-blue-200 bg-blue-50 text-blue-800',
+  },
+  ลากิจ: {
+    badge: 'border-violet-200 bg-violet-50 text-violet-800',
+    dot: 'bg-violet-500',
+    card: 'border-violet-200 bg-violet-50 text-violet-800',
+  },
+  ลาพักร้อน: {
+    badge: 'border-sky-200 bg-sky-50 text-sky-800',
+    dot: 'bg-sky-500',
+    card: 'border-sky-200 bg-sky-50 text-sky-800',
+  },
+};
 const FINANCIAL_PAYMENT_METHODS = ['รูดบัตร', 'โอน JBM', 'โอน SCB', 'โอน UOB', 'เงินสด', 'อื่น ๆ'];
 const MONTHS_TH = [
   'มกราคม',
@@ -277,6 +349,205 @@ function daysInMonth(year, month) {
   return Array.from({ length: count }, (_, index) => `${year}-${month}-${String(index + 1).padStart(2, '0')}`);
 }
 
+function calculateShiftHours(startTime, endTime) {
+  if (!startTime || !endTime) return 0;
+  const [startHour, startMinute] = String(startTime).split(':').map(Number);
+  const [endHour, endMinute] = String(endTime).split(':').map(Number);
+  if (![startHour, startMinute, endHour, endMinute].every(Number.isFinite)) return 0;
+  const startTotal = (startHour * 60) + startMinute;
+  let endTotal = (endHour * 60) + endMinute;
+  if (endTotal < startTotal) endTotal += 24 * 60;
+  return Number(((endTotal - startTotal) / 60).toFixed(2));
+}
+
+function readStorageArray(key, fallback = []) {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(key) || '[]');
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function normalizeAttendanceSettings(settings = {}) {
+  return {
+    ...DEFAULT_ATTENDANCE_SETTINGS,
+    ...Object.fromEntries(Object.entries(settings || {}).map(([key, value]) => [key, normalizeTimeInput(value)])),
+  };
+}
+
+function readAttendanceSettings() {
+  if (typeof window === 'undefined') return DEFAULT_ATTENDANCE_SETTINGS;
+  try {
+    return normalizeAttendanceSettings(JSON.parse(window.localStorage.getItem(EMPLOYEE_ATTENDANCE_SETTINGS_STORAGE_KEY) || '{}'));
+  } catch {
+    return DEFAULT_ATTENDANCE_SETTINGS;
+  }
+}
+
+function normalizeEmployee(employee = {}) {
+  return {
+    id: employee.id || `emp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    code: String(employee.code || '').trim(),
+    status: EMPLOYEE_STATUSES.includes(employee.status) ? employee.status : EMPLOYEE_STATUSES[0],
+    firstName: String(employee.firstName || '').trim(),
+    lastName: String(employee.lastName || '').trim(),
+    nickname: String(employee.nickname || '').trim(),
+    position: String(employee.position || DEFAULT_EMPLOYEE_POSITIONS[DEFAULT_EMPLOYEE_POSITIONS.length - 1]).trim(),
+  };
+}
+
+function auditSafeData(value) {
+  if (value === undefined) return null;
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return null;
+  }
+}
+
+function currentAuditActor() {
+  if (typeof window === 'undefined') return { actorName: 'System', actorRole: 'owner' };
+  try {
+    const code = String(window.localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) || '').trim();
+    const employees = readStorageArray(EMPLOYEES_STORAGE_KEY).map(normalizeEmployee);
+    const employee = employees.find((item) => normalizeAdminIdentity(item.code) === normalizeAdminIdentity(code));
+    const actorName = employee ? employeeFullName(employee) || employee.nickname || employee.code : (code || 'System');
+    const actorRole = employee?.position || 'Owner';
+    return { actorName, actorRole };
+  } catch (error) {
+    console.error('[audit] resolve actor failed', error);
+    return { actorName: 'System', actorRole: 'Owner' };
+  }
+}
+
+function addAuditLog(entry = {}) {
+  if (typeof window === 'undefined') return;
+  try {
+    const actor = currentAuditActor();
+    const nextEntry = {
+      id: entry.id || `audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      actorName: String(entry.actorName || actor.actorName || 'System').trim() || 'System',
+      actorRole: String(entry.actorRole || actor.actorRole || 'Owner').trim() || 'Owner',
+      action: String(entry.action || '').trim().toUpperCase() || 'UPDATE',
+      module: String(entry.module || '').trim().toUpperCase() || 'SYSTEM',
+      targetId: String(entry.targetId || '').trim(),
+      targetLabel: String(entry.targetLabel || '').trim(),
+      beforeData: auditSafeData(entry.beforeData),
+      afterData: auditSafeData(entry.afterData),
+      createdAt: entry.createdAt || new Date().toISOString(),
+    };
+    const logs = readStorageArray(AUDIT_LOGS_STORAGE_KEY);
+    window.localStorage.setItem(AUDIT_LOGS_STORAGE_KEY, JSON.stringify([nextEntry, ...logs].slice(0, 1000)));
+  } catch (error) {
+    console.error('[audit] addAuditLog failed', error);
+  }
+}
+
+function employeeFullName(employee = {}) {
+  return `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || '-';
+}
+
+function minutesFromTime(value) {
+  const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return (hour * 60) + minute;
+}
+
+function timeText(value) {
+  const minutes = minutesFromTime(String(value || '').slice(0, 5));
+  if (minutes === null) return '-';
+  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+}
+
+function normalizeTimeInput(value) {
+  const cleaned = String(value || '').replace(/[^\d:]/g, '');
+  if (!cleaned) return '';
+  if (cleaned.includes(':')) {
+    const [rawHour = '', rawMinute = ''] = cleaned.split(':');
+    const hour = rawHour.replace(/\D/g, '').slice(0, 2);
+    const minute = rawMinute.replace(/\D/g, '').slice(0, 2);
+    let normalized = hour;
+    if (cleaned.includes(':')) normalized += ':';
+    if (minute) normalized += minute;
+    if (/^\d{1,2}:\d{2}$/.test(normalized) && minutesFromTime(normalized) !== null) return timeText(normalized);
+    return normalized.slice(0, 5);
+  }
+
+  const digits = cleaned.replace(/\D/g, '').slice(0, 4);
+  if (digits.length <= 2) return digits;
+  if (digits.length === 3) return `${digits.slice(0, 1).padStart(2, '0')}:${digits.slice(1)}`;
+  return `${digits.slice(0, 2)}:${digits.slice(2, 4)}`;
+}
+
+function finalizeTimeInput(value) {
+  const normalized = normalizeTimeInput(value);
+  if (!normalized) return '';
+  if (/^\d{1,2}$/.test(normalized)) {
+    const withMinutes = `${normalized.padStart(2, '0')}:00`;
+    return minutesFromTime(withMinutes) !== null ? withMinutes : normalized;
+  }
+  if (/^\d{1,2}:\d{2}$/.test(normalized) && minutesFromTime(normalized) !== null) return timeText(normalized);
+  return normalized;
+}
+
+function isValidTimeValue(value) {
+  return minutesFromTime(String(value || '').trim()) !== null;
+}
+
+function validateTimeFields(fields) {
+  const invalid = fields.find(([_, value]) => !isValidTimeValue(value));
+  if (invalid) return `รูปแบบเวลาไม่ถูกต้อง: ${invalid[0]}`;
+  return '';
+}
+
+function isAttendanceAutoMode(method) {
+  return !method || method === 'auto';
+}
+
+function calculateAttendanceStatus(method, morningIn, afternoonIn, settings = DEFAULT_ATTENDANCE_SETTINGS) {
+  if (method && method !== 'auto') return method === 'leave' ? 'ขาดงาน' : method;
+  const morningMinutes = minutesFromTime(morningIn);
+  const afternoonMinutes = minutesFromTime(afternoonIn);
+  const lateMorningAfter = minutesFromTime(settings.morningLateAfter);
+  const lateAfternoonAfter = minutesFromTime(settings.afternoonLateAfter);
+  const lateMorning = morningMinutes !== null && lateMorningAfter !== null && morningMinutes >= lateMorningAfter;
+  const lateAfternoon = afternoonMinutes !== null && lateAfternoonAfter !== null && afternoonMinutes >= lateAfternoonAfter;
+  if (lateMorning && lateAfternoon) return 'สายเช้า+บ่าย';
+  if (lateMorning) return 'สายเช้า';
+  if (lateAfternoon) return 'สายบ่าย';
+  return 'มาทำงาน';
+}
+
+function calculateWorkHours(morningIn, lunchOut, afternoonIn, eveningOut) {
+  const start = minutesFromTime(morningIn);
+  const lunch = minutesFromTime(lunchOut);
+  const afternoon = minutesFromTime(afternoonIn);
+  const end = minutesFromTime(eveningOut);
+  if ([start, lunch, afternoon, end].some((value) => value === null)) return 0;
+  if (end <= start || afternoon < lunch) return 0;
+  const breakMinutes = afternoon - lunch;
+  const total = end - start - breakMinutes;
+  return total > 0 ? Number((total / 60).toFixed(2)) : 0;
+}
+
+function countLeaveDays(startDate, endDate) {
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate || startDate}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 0;
+  return Math.floor((end - start) / 86400000) + 1;
+}
+
+function daysInDateRange(startDate, endDate) {
+  const count = countLeaveDays(startDate, endDate);
+  if (!count) return [];
+  return Array.from({ length: count }, (_, index) => addDays(startDate, index));
+}
+
 function normalizeFinancialTransaction(transaction = {}) {
   return {
     ...emptyFinancialTransaction,
@@ -375,6 +646,38 @@ function vehicleImages(vehicle = {}) {
     vehicle.receipt_image,
   ].filter(Boolean)));
 }
+
+function csvCell(value) {
+  const text = String(value ?? '');
+  if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
+  return text;
+}
+
+function downloadCsv(filename, columns, rows) {
+  if (typeof window === 'undefined') return;
+  const header = columns.map((column) => csvCell(column.label)).join(',');
+  const body = rows.map((row) => columns.map((column) => csvCell(row[column.key])).join(',')).join('\n');
+  const csv = `\uFEFF${header}\n${body}`;
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}
+
+function filterSegment(value, fallback = 'all') {
+  return String(value || fallback).replace(/[^\w-]+/g, '-');
+}
+
+function normalizeAdminIdentity(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+
 
 function dateKey(vehicle) {
   return vehicle.booking_date || vehicle.estimated_completion_date || String(vehicle.created_at || '').slice(0, 10);
@@ -539,33 +842,47 @@ async function readFilesAsDataUrls(files) {
 }
 
 function Header({ admin = false }) {
-  const navLinkClass = 'inline-flex min-h-11 items-center rounded-lg px-3 text-base font-extrabold text-slate-700 hover:bg-slate-100 sm:px-4 sm:text-lg';
+  const navLinkClass = admin
+    ? 'inline-flex min-h-11 items-center rounded-lg px-3 text-base font-extrabold text-slate-700 hover:bg-slate-100 sm:px-4 sm:text-lg'
+    : 'inline-flex min-h-11 w-full items-center justify-center rounded-lg px-3 text-base font-extrabold text-slate-700 hover:bg-slate-100 sm:w-auto sm:px-4 sm:text-lg';
+
+  const publicNav = [
+    { href: '/', label: 'หน้าแรก' },
+    { href: '/#about', label: 'เกี่ยวกับร้าน' },
+    { href: '/status', label: 'เช็คสถานะ', icon: Search },
+    { href: '/admin', label: 'เข้าสู่ระบบ', special: true },
+  ];
 
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
-      <div className="mx-auto flex min-h-16 max-w-[1440px] items-center justify-between gap-3 px-4 sm:px-6 xl:px-8">
+      <div className={`${admin ? 'flex min-h-16 items-center justify-between' : 'flex flex-col py-3 sm:min-h-16 sm:flex-row sm:items-center sm:justify-between sm:py-0'} mx-auto max-w-7xl gap-3 px-4 sm:px-6 lg:px-8`}>
         <Link href="/" className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-blue-700 text-white">
-            <Wrench className="h-7 w-7" />
-          </div>
+          <img src="/images/jbm-public/jbmlogo.webp" className="h-12 w-12 rounded-lg object-cover" alt="JBM PRO AUTO Logo" />
           <div>
             <p className="text-xl font-extrabold leading-tight text-slate-950">JBM PRO AUTO</p>
           </div>
         </Link>
-        <nav className="flex min-w-0 items-center gap-1 overflow-x-auto sm:gap-2">
-          <Link className={navLinkClass} href="/">
-            หน้าแรก
-          </Link>
-          <Link className={navLinkClass} href="/#about">
-            เกี่ยวกับร้าน
-          </Link>
-          <Link className={`${navLinkClass} gap-2`} href="/status">
-            <Search className="h-5 w-5" />
-            เช็คสถานะ
-          </Link>
-          <Link className={admin ? 'inline-flex min-h-11 items-center rounded-lg bg-blue-700 px-3 text-base font-extrabold text-white sm:px-4 sm:text-lg' : navLinkClass} href="/admin">
-            แอดมิน
-          </Link>
+        <nav className={admin ? 'flex min-w-0 items-center gap-1 overflow-x-auto sm:gap-2' : 'grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-cols-none sm:flex sm:items-center'}>
+          {publicNav.map((item) => {
+            if (item.special) {
+              return (
+                <Link
+                  key={item.href}
+                  className={admin ? 'inline-flex min-h-11 items-center rounded-lg bg-blue-700 px-3 text-base font-extrabold text-white sm:px-4 sm:text-lg' : navLinkClass}
+                  href={item.href}
+                >
+                  {item.label}
+                </Link>
+              );
+            }
+            const Icon = item.icon;
+            return (
+              <Link key={item.href} className={`${navLinkClass} ${Icon ? 'gap-2' : ''}`} href={item.href}>
+                {Icon && <Icon className="h-5 w-5" />}
+                {item.label}
+              </Link>
+            );
+          })}
         </nav>
       </div>
     </header>
@@ -577,11 +894,38 @@ function StatusPill({ status }) {
   return <span className={`inline-flex rounded-lg border px-3 py-1.5 text-base font-extrabold ${theme.badge}`}>{status || DEFAULT_STATUS}</span>;
 }
 
+function normalizeSearchText(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function normalizeDigits(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function isNameSearchQuery(query, vehicle) {
+  const text = normalizeSearchText(query);
+  if (!text || !vehicle) return false;
+
+  const ownerName = normalizeSearchText(vehicle.owner_name);
+  const licensePlate = normalizeSearchText(vehicle.license_plate);
+  const invoiceNumber = normalizeSearchText(vehicle.invoice_number);
+  const vin = normalizeSearchText(vehicle.vin);
+  const phoneDigits = normalizeDigits(vehicle.phone);
+  const queryDigits = normalizeDigits(text);
+
+  const matchesOwnerName = ownerName.includes(text);
+  const matchesOtherIdentifier = [licensePlate, invoiceNumber, vin].some((value) => value && value.includes(text))
+    || (queryDigits && phoneDigits.includes(queryDigits));
+
+  return matchesOwnerName && !matchesOtherIdentifier;
+}
+
 function CustomerSearch() {
   const [query, setQuery] = useState('');
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const privacyMode = result ? isNameSearchQuery(query, result) : false;
 
   const submit = async (event) => {
     event.preventDefault();
@@ -610,25 +954,25 @@ function CustomerSearch() {
   };
 
   return (
-    <section className="mx-auto w-full max-w-6xl px-4 sm:px-6">
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-xl shadow-slate-950/10 sm:p-7">
-        <div className="mb-5 flex items-start gap-4">
+    <section className="mx-auto w-full max-w-6xl">
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xl shadow-slate-950/10 sm:p-7">
+        <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-start">
           <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-blue-700 text-white">
             <Search className="h-7 w-7" />
           </div>
-          <div>
-            <h2 className="text-3xl font-extrabold text-slate-950">ค้นหาสถานะรถ</h2>
-            <p className="mt-1 text-lg font-bold text-slate-600">ชื่อเจ้าของรถ / เบอร์โทรศัพท์ / ทะเบียนรถ / เลขใบแจ้งหนี้</p>
+          <div className="min-w-0">
+            <h2 className="text-2xl font-extrabold text-slate-950 sm:text-3xl">ค้นหาสถานะรถ</h2>
+            <p className="mt-1 text-base font-bold leading-7 text-slate-600 sm:text-lg">ชื่อเจ้าของรถ / เบอร์โทรศัพท์ / ทะเบียนรถ / เลขใบแจ้งหนี้</p>
           </div>
         </div>
         <form onSubmit={submit} className="grid gap-3 lg:grid-cols-[1fr_auto]">
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            className="min-h-16 rounded-lg border border-slate-300 bg-white px-5 text-xl font-bold text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
+            className="min-h-14 min-w-0 rounded-lg border border-slate-300 bg-white px-4 text-lg font-bold text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100 sm:min-h-16 sm:px-5 sm:text-xl"
             placeholder="กรอกชื่อ เบอร์โทร ทะเบียนรถ หรือเลขใบแจ้งหนี้"
           />
-          <button className="inline-flex min-h-16 items-center justify-center gap-2 rounded-lg bg-blue-700 px-8 text-xl font-extrabold text-white hover:bg-blue-800" type="submit">
+          <button className="inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-lg bg-blue-700 px-6 text-lg font-extrabold text-white hover:bg-blue-800 sm:min-h-16 sm:px-8 sm:text-xl lg:w-auto" type="submit">
             <Search className="h-6 w-6" />
             {loading ? 'กำลังค้นหา' : 'ค้นหา'}
           </button>
@@ -637,25 +981,31 @@ function CustomerSearch() {
       </div>
 
       {result && (
-        <div className="mt-6 grid gap-5 xl:grid-cols-[.8fr_1.2fr]">
-          <div className="space-y-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-            <div className="flex flex-col gap-3 border-b border-slate-200 pb-5 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <p className="text-base font-bold text-slate-500">เลขใบแจ้งหนี้/ใบเสร็จ</p>
-                <h2 className="text-3xl font-extrabold text-slate-950">{result.invoice_number || '-'}</h2>
-                <p className="text-xl font-bold text-slate-700">{result.brand || '-'} {result.model || ''}</p>
-              </div>
-              <StatusPill status={result.status} />
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Info label="ชื่อลูกค้า" value={result.owner_name || '-'} />
-              <Info label="ทะเบียนรถ" value={result.license_plate || '-'} />
-              <Info label="เลขใบแจ้งหนี้" value={result.invoice_number || '-'} />
-              <Info label="สถานะปัจจุบัน" value={result.status || DEFAULT_STATUS} />
-            </div>
+        privacyMode ? (
+          <div className="mt-6">
+            <StatusProgress status={result.status} />
           </div>
-          <StatusProgress status={result.status} />
-        </div>
+        ) : (
+          <div className="mt-6 grid gap-5 xl:grid-cols-[.8fr_1.2fr]">
+            <div className="space-y-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+              <div className="flex flex-col gap-3 border-b border-slate-200 pb-5 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-base font-bold text-slate-500">เลขใบแจ้งหนี้/ใบเสร็จ</p>
+                  <h2 className="break-words text-2xl font-extrabold text-slate-950 sm:text-3xl">{result.invoice_number || '-'}</h2>
+                  <p className="break-words text-lg font-bold text-slate-700 sm:text-xl">{result.brand || '-'} {result.model || ''}</p>
+                </div>
+                <StatusPill status={result.status} />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Info label="ชื่อลูกค้า" value={result.owner_name || '-'} />
+                <Info label="ทะเบียนรถ" value={result.license_plate || '-'} />
+                <Info label="เลขใบแจ้งหนี้" value={result.invoice_number || '-'} />
+                <Info label="สถานะปัจจุบัน" value={result.status || DEFAULT_STATUS} />
+              </div>
+            </div>
+            <StatusProgress status={result.status} />
+          </div>
+        )
       )}
     </section>
   );
@@ -664,7 +1014,7 @@ function CustomerSearch() {
 function StatusProgress({ status }) {
   const activeIndex = Math.max(0, STATUS_OPTIONS.indexOf(status || DEFAULT_STATUS));
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
       <h2 className="text-2xl font-extrabold text-slate-950">Progress Status</h2>
       <div className="mt-5 space-y-3">
         {STATUS_OPTIONS.map((item, index) => {
@@ -694,17 +1044,22 @@ function Info({ label, value }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
       <p className="text-base font-bold text-slate-500">{label}</p>
-      <p className="text-xl font-extrabold text-slate-950">{value}</p>
+      <p className="break-words text-lg font-extrabold text-slate-950 sm:text-xl">{value}</p>
     </div>
   );
 }
 
 function HomePage() {
-  const services = [
-    ['ตรวจเช็กระบบรถยุโรป', 'อ่านค่าระบบ วางแผนซ่อม และอธิบายงานให้ลูกค้าเข้าใจง่าย', Gauge],
-    ['ซ่อมบำรุง', 'ดูแลช่วงล่าง เบรก ของเหลว และงานบำรุงรักษาตามระยะ', Wrench],
-    ['วินิจฉัยปัญหา', 'ไล่ปัญหาอย่างเป็นระบบก่อนเริ่มงานซ่อม ลดการเดาและลดเวลารอ', Settings],
-    ['ติดตามสถานะงานซ่อม', 'ลูกค้าเช็คสถานะได้ด้วยเลขใบแจ้งหนี้ ทะเบียน เบอร์โทร หรือ VIN', Search],
+  const shopPhotos = [
+    ['/images/jbm-public/JBMa.webp', 'รถ BMW และ Mercedes-Benz บนลิฟต์ในอู่ JBM PRO AUTO'],
+    ['/images/jbm-public/cover.webp', 'ภาพหน้าร้านและรถยุโรปในศูนย์บริการ JBM PRO AUTO'],
+    ['/images/jbm-public/jbmaa.webp', 'ข้อมูล Service A สำหรับ Mercedes-Benz'],
+  ];
+  const serviceGuides = [
+    { src: '/images/jbm-public/jbmaa.webp', title: 'Service A', alt: 'Service A JBM PRO AUTO' },
+    { src: '/images/jbm-public/jbmbb.webp', title: 'Service B', alt: 'Service B JBM PRO AUTO' },
+    { src: '/images/jbm-public/BenzService.webp', title: 'Service A / B', alt: 'Service A / B JBM PRO AUTO' },
+    { src: '/images/jbm-public/ServiceBMW.webp', title: 'BMW Service', alt: 'BMW service guide at JBM PRO AUTO' },
   ];
 
   return (
@@ -712,96 +1067,108 @@ function HomePage() {
       <Header />
       <main>
         <section
-          className="relative min-h-[calc(100vh-4rem)] overflow-hidden bg-slate-950"
+          className="relative min-h-[560px] overflow-hidden bg-slate-950 sm:min-h-[640px] lg:min-h-[calc(100vh-4rem)]"
           style={{
             backgroundImage:
-              "linear-gradient(90deg, rgba(15,23,42,.94) 0%, rgba(15,23,42,.76) 48%, rgba(15,23,42,.30) 100%), url('https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?auto=format&fit=crop&w=1800&q=80')",
+              "linear-gradient(90deg, rgba(15,23,42,.94) 0%, rgba(15,23,42,.78) 48%, rgba(15,23,42,.38) 100%), url('/images/jbm-public/cover.webp')",
             backgroundPosition: 'center',
             backgroundSize: 'cover',
           }}
         >
-          <div className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-[1440px] items-center px-4 py-12 sm:px-6 lg:px-8">
-            <div className="max-w-4xl space-y-7 py-10 text-white">
-              <p className="inline-flex rounded-lg border border-yellow-300/50 bg-yellow-300/15 px-4 py-2 text-lg font-extrabold text-yellow-200">JBM PRO AUTO | European Car Service</p>
-              <h1 className="max-w-5xl text-4xl font-extrabold leading-tight sm:text-5xl lg:text-6xl">
+          <div className="mx-auto flex min-h-[560px] max-w-7xl items-center px-4 py-12 sm:min-h-[640px] sm:px-6 lg:min-h-[calc(100vh-4rem)] lg:px-8">
+            <div className="max-w-4xl space-y-5 py-8 text-white sm:space-y-6 sm:py-10">
+              <h1 className="max-w-5xl text-3xl font-extrabold leading-tight sm:text-4xl lg:text-6xl">
                 JBM PRO AUTO เราเป็นศูนย์บริการ Service รถยุโรปครบวงจร
-                <span className="block mt-3">และจำหน่ายอะไหล่ติดตั้ง จัดส่งทั่วไทย</span>
+                <span className="mt-3 block">และจำหน่ายอะไหล่ติดตั้ง จัดส่งทั่วไทย</span>
               </h1>
-              <p className="max-w-3xl text-2xl leading-10 text-blue-50">ดูแลงานซ่อม ตรวจเช็ก และติดตามคิวซ่อมได้ชัดเจน ลูกค้าค้นหาสถานะรถด้วยเลขใบแจ้งหนี้ ทะเบียน เบอร์โทร หรือ VIN ได้ทันที</p>
+
               <div className="flex flex-col gap-3 sm:flex-row">
-                <Link className="inline-flex min-h-16 items-center justify-center gap-2 rounded-lg bg-yellow-400 px-7 text-xl font-extrabold text-slate-950 shadow-lg shadow-yellow-950/20 hover:bg-yellow-300" href="/status">
+                <Link className="inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-lg bg-yellow-400 px-6 text-lg font-extrabold text-slate-950 shadow-lg shadow-yellow-950/20 hover:bg-yellow-300 sm:min-h-16 sm:w-auto sm:px-7 sm:text-xl" href="/status">
                   <Search className="h-6 w-6" />
                   ตรวจสอบสถานะรถ
                 </Link>
               </div>
               <div className="grid max-w-4xl gap-3 pt-5 sm:grid-cols-3">
                 <div className="border-l-4 border-yellow-300 pl-4">
-                  <p className="text-3xl font-extrabold">616 1B</p>
-                  <p className="text-lg font-bold text-blue-100">พัฒนาการ 30</p>
+                  <p className="break-words text-2xl font-extrabold lg:text-3xl">616 1B</p>
+                  <p className="text-base font-bold text-blue-100 sm:text-lg">พัฒนาการ 30</p>
                 </div>
                 <div className="border-l-4 border-yellow-300 pl-4">
-                  <p className="text-3xl font-extrabold">099 265 1133</p>
-                  <p className="text-lg font-bold text-blue-100">โทรสอบถามร้าน</p>
+                  <p className="break-words text-2xl font-extrabold lg:text-3xl">099 265 1133</p>
+                  <p className="text-base font-bold text-blue-100 sm:text-lg">โทรสอบถามร้าน</p>
                 </div>
                 <div className="border-l-4 border-yellow-300 pl-4">
-                  <p className="text-3xl font-extrabold">9:30-18:00</p>
-                  <p className="text-lg font-bold text-blue-100">จันทร์ - เสาร์</p>
+                  <p className="break-words text-2xl font-extrabold lg:text-3xl">9:30-18:00</p>
+                  <p className="text-base font-bold text-blue-100 sm:text-lg">จันทร์ - เสาร์</p>
                 </div>
               </div>
             </div>
           </div>
         </section>
-        <section className="bg-slate-50 py-10">
-          <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-8">
-            <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr] lg:items-center">
-              <div>
+        <section className="bg-white py-8 sm:py-10">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="grid gap-4 md:grid-cols-3">
+              {shopPhotos.map(([src, alt]) => (
+                <div key={src} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 shadow-sm">
+                  <img className="aspect-[4/3] h-auto w-full object-cover transition duration-300 hover:scale-105" src={src} alt={alt} loading="lazy" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+        <section className="bg-slate-50 py-10 sm:py-12">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="grid gap-6 lg:grid-cols-[.85fr_1.15fr] lg:items-center">
+              <div className="min-w-0">
                 <p className="text-lg font-extrabold text-blue-700">เช็คสถานะออนไลน์</p>
-                <h2 className="mt-2 text-4xl font-extrabold leading-tight text-slate-950">ค้นหางานซ่อมได้ทันที ไม่ต้องรอโทรถาม</h2>
-                <p className="mt-3 text-xl leading-8 text-slate-600">กรอกบางส่วนของเลขใบแจ้งหนี้ ทะเบียนรถ ชื่อลูกค้า เบอร์โทร หรือ VIN ระบบจะแสดงสถานะล่าสุดให้ลูกค้าอ่านง่ายบนทุกหน้าจอ</p>
+                <h2 className="mt-2 text-3xl font-extrabold leading-tight text-slate-950 sm:text-4xl">ค้นหางานซ่อมได้ทันที ไม่ต้องรอโทรถาม</h2>
+
+                <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                  <img className="aspect-[16/10] h-auto w-full object-cover" src="/images/jbm-public/JBMa.webp" alt="บรรยากาศอู่ซ่อมรถยุโรป JBM PRO AUTO" loading="lazy" />
+                </div>
               </div>
-              <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+              <div className="min-w-0 rounded-2xl border border-slate-200 bg-white shadow-sm">
                 <CustomerSearch />
               </div>
             </div>
           </div>
         </section>
-        <section id="about" className="bg-white py-14">
-          <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-8">
-            <div className="grid gap-8 lg:grid-cols-[.9fr_1.1fr] lg:items-start">
-              <div className="space-y-4">
-                <p className="text-lg font-extrabold text-blue-700">เกี่ยวกับร้าน</p>
-                <h2 className="text-4xl font-extrabold leading-tight">JBM PRO AUTO</h2>
-                <p className="text-xl leading-9 text-slate-600">อู่ซ่อมรถที่เน้นงานตรวจเช็ก วินิจฉัย และซ่อมบำรุงอย่างเป็นขั้นตอน พร้อมระบบหลังบ้านสำหรับติดตามคิวและสถานะงานซ่อมให้พนักงานใช้งานง่าย</p>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
-                    <p className="text-2xl font-extrabold text-blue-900">อ่านง่าย</p>
-                    <p className="mt-1 text-lg font-bold text-blue-700">ฟอนต์ใหญ่ ปุ่มใหญ่ รองรับพนักงานทุกช่วงวัย</p>
-                  </div>
-                  <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
-                    <p className="text-2xl font-extrabold text-yellow-900">ติดตามชัด</p>
-                    <p className="mt-1 text-lg font-bold text-yellow-800">สถานะ สี และข้อมูลรถแสดงครบถ้วน</p>
-                  </div>
-                </div>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                {services.map(([title, detail, Icon]) => (
-                  <div key={title} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                    <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-lg bg-blue-700 text-white">
-                      <Icon className="h-7 w-7" />
-                    </div>
-                    <h3 className="text-2xl font-extrabold text-slate-950">{title}</h3>
-                    <p className="mt-2 text-lg leading-7 text-slate-600">{detail}</p>
-                  </div>
-                ))}
+        <section id="about" className="bg-white py-12 sm:py-14">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="space-y-4">
+              <p className="text-lg font-extrabold text-blue-700">เกี่ยวกับร้าน</p>
+              <h2 className="text-3xl font-extrabold leading-tight sm:text-4xl">JBM PRO AUTO</h2>
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 shadow-sm">
+                <img className="aspect-[16/10] h-auto w-full object-cover" src="/images/jbm-public/cover.webp" alt="ศูนย์บริการรถยุโรป JBM PRO AUTO" loading="lazy" />
               </div>
             </div>
           </div>
         </section>
-        <section className="bg-slate-950 py-14 text-white">
-          <div className="mx-auto grid max-w-[1440px] gap-8 px-4 sm:px-6 lg:grid-cols-[.9fr_1.1fr] lg:px-8">
+        <section className="bg-slate-50 py-12 sm:py-14">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="mb-6">
+              <p className="text-lg font-extrabold text-blue-700">บริการตามระยะ</p>
+              <h2 className="mt-2 text-3xl font-extrabold leading-tight text-slate-950 sm:text-4xl">เข้าใจ Service A, Service B และงานเช็กระยะก่อนนำรถเข้าอู่</h2>
+            </div>
+            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+              {serviceGuides.map(({ src, title, alt }) => (
+                <article key={src} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                  <img className="aspect-square w-full object-cover" src={src} alt={alt} loading="lazy" />
+                  {title ? (
+                    <div className="p-5">
+                      <h3 className="text-xl font-extrabold text-slate-950 sm:text-2xl">{title}</h3>
+                    </div>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+        <section className="bg-blue-950 py-14 text-white">
+          <div className="mx-auto grid max-w-7xl gap-8 px-4 sm:px-6 lg:grid-cols-[.9fr_1.1fr] lg:px-8">
             <div className="space-y-5">
               <p className="text-lg font-extrabold text-yellow-300">ติดต่อร้าน</p>
-              <h2 className="text-4xl font-extrabold">JBM PRO AUTO</h2>
+              <h2 className="text-3xl font-extrabold sm:text-4xl">JBM PRO AUTO</h2>
               <div className="space-y-4 text-xl leading-8 text-blue-50">
                 <p className="flex gap-3"><MapPin className="mt-1 h-6 w-6 shrink-0 text-yellow-300" />616 1B ซอย พัฒนาการ 30 สวนหลวง เขตสวนหลวง กรุงเทพมหานคร 10250</p>
                 <p className="flex gap-3"><Phone className="mt-1 h-6 w-6 shrink-0 text-yellow-300" />099 265 1133</p>
@@ -822,7 +1189,7 @@ function HomePage() {
                 </a>
               </div>
             </div>
-            <div className="overflow-hidden rounded-xl border border-white/15 bg-white/10 shadow-2xl">
+            <div className="overflow-hidden rounded-2xl border border-white/15 bg-white/10 shadow-2xl">
               <iframe
                 className="h-[360px] w-full border-0 sm:h-[430px]"
                 loading="lazy"
@@ -850,23 +1217,14 @@ function StatusPage() {
     <div className="min-h-screen bg-slate-100">
       <Header />
       <main>
-        <section className="relative overflow-hidden bg-slate-950">
-          <img
-            className="absolute inset-0 h-full w-full object-cover opacity-35"
-            src="https://images.unsplash.com/photo-1632823471565-1ecdf5c35867?auto=format&fit=crop&w=1800&q=80"
-            alt=""
-          />
-          <div className="absolute inset-0 bg-slate-950/70" />
-          <div className="relative mx-auto max-w-[1440px] px-4 py-14 sm:px-6 sm:py-16 lg:px-8">
-            <div className="max-w-4xl text-white">
-              <p className="inline-flex rounded-lg border border-blue-300/40 bg-blue-400/15 px-4 py-2 text-lg font-extrabold text-blue-100">JBM PRO AUTO Service Tracking</p>
-              <h1 className="mt-5 text-4xl font-extrabold leading-tight sm:text-5xl lg:text-6xl">เช็คสถานะรถเข้าศูนย์บริการ</h1>
-              <p className="mt-5 max-w-3xl text-xl leading-9 text-blue-50 sm:text-2xl">ค้นหาข้อมูลเคสซ่อมด้วยชื่อเจ้าของรถ เบอร์โทรศัพท์ ทะเบียนรถ หรือเลขใบแจ้งหนี้ พร้อมดูสถานะปัจจุบันแบบเป็นขั้นตอน</p>
+        <section className="px-4 py-10 sm:px-6 sm:py-14 lg:px-8">
+          <div className="mx-auto max-w-5xl">
+            <div className="mb-6 text-center">
+              <h1 className="text-3xl font-extrabold text-slate-950 sm:text-5xl">เช็คสถานะรถ</h1>
+              <p className="mt-3 text-base font-bold text-slate-600 sm:text-lg">ค้นหาด้วยชื่อ เบอร์โทร ทะเบียนรถ หรือเลขใบแจ้งหนี้</p>
             </div>
+            <CustomerSearch />
           </div>
-        </section>
-        <section className="bg-slate-100 px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
-          <CustomerSearch />
         </section>
       </main>
     </div>
@@ -893,6 +1251,25 @@ function AdminApp() {
   const [selectedVehicle, setSelectedVehicle] = useState(null);
   const [uploadingId, setUploadingId] = useState('');
   const [inShopQuery, setInShopQuery] = useState('');
+  const [shiftLogs, setShiftLogs] = useState(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const saved = window.localStorage.getItem(SHIFT_LOGS_STORAGE_KEY);
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  const [newShiftLog, setNewShiftLog] = useState(() => ({
+    employeeName: DEFAULT_SHIFT_EMPLOYEES[0],
+    date: dateInputValue(new Date()),
+    startTime: '18:00',
+    endTime: '22:00',
+    shiftType: SHIFT_TYPES[0],
+    note: '',
+  }));
+  const [shiftFilters, setShiftFilters] = useState({ month: 'all', year: String(CURRENT_YEAR), employeeName: 'all' });
   const [stockProducts, setStockProducts] = useState(() => {
     if (typeof window === 'undefined') return INITIAL_STOCK_PRODUCTS;
     try {
@@ -978,6 +1355,10 @@ function AdminApp() {
   useEffect(() => {
     window.localStorage.setItem(STOCK_MOVEMENTS_STORAGE_KEY, JSON.stringify(stockMovements));
   }, [stockMovements]);
+
+  useEffect(() => {
+    window.localStorage.setItem(SHIFT_LOGS_STORAGE_KEY, JSON.stringify(shiftLogs));
+  }, [shiftLogs]);
 
   const login = async (event) => {
     event.preventDefault();
@@ -1117,6 +1498,71 @@ function AdminApp() {
     setStockMovements(INITIAL_STOCK_MOVEMENTS);
   }, []);
 
+  const activeEmployees = useMemo(() => {
+    const names = new Set(DEFAULT_SHIFT_EMPLOYEES);
+    shiftLogs.forEach((log) => {
+      if (log.employeeName) names.add(log.employeeName);
+    });
+    return Array.from(names).map((name) => ({ id: name, name }));
+  }, [shiftLogs]);
+
+  const shiftHoursPreview = useMemo(() => (
+    calculateShiftHours(newShiftLog.startTime, newShiftLog.endTime)
+  ), [newShiftLog.endTime, newShiftLog.startTime]);
+
+  const shiftYears = useMemo(() => {
+    const years = new Set([String(CURRENT_YEAR)]);
+    shiftLogs.forEach((log) => {
+      const year = String(log.date || '').slice(0, 4);
+      if (/^\d{4}$/.test(year)) years.add(year);
+    });
+    return Array.from(years).sort((a, b) => Number(b) - Number(a));
+  }, [shiftLogs]);
+
+  const filteredShiftLogs = useMemo(() => {
+    return shiftLogs.filter((log) => {
+      const date = String(log.date || '');
+      if (shiftFilters.month !== 'all' && date.slice(5, 7) !== shiftFilters.month) return false;
+      if (shiftFilters.year !== 'all' && !date.startsWith(shiftFilters.year)) return false;
+      if (shiftFilters.employeeName !== 'all' && log.employeeName !== shiftFilters.employeeName) return false;
+      return true;
+    });
+  }, [shiftFilters, shiftLogs]);
+
+  const shiftSummary = useMemo(() => {
+    const today = dateInputValue(new Date());
+    const month = today.slice(0, 7);
+    const todayRows = shiftLogs.filter((log) => log.date === today);
+    const monthRows = shiftLogs.filter((log) => String(log.date || '').startsWith(month));
+    return {
+      todayCount: todayRows.length,
+      todayOt: todayRows.filter((log) => log.shiftType === 'เวร OT').length,
+      monthHours: Number(monthRows.reduce((sum, log) => sum + Number(log.hours || 0), 0).toFixed(2)),
+    };
+  }, [shiftLogs]);
+
+  const alertCustom = useCallback((message) => {
+    if (typeof window !== 'undefined') window.alert(message);
+  }, []);
+
+  const handleAddShiftLog = useCallback((event) => {
+    event.preventDefault();
+    const hours = calculateShiftHours(newShiftLog.startTime, newShiftLog.endTime);
+    const nextLog = {
+      id: `SHIFT${String(shiftLogs.length + 1).padStart(3, '0')}`,
+      employeeName: newShiftLog.employeeName,
+      date: newShiftLog.date,
+      startTime: newShiftLog.startTime,
+      endTime: newShiftLog.endTime,
+      shiftType: newShiftLog.shiftType,
+      hours,
+      note: newShiftLog.note || '-',
+    };
+    setShiftLogs((current) => [nextLog, ...current]);
+    setNewShiftLog((current) => ({ ...current, note: '' }));
+    alertCustom(`บันทึกเวรของ ${newShiftLog.employeeName} สำเร็จ (${hours} ชั่วโมง)`);
+  }, [alertCustom, newShiftLog, shiftLogs.length]);
+
   const stats = useMemo(() => {
     const finalRows = vehicles.filter(isFinal);
     const today = new Date().toISOString().slice(0, 10);
@@ -1158,13 +1604,26 @@ function AdminApp() {
     return vehicles.filter(isInShop).filter((vehicle) => matchesVehicle(vehicle, inShopQuery));
   }, [inShopQuery, vehicles]);
 
+  const adminNav = [
+    ['dashboard', 'Dashboard', Gauge],
+    ['form', 'เพิ่มคิว / ลงทะเบียนเคสซ่อม', Plus],
+    ['shift-duty', 'จัดการพนักงาน', UserCheck],
+    ['all', 'รถทั้งหมดในระบบ', Car],
+    ['calendar', 'ปฏิทินจองคิว', CalendarDays],
+    ['productStock', 'สต็อกสินค้า', Package],
+    ['in-shop', 'รถค้างในร้าน', Wrench],
+    ['revenue', 'รายงานรายได้', Wallet],
+    ['finance', 'การเงิน', Coins],
+    ['charts', 'รายงาน / กราฟ', ClipboardList],
+  ];
+
   if (!token) {
     return (
       <div className="min-h-screen bg-slate-50">
         <Header admin />
         <main className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-xl items-center px-4 py-10 sm:px-6">
           <form onSubmit={login} className="w-full rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h1 className="text-3xl font-extrabold text-slate-950">เข้าสู่ระบบแอดมิน</h1>
+            <h1 className="text-3xl font-extrabold text-slate-950">เข้าสู่ระบบ</h1>
             <p className="mt-1 text-xl text-slate-600">ป้องกันหลังบ้านสำหรับพนักงาน</p>
             <label className="mt-6 block text-xl font-extrabold text-slate-700" htmlFor="admin-token">รหัสพนักงาน</label>
             <input
@@ -1185,21 +1644,12 @@ function AdminApp() {
     );
   }
 
-  const nav = [
-    ['dashboard', 'Dashboard', Gauge],
-    ['form', 'เพิ่มคิว / ลงทะเบียนเคสซ่อม', Plus],
-    ['all', 'รถทั้งหมดในระบบ', Car],
-    ['calendar', 'ปฏิทินจองคิว', CalendarDays],
-    ['productStock', 'สต็อกสินค้า', Package],
-    ['in-shop', 'รถค้างในร้าน', Wrench],
-    ['finance', 'การเงิน', Coins],
-    ['charts', 'กราฟ', ClipboardList],
-  ];
+  const allAdminNav = adminNav;
 
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="lg:flex">
-        <aside className={`fixed inset-y-0 left-0 z-40 w-[280px] transform border-r border-slate-200 bg-white transition lg:static lg:translate-x-0 ${mobileMenu ? 'translate-x-0' : '-translate-x-full'}`}>
+        <aside className={`fixed inset-y-0 left-0 z-40 w-[280px] max-w-[86vw] transform overflow-y-auto border-r border-slate-200 bg-white transition lg:static lg:max-w-none lg:translate-x-0 ${mobileMenu ? 'translate-x-0' : '-translate-x-full'}`}>
           <div className="flex h-16 items-center justify-between border-b border-slate-200 px-4">
             <Link href="/" className="flex items-center gap-2 text-xl font-extrabold text-blue-700">
               <Wrench className="h-7 w-7" />
@@ -1208,37 +1658,37 @@ function AdminApp() {
             <button className="rounded-lg p-2 text-slate-600 lg:hidden" onClick={() => setMobileMenu(false)} type="button" aria-label="ปิดเมนู"><X className="h-7 w-7" /></button>
           </div>
           <nav className="space-y-1 p-3">
-            {nav.map(([key, label, Icon]) => (
+            {adminNav.map(([key, label, Icon]) => (
               <button
                 key={key}
                 onClick={() => {
                   setActiveTab(key);
                   if (key === 'form') setEditing({ ...emptyVehicle });
                 }}
-                className={`flex min-h-14 w-full items-center gap-3 rounded-lg px-3 text-left text-lg font-extrabold ${activeTab === key ? 'bg-blue-700 text-white' : 'text-slate-700 hover:bg-slate-100'}`}
+                className={`flex min-h-14 w-full items-center gap-3 rounded-lg px-3 text-left text-base font-extrabold sm:text-lg ${activeTab === key ? 'bg-blue-700 text-white' : 'text-slate-700 hover:bg-slate-100'}`}
                 type="button"
               >
-                <Icon className="h-6 w-6" />
-                {label}
+                <Icon className="h-6 w-6 shrink-0" />
+                <span className="min-w-0 break-words">{label}</span>
               </button>
             ))}
           </nav>
         </aside>
-        <main className="min-h-screen flex-1">
+        <main className="min-h-screen min-w-0 flex-1">
           <div className="sticky top-0 z-20 flex min-h-16 items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6">
             <button className="rounded-lg border border-slate-200 p-2 text-slate-700 lg:hidden" onClick={() => setMobileMenu(true)} type="button" aria-label="เปิดเมนู"><Menu className="h-7 w-7" /></button>
-            <div>
-              <h1 className="text-3xl font-extrabold">{nav.find(([key]) => key === activeTab)?.[1]}</h1>
-            <p className="text-lg text-slate-500">สีสถานะชัดเจน | ปิดงานไม่นับเป็นรถค้างในร้าน</p>
+            <div className="min-w-0">
+              <h1 className="break-words text-2xl font-extrabold sm:text-3xl">{allAdminNav.find(([key]) => key === activeTab)?.[1]}</h1>
             </div>
-            <button className="inline-flex min-h-12 items-center gap-2 rounded-lg border border-slate-200 px-4 text-lg font-extrabold text-slate-700 hover:bg-slate-50" onClick={logout} type="button">
+            <button className="inline-flex min-h-12 shrink-0 items-center gap-2 rounded-lg border border-slate-200 px-3 text-base font-extrabold text-slate-700 hover:bg-slate-50 sm:px-4 sm:text-lg" onClick={logout} type="button">
               <Lock className="h-5 w-5" />
-              ออก
+              ออกจากระบบ
             </button>
           </div>
           <div className="space-y-6 p-4 sm:p-6">
-            {activeTab === 'dashboard' && <Dashboard stats={stats} vehicles={vehicles} stockProducts={stockProducts} statusFilter={dashboardStatusFilter} setStatusFilter={setDashboardStatusFilter} />}
+            {activeTab === 'dashboard' && <Dashboard stats={stats} vehicles={vehicles} stockProducts={stockProducts} shiftSummary={shiftSummary} statusFilter={dashboardStatusFilter} setStatusFilter={setDashboardStatusFilter} />}
             {activeTab === 'form' && <VehicleForm initial={editing || emptyVehicle} onSave={saveVehicle} onCancel={() => setActiveTab('dashboard')} />}
+            {activeTab === 'shift-duty' && <ShiftDutyPage />}
             {activeTab === 'all' && (
               <VehicleTable
                 title="รถทั้งหมดในระบบ"
@@ -1323,6 +1773,32 @@ function StockProductPage({ products, categories, movements, onAdjustQuantity, o
     };
   }, [products]);
   const activeCategories = useMemo(() => categories.filter((category) => category.is_active), [categories]);
+  const exportFilteredProducts = () => {
+    downloadCsv(
+      `stock-products-${filterSegment(categoryFilter)}-${filterSegment(stockFilter)}.csv`,
+      [
+        { key: 'code', label: 'รหัสสินค้า' },
+        { key: 'part_no', label: 'Part No.' },
+        { key: 'name', label: 'ชื่อสินค้า' },
+        { key: 'category', label: 'หมวดหมู่' },
+        { key: 'brand', label: 'ยี่ห้อ' },
+        { key: 'car_models', label: 'รุ่นรถที่รองรับ' },
+        { key: 'engine_number', label: 'เครื่องยนต์' },
+        { key: 'supplier', label: 'ผู้จำหน่าย' },
+        { key: 'price', label: 'ราคา' },
+        { key: 'quantity', label: 'คงเหลือ' },
+        { key: 'status', label: 'สถานะ' },
+        { key: 'location', label: 'ตำแหน่งจัดเก็บ' },
+        { key: 'note', label: 'หมายเหตุ' },
+      ],
+      filteredProducts.map((product) => ({
+        ...product,
+        price: Number(product.price || 0),
+        quantity: Number(product.quantity || 0),
+        status: stockStatus(product),
+      })),
+    );
+  };
 
   return (
     <section className="space-y-5">
@@ -1385,7 +1861,7 @@ function StockProductPage({ products, categories, movements, onAdjustQuantity, o
           </div>
 
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="grid gap-3 xl:grid-cols-[1.6fr_1fr_1fr]">
+            <div className="grid gap-3 xl:grid-cols-[1.6fr_1fr_1fr_auto]">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
                 <input value={search} onChange={(event) => setSearch(event.target.value)} className="min-h-12 w-full rounded-lg border border-slate-300 bg-white pl-11 pr-4 text-lg font-bold text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100" placeholder="ค้นหารหัส ชื่อ Part No. ยี่ห้อ รถ เครื่องยนต์ หรือผู้จำหน่าย" />
@@ -1400,11 +1876,15 @@ function StockProductPage({ products, categories, movements, onAdjustQuantity, o
                 <option value="ใกล้หมด">ใกล้หมด</option>
                 <option value="หมดสต็อก">หมดสต็อก</option>
               </select>
+              <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 text-lg font-extrabold text-emerald-800 hover:bg-emerald-100" onClick={exportFilteredProducts} type="button">
+                <Download className="h-5 w-5" />
+                Export CSV
+              </button>
             </div>
           </div>
 
-          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-            <table className="w-full min-w-[1280px] text-left text-lg">
+          <div className="max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+            <table className="w-full min-w-[860px] text-left text-base md:min-w-[1280px] md:text-lg">
               <thead className="bg-slate-100 text-base font-extrabold text-slate-600">
                 <tr>
                   <th className="p-4">รหัส / Part No.</th>
@@ -1548,8 +2028,8 @@ function StockCategoryManager({ categories, products, onEdit, onToggle, onAdd })
 
 function StockMovementHistory({ movements }) {
   return (
-    <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-      <table className="w-full min-w-[1080px] text-left text-lg">
+    <section className="max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+      <table className="w-full min-w-[760px] text-left text-base md:min-w-[1080px] md:text-lg">
         <thead className="bg-slate-100 text-base font-extrabold text-slate-600">
           <tr>
             <th className="p-4">วันเวลา</th>
@@ -1591,6 +2071,7 @@ function StockProductImage({ product, className }) {
         className={`shrink-0 rounded-lg border border-slate-200 bg-white object-cover ${className}`}
         src={product.image_url}
         alt={product.name || 'รูปสินค้า'}
+        loading="lazy"
       />
     );
   }
@@ -1614,8 +2095,8 @@ function StockProductModal({ product, categories, onClose, onSave }) {
     onSave({ ...form, quantity: Math.max(0, Number(form.quantity || 0)), reorder_point: Math.max(0, Number(form.reorder_point || 0)), price: Math.max(0, Number(form.price || 0)) });
   };
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/50 p-0 sm:items-center sm:p-4">
-      <form onSubmit={submit} className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:rounded-2xl">
+    <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-slate-950/50 p-0 sm:items-center sm:p-4">
+      <form onSubmit={submit} className="max-h-[92vh] w-full max-w-[calc(100vw-1rem)] overflow-y-auto rounded-t-2xl bg-white p-4 shadow-2xl sm:max-w-5xl sm:rounded-2xl sm:p-5">
         <StockModalHeader title={product.id ? 'แก้ไขสินค้า' : 'เพิ่มสินค้า'} onClose={onClose} />
         <div className="mb-5 flex flex-col gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center">
           <StockProductImage product={form} className="h-28 w-28" />
@@ -1660,8 +2141,8 @@ function StockProductModal({ product, categories, onClose, onSave }) {
 function StockProductDetail({ product, onClose }) {
   const rows = [['รหัสสินค้า', product.code], ['ชื่อสินค้า', product.name], ['Part No.', product.part_no], ['หมวดหมู่', product.category], ['ยี่ห้อ', product.brand], ['รถที่รองรับ', product.car_models], ['ราคาสินค้า', `฿${money(product.price)}`], ['ตำแหน่งจัดเก็บ', product.location], ['คงเหลือ', `${product.quantity} ชิ้น`], ['จุดเตือนขั้นต่ำ', product.reorder_point], ['ผู้จัดจำหน่าย', product.supplier], ['หมายเลขเครื่องยนต์', product.engine_number], ['หมายเหตุ', product.note]];
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/50 p-0 sm:items-center sm:p-4">
-      <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:rounded-2xl">
+    <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-slate-950/50 p-0 sm:items-center sm:p-4">
+      <div className="max-h-[92vh] w-full max-w-[calc(100vw-1rem)] overflow-y-auto rounded-t-2xl bg-white p-4 shadow-2xl sm:max-w-4xl sm:rounded-2xl sm:p-5">
         <StockModalHeader title="รายละเอียดสินค้า" onClose={onClose} />
         <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
           <StockProductImage product={product} className="h-44 w-full" />
@@ -1680,8 +2161,8 @@ function StockCategoryModal({ category, onClose, onSave }) {
     onSave(form);
   };
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/50 p-0 sm:items-center sm:p-4">
-      <form onSubmit={submit} className="w-full max-w-xl rounded-t-2xl bg-white p-5 shadow-2xl sm:rounded-2xl">
+    <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-slate-950/50 p-0 sm:items-center sm:p-4">
+      <form onSubmit={submit} className="w-full max-w-[calc(100vw-1rem)] rounded-t-2xl bg-white p-4 shadow-2xl sm:max-w-xl sm:rounded-2xl sm:p-5">
         <StockModalHeader title={category.id ? 'แก้ไขหมวดหมู่' : 'เพิ่มหมวดหมู่'} onClose={onClose} />
         <StockInput label="ชื่อหมวดหมู่" value={form.name} onChange={(value) => setForm((current) => ({ ...current, name: value }))} />
         <label className="mt-4 flex items-center gap-3 text-xl font-extrabold text-slate-800"><input checked={form.is_active} onChange={(event) => setForm((current) => ({ ...current, is_active: event.target.checked }))} type="checkbox" className="h-5 w-5" />เปิดใช้งานหมวดหมู่</label>
@@ -1693,8 +2174,8 @@ function StockCategoryModal({ category, onClose, onSave }) {
 
 function StockConfirmDialog({ title, message, confirmText, onCancel, onConfirm }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/50 p-0 sm:items-center sm:p-4">
-      <div className="w-full max-w-xl rounded-t-2xl bg-white p-5 shadow-2xl sm:rounded-2xl" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-slate-950/50 p-0 sm:items-center sm:p-4">
+      <div className="w-full max-w-[calc(100vw-1rem)] rounded-t-2xl bg-white p-4 shadow-2xl sm:max-w-xl sm:rounded-2xl sm:p-5" role="dialog" aria-modal="true">
         <div className="mb-5 flex items-start justify-between gap-4 border-b border-slate-200 pb-4">
           <div>
             <h2 className="text-3xl font-extrabold text-slate-950">{title}</h2>
@@ -1744,6 +2225,949 @@ function StockModalActions({ onClose }) {
   );
 }
 
+function ShiftDutyPage() {
+  const today = dateInputValue(new Date());
+  const current = currentYearMonth();
+  const emptyEmployee = { id: '', code: '', status: EMPLOYEE_STATUSES[0], firstName: '', lastName: '', nickname: '', position: DEFAULT_EMPLOYEE_POSITIONS[4] };
+  const emptyLeave = { employeeId: '', type: LEAVE_TYPES[0], startDate: today, endDate: today, approver: '', reason: '' };
+  const [attendanceSettings, setAttendanceSettings] = useState(() => readAttendanceSettings());
+  const emptyAttendance = {
+    employeeId: '',
+    date: today,
+    morningIn: attendanceSettings.morningStart,
+    lunchOut: attendanceSettings.lunchOut,
+    afternoonIn: attendanceSettings.afternoonStart,
+    eveningOut: attendanceSettings.workEnd,
+    method: 'auto',
+  };
+  const [employees, setEmployees] = useState(() => readStorageArray(EMPLOYEES_STORAGE_KEY).map(normalizeEmployee));
+  const [positions, setPositions] = useState(() => Array.from(new Set([...DEFAULT_EMPLOYEE_POSITIONS, ...readStorageArray(EMPLOYEE_POSITIONS_STORAGE_KEY).filter(Boolean)])));
+  const [attendanceLogs, setAttendanceLogs] = useState(() => readStorageArray(EMPLOYEE_ATTENDANCE_STORAGE_KEY));
+  const [leaveLogs, setLeaveLogs] = useState(() => readStorageArray(EMPLOYEE_LEAVES_STORAGE_KEY));
+  const [employeeForm, setEmployeeForm] = useState(emptyEmployee);
+  const [customPosition, setCustomPosition] = useState('');
+  const [detailEmployee, setDetailEmployee] = useState(null);
+  const [attendanceForm, setAttendanceForm] = useState(emptyAttendance);
+  const [editingAttendanceId, setEditingAttendanceId] = useState('');
+  const [historyFilters, setHistoryFilters] = useState({ day: 'all', month: current.month, year: current.year, employeeId: 'all', position: 'all', status: 'all' });
+  const [clearAttendance, setClearAttendance] = useState({ month: current.month, year: current.year });
+  const [leaveForm, setLeaveForm] = useState(emptyLeave);
+  const [editingLeaveId, setEditingLeaveId] = useState('');
+  const [leaveFilters, setLeaveFilters] = useState({ month: current.month, year: current.year });
+  const [clearLeaves, setClearLeaves] = useState({ month: current.month, year: current.year });
+  const [summaryFilters, setSummaryFilters] = useState({ day: 'all', month: current.month, year: current.year });
+  const [employeeSubTab, setEmployeeSubTab] = useState('dashboard');
+
+  useEffect(() => {
+    window.localStorage.setItem(EMPLOYEES_STORAGE_KEY, JSON.stringify(employees));
+  }, [employees]);
+
+  useEffect(() => {
+    window.localStorage.setItem(EMPLOYEE_ATTENDANCE_SETTINGS_STORAGE_KEY, JSON.stringify(normalizeAttendanceSettings(attendanceSettings)));
+  }, [attendanceSettings]);
+
+  useEffect(() => {
+    window.localStorage.setItem(EMPLOYEE_POSITIONS_STORAGE_KEY, JSON.stringify(positions.filter((position) => !DEFAULT_EMPLOYEE_POSITIONS.includes(position))));
+  }, [positions]);
+
+  useEffect(() => {
+    window.localStorage.setItem(EMPLOYEE_ATTENDANCE_STORAGE_KEY, JSON.stringify(attendanceLogs));
+  }, [attendanceLogs]);
+
+  useEffect(() => {
+    window.localStorage.setItem(EMPLOYEE_LEAVES_STORAGE_KEY, JSON.stringify(leaveLogs));
+  }, [leaveLogs]);
+
+  const employeeMap = useMemo(() => new Map(employees.map((employee) => [employee.id, employee])), [employees]);
+  const activeEmployees = employees.filter((employee) => employee.status === 'ทำงานอยู่');
+  const years = useMemo(() => {
+    const startYear = new Date().getFullYear();
+    const items = new Set(Array.from({ length: 11 }, (_, index) => String(startYear + index)));
+    attendanceLogs.forEach((log) => items.add(String(log.date || '').slice(0, 4)));
+    leaveLogs.forEach((log) => items.add(String(log.submittedAt || log.startDate || '').slice(0, 4)));
+    return Array.from(items).filter((year) => /^\d{4}$/.test(year)).sort((a, b) => Number(a) - Number(b));
+  }, [attendanceLogs, leaveLogs]);
+
+  const enrichedAttendance = useMemo(() => attendanceLogs.map((log) => {
+    const employee = employeeMap.get(log.employeeId) || {};
+    return { ...log, employee };
+  }), [attendanceLogs, employeeMap]);
+
+  const dashboardSummary = useMemo(() => ATTENDANCE_STATUS_KEYS.map((status) => ({
+    status,
+    count: enrichedAttendance.filter((log) => log.status === status && String(log.date || '').startsWith(`${current.year}-${current.month}`)).length,
+  })), [current.month, current.year, enrichedAttendance]);
+
+  const filteredAttendance = useMemo(() => enrichedAttendance.filter((log) => {
+    const date = String(log.date || '');
+    if (historyFilters.day !== 'all' && date.slice(8, 10) !== historyFilters.day) return false;
+    if (historyFilters.month !== 'all' && date.slice(5, 7) !== historyFilters.month) return false;
+    if (historyFilters.year !== 'all' && !date.startsWith(historyFilters.year)) return false;
+    if (historyFilters.employeeId !== 'all' && log.employeeId !== historyFilters.employeeId) return false;
+    if (historyFilters.position !== 'all' && log.employee.position !== historyFilters.position) return false;
+    if (historyFilters.status !== 'all' && log.status !== historyFilters.status) return false;
+    return true;
+  }), [enrichedAttendance, historyFilters]);
+
+  const filteredLeaveLogs = useMemo(() => leaveLogs.filter((log) => {
+    const submittedAt = String(log.submittedAt || '');
+    if (leaveFilters.month !== 'all' && submittedAt.slice(5, 7) !== leaveFilters.month) return false;
+    if (leaveFilters.year !== 'all' && !submittedAt.startsWith(leaveFilters.year)) return false;
+    return true;
+  }), [leaveFilters, leaveLogs]);
+  const customPositions = useMemo(() => positions.filter((position) => (
+    position && !DEFAULT_EMPLOYEE_POSITIONS.includes(position) && position !== OTHER_EMPLOYEE_POSITION
+  )), [positions]);
+
+  const matchesSummaryDate = useCallback((date) => {
+    const key = String(date || '').slice(0, 10);
+    if (summaryFilters.year !== 'all' && !key.startsWith(summaryFilters.year)) return false;
+    if (summaryFilters.month !== 'all' && key.slice(5, 7) !== summaryFilters.month) return false;
+    if (summaryFilters.day !== 'all' && key.slice(8, 10) !== summaryFilters.day) return false;
+    return true;
+  }, [summaryFilters]);
+
+  const leaveDays = countLeaveDays(leaveForm.startDate, leaveForm.endDate);
+  const summaryRows = employees.map((employee) => {
+    const monthRows = attendanceLogs.filter((log) => {
+      if (log.employeeId !== employee.id) return false;
+      return matchesSummaryDate(log.date);
+    });
+    const yearRows = attendanceLogs.filter((log) => log.employeeId === employee.id && String(log.date || '').startsWith(summaryFilters.year));
+    return {
+      employee,
+      filteredDays: monthRows.length,
+      monthHours: Number(monthRows.reduce((sum, log) => sum + Number(log.hours || 0), 0).toFixed(2)),
+      yearHours: Number(yearRows.reduce((sum, log) => sum + Number(log.hours || 0), 0).toFixed(2)),
+    };
+  });
+
+  const comparisonRows = employees.map((employee) => {
+    const rows = attendanceLogs.filter((log) => log.employeeId === employee.id && matchesSummaryDate(log.date));
+    const leaveRows = leaveLogs.filter((log) => log.employeeId === employee.id);
+    const counts = ATTENDANCE_STATUS_KEYS.reduce((acc, status) => ({ ...acc, [status]: rows.filter((log) => log.status === status).length }), {});
+    leaveRows.forEach((log) => {
+      if (!LEAVE_TYPES.includes(log.type)) return;
+      daysInDateRange(log.startDate, log.endDate).forEach((date) => {
+        if (matchesSummaryDate(date)) counts[log.type] = Number(counts[log.type] || 0) + 1;
+      });
+    });
+    return {
+      employee,
+      counts,
+    };
+  });
+  const exportEmployeeSummary = () => {
+    downloadCsv(
+      `employee-summary-${filterSegment(summaryFilters.year)}-${filterSegment(summaryFilters.month)}-${filterSegment(summaryFilters.day)}.csv`,
+      [
+        { key: 'code', label: 'รหัสพนักงาน' },
+        { key: 'fullName', label: 'ชื่อ-นามสกุล' },
+        { key: 'nickname', label: 'ชื่อเล่น' },
+        { key: 'position', label: 'ตำแหน่ง' },
+        { key: 'filteredDays', label: 'จำนวนวันลงเวลา' },
+        { key: 'monthHours', label: 'ชั่วโมงตามตัวกรอง' },
+        { key: 'yearHours', label: 'ชั่วโมงตลอดปี' },
+        { key: 'status', label: 'สถานะพนักงาน' },
+      ],
+      summaryRows.map((row) => ({
+        code: row.employee.code,
+        fullName: employeeFullName(row.employee),
+        nickname: row.employee.nickname || '-',
+        position: row.employee.position || '-',
+        filteredDays: row.filteredDays,
+        monthHours: row.monthHours,
+        yearHours: row.yearHours,
+        status: row.employee.status || '-',
+      })),
+    );
+  };
+  const exportAttendanceHistory = () => {
+    downloadCsv(
+      `employee-attendance-${filterSegment(historyFilters.year)}-${filterSegment(historyFilters.month)}.csv`,
+      [
+        { key: 'date', label: 'วันที่' },
+        { key: 'employeeCode', label: 'รหัสพนักงาน' },
+        { key: 'fullName', label: 'ชื่อ-นามสกุล' },
+        { key: 'nickname', label: 'ชื่อเล่น' },
+        { key: 'position', label: 'ตำแหน่ง' },
+        { key: 'morningIn', label: 'เวลาเข้าเช้า' },
+        { key: 'lunchOut', label: 'เวลาออกพักเที่ยง' },
+        { key: 'afternoonIn', label: 'เวลากลับจากพัก' },
+        { key: 'eveningOut', label: 'เวลาออกงานเย็น' },
+        { key: 'status', label: 'สถานะ' },
+        { key: 'hours', label: 'ชั่วโมงทำงานรวม' },
+      ],
+      filteredAttendance.map((log) => ({
+        date: dateText(log.date),
+        employeeCode: log.employee.code || log.employeeCode || '-',
+        fullName: employeeFullName(log.employee),
+        nickname: log.employee.nickname || '-',
+        position: log.employee.position || '-',
+        morningIn: log.morningIn || '-',
+        lunchOut: log.lunchOut || '-',
+        afternoonIn: log.afternoonIn || '-',
+        eveningOut: log.eveningOut || '-',
+        status: log.status || '-',
+        hours: Number(log.hours || 0),
+      })),
+    );
+  };
+  const exportLeaveReport = () => {
+    downloadCsv(
+      `employee-leaves-${filterSegment(leaveFilters.year)}-${filterSegment(leaveFilters.month)}.csv`,
+      [
+        { key: 'submittedAt', label: 'วันที่ยื่น' },
+        { key: 'employeeCode', label: 'รหัสพนักงาน' },
+        { key: 'fullName', label: 'พนักงาน' },
+        { key: 'type', label: 'ประเภทลา' },
+        { key: 'startDate', label: 'ตั้งแต่วันที่' },
+        { key: 'endDate', label: 'ถึงวันที่' },
+        { key: 'totalDays', label: 'รวมวัน' },
+        { key: 'approver', label: 'ผู้อนุมัติ' },
+        { key: 'reason', label: 'สาเหตุ' },
+      ],
+      filteredLeaveLogs.map((log) => {
+        const employee = employeeMap.get(log.employeeId) || {};
+        return {
+          submittedAt: dateText(log.submittedAt),
+          employeeCode: employee.code || log.employeeCode || '-',
+          fullName: employeeFullName(employee),
+          type: log.type || '-',
+          startDate: dateText(log.startDate),
+          endDate: dateText(log.endDate),
+          totalDays: Number(log.totalDays || 0),
+          approver: log.approver || '-',
+          reason: log.reason || '-',
+        };
+      }),
+    );
+  };
+  const attendancePreviewStatus = calculateAttendanceStatus(attendanceForm.method, attendanceForm.morningIn, attendanceForm.afternoonIn, attendanceSettings);
+  const attendancePreviewHours = attendancePreviewStatus === 'มาทำงาน' || attendancePreviewStatus.startsWith('สาย')
+    ? calculateWorkHours(attendanceForm.morningIn, attendanceForm.lunchOut, attendanceForm.afternoonIn, attendanceForm.eveningOut)
+    : 0;
+  const isEditingEmployee = Boolean(employeeForm.id);
+  const editingAttendance = editingAttendanceId ? attendanceLogs.find((log) => log.id === editingAttendanceId) : null;
+  const editingLeave = editingLeaveId ? leaveLogs.find((log) => log.id === editingLeaveId) : null;
+
+  const saveEmployee = (event) => {
+    event.preventDefault();
+    const normalized = normalizeEmployee(employeeForm);
+    const previousEmployee = normalized.id ? employees.find((employee) => employee.id === normalized.id) || null : null;
+    const nextPosition = normalized.position === OTHER_EMPLOYEE_POSITION ? customPosition.trim() : normalized.position;
+    if (!normalized.code || !normalized.firstName || !normalized.lastName || !normalized.nickname || !nextPosition) {
+      window.alert('กรุณากรอกรหัสพนักงาน ชื่อจริง นามสกุล ชื่อเล่น และตำแหน่งงาน');
+      return;
+    }
+    const duplicateCode = employees.some((employee) => employee.code === normalized.code && employee.id !== normalized.id);
+    if (duplicateCode) {
+      window.alert(`รหัสพนักงาน ${normalized.code} ถูกใช้งานแล้ว`);
+      return;
+    }
+    const nextEmployee = { ...normalized, position: nextPosition };
+    if (!positions.includes(nextPosition)) setPositions((items) => [...items, nextPosition]);
+    setEmployees((items) => (items.some((item) => item.id === nextEmployee.id) ? items.map((item) => (item.id === nextEmployee.id ? nextEmployee : item)) : [nextEmployee, ...items]));
+    addAuditLog({
+      action: previousEmployee ? 'UPDATE' : 'CREATE',
+      module: 'EMPLOYEE',
+      targetId: nextEmployee.id,
+      targetLabel: `${nextEmployee.code} ${employeeFullName(nextEmployee)}`.trim(),
+      beforeData: previousEmployee,
+      afterData: nextEmployee,
+    });
+    setEmployeeForm(emptyEmployee);
+    setCustomPosition('');
+  };
+
+  const editEmployee = (employee) => {
+    setEmployeeForm(normalizeEmployee(employee));
+    setCustomPosition('');
+  };
+
+  const cancelEmployeeEdit = () => {
+    setEmployeeForm(emptyEmployee);
+    setCustomPosition('');
+  };
+
+  const deleteEmployee = (employee) => {
+    if (!window.confirm(`ยืนยันการลบข้อมูลพนักงาน ${employeeFullName(employee)}`)) return;
+    const previousEmployee = employees.find((item) => item.id === employee.id) || employee;
+    setEmployees((items) => items.filter((item) => item.id !== employee.id));
+    addAuditLog({
+      action: 'DELETE',
+      module: 'EMPLOYEE',
+      targetId: previousEmployee.id,
+      targetLabel: `${previousEmployee.code} ${employeeFullName(previousEmployee)}`.trim(),
+      beforeData: previousEmployee,
+      afterData: null,
+    });
+    if (employeeForm.id === employee.id) cancelEmployeeEdit();
+    if (detailEmployee?.id === employee.id) setDetailEmployee(null);
+  };
+
+  const deleteCustomPosition = (position) => {
+    if (DEFAULT_EMPLOYEE_POSITIONS.includes(position) || position === OTHER_EMPLOYEE_POSITION) return;
+    const usedBy = employees.filter((employee) => employee.position === position);
+    if (usedBy.length > 0) {
+      window.alert(`ไม่สามารถลบตำแหน่ง "${position}" ได้ เพราะมีพนักงานใช้อยู่ ${usedBy.length} คน`);
+      return;
+    }
+    if (!window.confirm(`ยืนยันการลบตำแหน่ง "${position}"`)) return;
+    setPositions((items) => items.filter((item) => item !== position));
+    if (employeeForm.position === position) setEmployeeForm((form) => ({ ...form, position: DEFAULT_EMPLOYEE_POSITIONS[4] }));
+  };
+
+  const saveAttendance = (event) => {
+    event.preventDefault();
+    const previousLog = editingAttendanceId ? attendanceLogs.find((log) => log.id === editingAttendanceId) || null : null;
+    if (!attendanceForm.employeeId) {
+      window.alert('กรุณาเลือกพนักงาน');
+      return;
+    }
+    const normalizedMorningIn = finalizeTimeInput(attendanceForm.morningIn);
+    const normalizedLunchOut = finalizeTimeInput(attendanceForm.lunchOut);
+    const normalizedAfternoonIn = finalizeTimeInput(attendanceForm.afternoonIn);
+    const normalizedEveningOut = finalizeTimeInput(attendanceForm.eveningOut);
+    const isAutoMode = isAttendanceAutoMode(attendanceForm.method);
+    if (isAutoMode) {
+      const requiredFields = [
+        ['เวลาเข้าเช้า', normalizedMorningIn],
+        ['เวลาออกพักเที่ยง', normalizedLunchOut],
+        ['เวลากลับจากพัก', normalizedAfternoonIn],
+        ['เวลาออกงานเย็น', normalizedEveningOut],
+      ];
+      if (requiredFields.some(([_, value]) => !String(value || '').trim())) {
+        window.alert('กรุณากรอกเวลาให้ครบ 4 ช่องเมื่อใช้โหมดคำนวณอัตโนมัติ');
+        return;
+      }
+      const timeError = validateTimeFields(requiredFields);
+      if (timeError) {
+        window.alert(timeError);
+        return;
+      }
+      if (calculateWorkHours(normalizedMorningIn, normalizedLunchOut, normalizedAfternoonIn, normalizedEveningOut) <= 0) {
+        window.alert('เวลาเข้างานไม่ถูกต้อง กรุณาตรวจสอบช่วงเวลาอีกครั้ง');
+        return;
+      }
+    }
+    const employee = employeeMap.get(attendanceForm.employeeId);
+    const status = attendancePreviewStatus;
+    const hasWorkHours = status === 'มาทำงาน' || status.startsWith('สาย');
+    const nextLog = {
+      id: editingAttendanceId || `att-${Date.now()}`,
+      ...attendanceForm,
+      morningIn: hasWorkHours ? normalizedMorningIn : '',
+      lunchOut: hasWorkHours ? normalizedLunchOut : '',
+      afternoonIn: hasWorkHours ? normalizedAfternoonIn : '',
+      eveningOut: hasWorkHours ? normalizedEveningOut : '',
+      employeeCode: employee?.code || '',
+      status,
+      hours: hasWorkHours ? calculateWorkHours(normalizedMorningIn, normalizedLunchOut, normalizedAfternoonIn, normalizedEveningOut) : 0,
+      createdAt: editingAttendanceId ? (attendanceLogs.find((log) => log.id === editingAttendanceId)?.createdAt || new Date().toISOString()) : new Date().toISOString(),
+    };
+    setAttendanceLogs((items) => (editingAttendanceId
+      ? items.map((item) => (item.id === editingAttendanceId ? nextLog : item))
+      : [nextLog, ...items]));
+    addAuditLog({
+      action: previousLog ? 'UPDATE' : 'CREATE',
+      module: 'ATTENDANCE',
+      targetId: nextLog.id,
+      targetLabel: `${employee?.code || '-'} ${employeeFullName(employee || {})} ${nextLog.date}`.trim(),
+      beforeData: previousLog,
+      afterData: nextLog,
+    });
+    setAttendanceForm((form) => ({ ...emptyAttendance, employeeId: form.employeeId, date: form.date }));
+    setEditingAttendanceId('');
+  };
+
+  const editAttendance = (log) => {
+    const method = log.method === 'leave' ? 'ขาดงาน' : (log.method || (ATTENDANCE_STATUS_KEYS.includes(log.status) && log.status !== 'มาทำงาน' && !String(log.status || '').startsWith('สาย') ? log.status : 'auto'));
+    setAttendanceForm({
+      employeeId: log.employeeId || '',
+      date: String(log.date || today).slice(0, 10),
+      morningIn: log.morningIn || attendanceSettings.morningStart,
+      lunchOut: log.lunchOut || attendanceSettings.lunchOut,
+      afternoonIn: log.afternoonIn || attendanceSettings.afternoonStart,
+      eveningOut: log.eveningOut || attendanceSettings.workEnd,
+      method,
+    });
+    setEditingAttendanceId(log.id);
+  };
+
+  const cancelAttendanceEdit = () => {
+    setAttendanceForm(emptyAttendance);
+    setEditingAttendanceId('');
+  };
+
+  const deleteAttendance = (log) => {
+    const employee = employeeMap.get(log.employeeId) || {};
+    if (!window.confirm(`ยืนยันการลบประวัติลงเวลาของ ${employeeFullName(employee)} วันที่ ${dateText(log.date)}`)) return;
+    const previousLog = attendanceLogs.find((item) => item.id === log.id) || log;
+    setAttendanceLogs((items) => items.filter((item) => item.id !== log.id));
+    addAuditLog({
+      action: 'DELETE',
+      module: 'ATTENDANCE',
+      targetId: previousLog.id,
+      targetLabel: `${employee?.code || previousLog.employeeCode || '-'} ${employeeFullName(employee)} ${previousLog.date}`.trim(),
+      beforeData: previousLog,
+      afterData: null,
+    });
+    if (editingAttendanceId === log.id) cancelAttendanceEdit();
+  };
+
+  const clearAttendanceMonth = () => {
+    if (!clearAttendance.month || !clearAttendance.year) return;
+    if (!window.confirm(`ยืนยันล้างประวัติตอกเวลาของเดือน ${clearAttendance.month}/${Number(clearAttendance.year) + 543}`)) return;
+    const prefix = `${clearAttendance.year}-${clearAttendance.month}`;
+    setAttendanceLogs((items) => items.filter((log) => !String(log.date || '').startsWith(prefix)));
+  };
+
+  const saveLeave = (event) => {
+    event.preventDefault();
+    const previousLeave = editingLeaveId ? leaveLogs.find((log) => log.id === editingLeaveId) || null : null;
+    if (!leaveForm.employeeId || leaveDays <= 0) {
+      window.alert('กรุณาเลือกพนักงานและช่วงวันที่ลาให้ถูกต้อง');
+      return;
+    }
+    const employee = employeeMap.get(leaveForm.employeeId);
+    const nextLeave = {
+      id: editingLeaveId || `leave-${Date.now()}`,
+      ...leaveForm,
+      employeeCode: employee?.code || '',
+      totalDays: leaveDays,
+      submittedAt: editingLeaveId ? (leaveLogs.find((log) => log.id === editingLeaveId)?.submittedAt || today) : today,
+    };
+    setLeaveLogs((items) => (editingLeaveId
+      ? items.map((item) => (item.id === editingLeaveId ? nextLeave : item))
+      : [nextLeave, ...items]));
+    addAuditLog({
+      action: previousLeave ? 'UPDATE' : 'CREATE',
+      module: 'LEAVE',
+      targetId: nextLeave.id,
+      targetLabel: `${employee?.code || '-'} ${employeeFullName(employee || {})} ${nextLeave.type}`.trim(),
+      beforeData: previousLeave,
+      afterData: nextLeave,
+    });
+    setLeaveForm((form) => ({ ...emptyLeave, employeeId: form.employeeId }));
+    setEditingLeaveId('');
+  };
+
+  const editLeave = (leave) => {
+    setLeaveForm({
+      employeeId: leave.employeeId || '',
+      type: leave.type || LEAVE_TYPES[0],
+      startDate: String(leave.startDate || today).slice(0, 10),
+      endDate: String(leave.endDate || leave.startDate || today).slice(0, 10),
+      approver: leave.approver || '',
+      reason: leave.reason || '',
+    });
+    setEditingLeaveId(leave.id);
+  };
+
+  const cancelLeaveEdit = () => {
+    setLeaveForm(emptyLeave);
+    setEditingLeaveId('');
+  };
+
+  const deleteLeave = (leave) => {
+    if (!window.confirm(`ยืนยันการลบใบลาของ ${employeeFullName(employeeMap.get(leave.employeeId) || {})}`)) return;
+    const employee = employeeMap.get(leave.employeeId) || {};
+    const previousLeave = leaveLogs.find((item) => item.id === leave.id) || leave;
+    setLeaveLogs((items) => items.filter((item) => item.id !== leave.id));
+    addAuditLog({
+      action: 'DELETE',
+      module: 'LEAVE',
+      targetId: previousLeave.id,
+      targetLabel: `${employee?.code || previousLeave.employeeCode || '-'} ${employeeFullName(employee)} ${previousLeave.type}`.trim(),
+      beforeData: previousLeave,
+      afterData: null,
+    });
+    if (editingLeaveId === leave.id) cancelLeaveEdit();
+  };
+
+  const updateAttendanceSetting = (field, value) => {
+    const nextValue = normalizeTimeInput(value);
+    setAttendanceSettings((settings) => ({ ...settings, [field]: nextValue }));
+    const formFieldMap = {
+      morningStart: 'morningIn',
+      lunchOut: 'lunchOut',
+      afternoonStart: 'afternoonIn',
+      workEnd: 'eveningOut',
+    };
+    if (formFieldMap[field]) {
+      setAttendanceForm((form) => ({ ...form, [formFieldMap[field]]: nextValue }));
+    }
+  };
+
+  const finalizeAttendanceSetting = (field) => {
+    const nextValue = finalizeTimeInput(attendanceSettings[field]);
+    setAttendanceSettings((settings) => ({ ...settings, [field]: nextValue }));
+    const formFieldMap = {
+      morningStart: 'morningIn',
+      lunchOut: 'lunchOut',
+      afternoonStart: 'afternoonIn',
+      workEnd: 'eveningOut',
+    };
+    if (formFieldMap[field]) {
+      setAttendanceForm((form) => ({ ...form, [formFieldMap[field]]: nextValue }));
+    }
+  };
+
+  const clearLeaveMonth = () => {
+    if (!clearLeaves.month || !clearLeaves.year) return;
+    if (!window.confirm(`ยืนยันล้างตารางใบลาของเดือน ${clearLeaves.month}/${Number(clearLeaves.year) + 543}`)) return;
+    const prefix = `${clearLeaves.year}-${clearLeaves.month}`;
+    setLeaveLogs((items) => items.filter((log) => !String(log.submittedAt || '').startsWith(prefix)));
+  };
+
+  const employeeTabs = [
+    ['dashboard', 'Dashboard พนักงาน'],
+    ['employees', 'รายชื่อพนักงาน'],
+    ['attendance', 'ลงเวลางาน'],
+    ['leaves', 'การลา'],
+    ['reports', 'รายงานสรุป'],
+  ];
+
+  return (
+    <section className="space-y-6">
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="flex min-w-max gap-2">
+          {employeeTabs.map(([key, label]) => (
+            <button
+              key={key}
+              className={`min-h-14 rounded-lg px-5 text-lg font-extrabold ${employeeSubTab === key ? 'bg-blue-700 text-white shadow-sm' : 'text-slate-700 hover:bg-slate-100'}`}
+              onClick={() => setEmployeeSubTab(key)}
+              type="button"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {employeeSubTab === 'dashboard' && (
+        <div className="space-y-5">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p className="text-lg font-extrabold text-slate-600">พนักงานทั้งหมด</p>
+              <p className="mt-2 text-4xl font-extrabold text-slate-950">{employees.length}</p>
+            </div>
+            <div className={`rounded-xl border p-5 shadow-sm ${EMPLOYEE_STATUS_THEME['ทำงานอยู่'].card}`}>
+              <EmployeeStatusBadge status="ทำงานอยู่" />
+              <p className="mt-2 text-4xl font-extrabold">{activeEmployees.length}</p>
+            </div>
+            <div className={`rounded-xl border p-5 shadow-sm ${EMPLOYEE_STATUS_THEME['พักงาน'].card}`}>
+              <EmployeeStatusBadge status="พักงาน" />
+              <p className="mt-2 text-4xl font-extrabold">{employees.filter((employee) => employee.status === 'พักงาน').length}</p>
+            </div>
+            <div className={`rounded-xl border p-5 shadow-sm ${EMPLOYEE_STATUS_THEME['ลาออก'].card}`}>
+              <EmployeeStatusBadge status="ลาออก" />
+              <p className="mt-2 text-4xl font-extrabold">{employees.filter((employee) => employee.status === 'ลาออก').length}</p>
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {dashboardSummary.map((item) => (
+              <div key={item.status} className={`rounded-xl border p-5 shadow-sm ${ATTENDANCE_STATUS_THEME[item.status]?.card || 'border-slate-200 bg-white text-slate-800'}`}>
+                <AttendanceStatusBadge status={item.status} />
+                <p className="mt-2 text-4xl font-extrabold">{item.count}</p>
+              </div>
+            ))}
+          </div>
+          <div className="rounded-xl border border-blue-200 bg-blue-50 p-5 text-blue-900 shadow-sm">
+            <h2 className="text-2xl font-extrabold">ภาพรวมเดือนนี้</h2>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <p className="rounded-lg bg-white/80 p-4 text-lg font-extrabold">ลงเวลาทั้งหมด {enrichedAttendance.filter((log) => String(log.date || '').startsWith(`${current.year}-${current.month}`)).length} รายการ</p>
+              <p className="rounded-lg bg-white/80 p-4 text-lg font-extrabold">ชั่วโมงรวม {Number(enrichedAttendance.filter((log) => String(log.date || '').startsWith(`${current.year}-${current.month}`)).reduce((sum, log) => sum + Number(log.hours || 0), 0).toFixed(2))} ชม.</p>
+              <p className="rounded-lg bg-white/80 p-4 text-lg font-extrabold">ใบลา {leaveLogs.filter((log) => String(log.submittedAt || '').startsWith(`${current.year}-${current.month}`)).length} รายการ</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {employeeSubTab === 'employees' && (
+      <div className="grid gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
+        <form onSubmit={saveEmployee} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-2xl font-extrabold text-slate-950">{isEditingEmployee ? 'แก้ไขข้อมูลพนักงาน' : 'เพิ่มพนักงานใหม่'}</h2>
+          <div className="mt-4 grid gap-3">
+            <EmployeeInput label="รหัสพนักงาน" value={employeeForm.code} onChange={(value) => setEmployeeForm({ ...employeeForm, code: value })} />
+            <label className="block">
+              <span className="text-lg font-extrabold text-slate-800">สถานะพนักงาน</span>
+              <select value={employeeForm.status} onChange={(event) => setEmployeeForm({ ...employeeForm, status: event.target.value })} className="mt-2 min-h-14 w-full rounded-lg border border-slate-300 bg-white px-4 text-lg font-bold text-slate-950">
+                {EMPLOYEE_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
+              </select>
+            </label>
+            <EmployeeInput label="ชื่อจริง" value={employeeForm.firstName} onChange={(value) => setEmployeeForm({ ...employeeForm, firstName: value })} />
+            <EmployeeInput label="นามสกุล" value={employeeForm.lastName} onChange={(value) => setEmployeeForm({ ...employeeForm, lastName: value })} />
+            <EmployeeInput label="ชื่อเล่น" value={employeeForm.nickname} onChange={(value) => setEmployeeForm({ ...employeeForm, nickname: value })} />
+            <label className="block">
+              <span className="text-lg font-extrabold text-slate-800">ตำแหน่งงาน</span>
+              <select value={employeeForm.position} onChange={(event) => setEmployeeForm({ ...employeeForm, position: event.target.value })} className="mt-2 min-h-14 w-full rounded-lg border border-slate-300 bg-white px-4 text-lg font-bold text-slate-950">
+                {positions.map((position) => <option key={position} value={position}>{position}</option>)}
+                <option value={OTHER_EMPLOYEE_POSITION}>{OTHER_EMPLOYEE_POSITION}</option>
+              </select>
+            </label>
+            {employeeForm.position === OTHER_EMPLOYEE_POSITION && (
+              <EmployeeInput label="ระบุตำแหน่งงาน" value={customPosition} onChange={setCustomPosition} placeholder="พิมพ์ตำแหน่งงานใหม่" />
+            )}
+            {customPositions.length > 0 && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <p className="text-lg font-extrabold text-slate-800">จัดการตำแหน่งงานที่เพิ่มเอง</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {customPositions.map((position) => (
+                    <span key={position} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700">
+                      {position}
+                      <button className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100" onClick={() => deleteCustomPosition(position)} type="button" aria-label={`ลบตำแหน่ง ${position}`}>
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className={`grid gap-2 ${isEditingEmployee ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+              <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 text-lg font-extrabold text-white hover:bg-blue-800" type="submit"><Save className="h-5 w-5" />{isEditingEmployee ? 'Update พนักงาน' : 'Create พนักงาน'}</button>
+              {isEditingEmployee && (
+                <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-5 text-lg font-extrabold text-rose-700 hover:bg-rose-100" onClick={() => deleteEmployee(employeeForm)} type="button"><Trash2 className="h-5 w-5" />Delete พนักงาน</button>
+              )}
+              <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg border border-slate-300 px-5 text-lg font-extrabold text-slate-700 hover:bg-slate-50" onClick={cancelEmployeeEdit} type="button"><X className="h-5 w-5" />{isEditingEmployee ? 'Cancel' : 'Clear'}</button>
+            </div>
+          </div>
+        </form>
+
+        <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-2xl font-extrabold text-slate-950">ตารางรายชื่อพนักงาน</h2>
+          <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
+            <table className="w-full min-w-[920px] text-left text-base">
+              <thead className="bg-slate-100 text-sm font-extrabold text-slate-600">
+                <tr>
+                  <th className="p-3">รหัสพนักงาน</th>
+                  <th className="p-3">สถานะพนักงาน</th>
+                  <th className="p-3">ชื่อจริง</th>
+                  <th className="p-3">นามสกุล</th>
+                  <th className="p-3">ชื่อเล่น</th>
+                  <th className="p-3">ตำแหน่งงาน</th>
+                  <th className="p-3 text-right">จัดการ</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {employees.map((employee) => (
+                  <tr key={employee.id} className="hover:bg-slate-50">
+                    <td className="p-3 font-mono font-extrabold text-slate-800">{employee.code}</td>
+                    <td className="p-3"><EmployeeStatusBadge status={employee.status} /></td>
+                    <td className="p-3 font-bold text-slate-900">{employee.firstName}</td>
+                    <td className="p-3 font-bold text-slate-900">{employee.lastName}</td>
+                    <td className="p-3 font-bold text-slate-700">{employee.nickname || '-'}</td>
+                    <td className="p-3 font-bold text-slate-700">{employee.position}</td>
+                    <td className="p-3">
+                      <div className="flex justify-end gap-2">
+                        <button className="inline-flex min-h-11 items-center gap-1 rounded-lg border border-slate-300 px-3 font-extrabold text-slate-700 hover:bg-slate-50" onClick={() => setDetailEmployee(employee)} type="button"><Eye className="h-4 w-4" />ดู</button>
+                        <button className="inline-flex min-h-11 items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 font-extrabold text-blue-800 hover:bg-blue-100" onClick={() => editEmployee(employee)} type="button"><Edit3 className="h-4 w-4" />แก้ไข</button>
+                        <button className="inline-flex min-h-11 items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-3 font-extrabold text-rose-700 hover:bg-rose-100" onClick={() => deleteEmployee(employee)} type="button"><Trash2 className="h-4 w-4" />ลบ</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {employees.length === 0 && <tr><td className="p-8 text-center text-slate-500" colSpan={7}>ยังไม่มีรายชื่อพนักงาน</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      )}
+
+      {employeeSubTab === 'attendance' && (
+      <>
+      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h2 className="text-2xl font-extrabold text-slate-950">ตั้งค่าเวลาเกณฑ์การเข้างาน</h2>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+          <EmployeeTimeInput label="เวลาเข้างานช่วงเช้า" value={attendanceSettings.morningStart} onChange={(value) => updateAttendanceSetting('morningStart', value)} onBlur={() => finalizeAttendanceSetting('morningStart')} />
+          <EmployeeTimeInput label="เริ่มนับสายช่วงเช้า" value={attendanceSettings.morningLateAfter} onChange={(value) => updateAttendanceSetting('morningLateAfter', value)} onBlur={() => finalizeAttendanceSetting('morningLateAfter')} />
+          <EmployeeTimeInput label="เวลาออกพักเที่ยง" value={attendanceSettings.lunchOut} onChange={(value) => updateAttendanceSetting('lunchOut', value)} onBlur={() => finalizeAttendanceSetting('lunchOut')} />
+          <EmployeeTimeInput label="เวลาเข้างานช่วงบ่าย" value={attendanceSettings.afternoonStart} onChange={(value) => updateAttendanceSetting('afternoonStart', value)} onBlur={() => finalizeAttendanceSetting('afternoonStart')} />
+          <EmployeeTimeInput label="เริ่มนับสายช่วงบ่าย" value={attendanceSettings.afternoonLateAfter} onChange={(value) => updateAttendanceSetting('afternoonLateAfter', value)} onBlur={() => finalizeAttendanceSetting('afternoonLateAfter')} />
+          <EmployeeTimeInput label="เวลาออกงานเย็น" value={attendanceSettings.workEnd} onChange={(value) => updateAttendanceSetting('workEnd', value)} onBlur={() => finalizeAttendanceSetting('workEnd')} />
+        </div>
+      </div>
+      <div className="grid gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
+        <form onSubmit={saveAttendance} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-2xl font-extrabold text-slate-950">บันทึกเวลาเข้างาน</h2>
+          <div className="mt-4 grid gap-3">
+            <EmployeeSelect label="เลือกพนักงาน" value={attendanceForm.employeeId} employees={activeEmployees} onChange={(value) => setAttendanceForm({ ...attendanceForm, employeeId: value })} />
+            <EmployeeInput label="วันที่" type="date" value={attendanceForm.date} onChange={(value) => setAttendanceForm({ ...attendanceForm, date: value })} />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <EmployeeTimeInput label="เวลาเข้าเช้า" value={attendanceForm.morningIn} onChange={(value) => setAttendanceForm({ ...attendanceForm, morningIn: value })} onBlur={() => setAttendanceForm((form) => ({ ...form, morningIn: finalizeTimeInput(form.morningIn) }))} />
+              <EmployeeTimeInput label="เวลาออกพักเที่ยง" value={attendanceForm.lunchOut} onChange={(value) => setAttendanceForm({ ...attendanceForm, lunchOut: value })} onBlur={() => setAttendanceForm((form) => ({ ...form, lunchOut: finalizeTimeInput(form.lunchOut) }))} />
+              <EmployeeTimeInput label="เวลากลับจากพัก" value={attendanceForm.afternoonIn} onChange={(value) => setAttendanceForm({ ...attendanceForm, afternoonIn: value })} onBlur={() => setAttendanceForm((form) => ({ ...form, afternoonIn: finalizeTimeInput(form.afternoonIn) }))} />
+              <EmployeeTimeInput label="เวลาออกงานเย็น" value={attendanceForm.eveningOut} onChange={(value) => setAttendanceForm({ ...attendanceForm, eveningOut: value })} onBlur={() => setAttendanceForm((form) => ({ ...form, eveningOut: finalizeTimeInput(form.eveningOut) }))} />
+            </div>
+            <label className="block">
+              <span className="text-lg font-extrabold text-slate-800">วิธีคำนวณ</span>
+              <select value={attendanceForm.method} onChange={(event) => setAttendanceForm({ ...attendanceForm, method: event.target.value })} className="mt-2 min-h-14 w-full rounded-lg border border-slate-300 bg-white px-4 text-lg font-bold text-slate-950">
+                <option value="auto">คำนวณอัตโนมัติ</option>
+                <option value="ขาดงาน">ขาดงาน</option>
+                {LEAVE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
+              </select>
+            </label>
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+              <div className="flex flex-wrap items-center gap-2 text-base font-extrabold text-emerald-800">
+                <span>สถานะที่จะบันทึก:</span>
+                <AttendanceStatusBadge status={attendancePreviewStatus} />
+              </div>
+              <p className="text-base font-bold text-emerald-700">ชั่วโมงทำงานรวม {attendancePreviewHours} ชั่วโมง</p>
+            </div>
+            <div className={`grid gap-2 ${editingAttendanceId ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+              <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 text-lg font-extrabold text-white hover:bg-blue-800" type="submit"><Save className="h-5 w-5" />{editingAttendanceId ? 'Update เวลา' : 'Create เวลา'}</button>
+              {editingAttendanceId && editingAttendance && (
+                <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-5 text-lg font-extrabold text-rose-700 hover:bg-rose-100" onClick={() => deleteAttendance(editingAttendance)} type="button"><Trash2 className="h-5 w-5" />Delete เวลา</button>
+              )}
+              <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg border border-slate-300 px-5 text-lg font-extrabold text-slate-700 hover:bg-slate-50" onClick={cancelAttendanceEdit} type="button"><X className="h-5 w-5" />{editingAttendanceId ? 'Cancel' : 'Clear'}</button>
+            </div>
+          </div>
+        </form>
+
+        <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h2 className="text-2xl font-extrabold text-slate-950">ประวัติตอกเวลางานย้อนหลังของทีมงาน</h2>
+              <p className="text-base font-bold text-slate-500">กรองและล้างเฉพาะเดือนที่เลือก</p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-4">
+              <select value={clearAttendance.month} onChange={(event) => setClearAttendance({ ...clearAttendance, month: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><MonthOptions /></select>
+              <select value={clearAttendance.year} onChange={(event) => setClearAttendance({ ...clearAttendance, year: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold">{years.map((year) => <option key={year} value={year}>{Number(year) + 543}</option>)}</select>
+              <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 font-extrabold text-emerald-800 hover:bg-emerald-100" onClick={exportAttendanceHistory} type="button"><Download className="h-4 w-4" />Export</button>
+              <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 font-extrabold text-rose-700 hover:bg-rose-100" onClick={clearAttendanceMonth} type="button"><Trash2 className="h-4 w-4" />ล้าง</button>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-2 md:grid-cols-3 xl:grid-cols-6">
+            <select value={historyFilters.day} onChange={(event) => setHistoryFilters({ ...historyFilters, day: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><DayOptions /></select>
+            <select value={historyFilters.month} onChange={(event) => setHistoryFilters({ ...historyFilters, month: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><option value="all">ทุกเดือน</option><MonthOptions /></select>
+            <select value={historyFilters.year} onChange={(event) => setHistoryFilters({ ...historyFilters, year: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><option value="all">ทุกปี</option>{years.map((year) => <option key={year} value={year}>{Number(year) + 543}</option>)}</select>
+            <select value={historyFilters.employeeId} onChange={(event) => setHistoryFilters({ ...historyFilters, employeeId: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><option value="all">พนักงานทั้งหมด</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employeeFullName(employee)}</option>)}</select>
+            <select value={historyFilters.position} onChange={(event) => setHistoryFilters({ ...historyFilters, position: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><option value="all">ทุกตำแหน่ง</option>{positions.map((position) => <option key={position} value={position}>{position}</option>)}</select>
+            <select value={historyFilters.status} onChange={(event) => setHistoryFilters({ ...historyFilters, status: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><option value="all">ทุกสถานะ</option>{ATTENDANCE_STATUS_KEYS.map((status) => <option key={status} value={status}>{status}</option>)}</select>
+          </div>
+          <AttendanceTable rows={filteredAttendance} onEdit={editAttendance} onDelete={deleteAttendance} />
+        </div>
+      </div>
+      </>
+      )}
+
+      {employeeSubTab === 'leaves' && (
+      <div className="grid gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
+        <form onSubmit={saveLeave} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-2xl font-extrabold text-slate-950">การลา</h2>
+          <div className="mt-4 grid gap-3">
+            <EmployeeSelect label="เลือกพนักงานผู้ลา" value={leaveForm.employeeId} employees={employees} onChange={(value) => setLeaveForm({ ...leaveForm, employeeId: value })} />
+            <label className="block"><span className="text-lg font-extrabold text-slate-800">ประเภทสิทธิ์การลา</span><select value={leaveForm.type} onChange={(event) => setLeaveForm({ ...leaveForm, type: event.target.value })} className="mt-2 min-h-14 w-full rounded-lg border border-slate-300 bg-white px-4 text-lg font-bold">{LEAVE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
+            <EmployeeInput label="ตั้งแต่วันที่" type="date" value={leaveForm.startDate} onChange={(value) => setLeaveForm({ ...leaveForm, startDate: value })} />
+            <EmployeeInput label="ถึงวันที่" type="date" value={leaveForm.endDate} onChange={(value) => setLeaveForm({ ...leaveForm, endDate: value })} />
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-xl font-extrabold text-blue-900">รวม {leaveDays} วัน</div>
+            <EmployeeInput label="แอดมินผู้อนุมัติ" value={leaveForm.approver} onChange={(value) => setLeaveForm({ ...leaveForm, approver: value })} />
+            <label className="block"><span className="text-lg font-extrabold text-slate-800">สาเหตุและความจำเป็น</span><textarea value={leaveForm.reason} onChange={(event) => setLeaveForm({ ...leaveForm, reason: event.target.value })} className="mt-2 min-h-28 w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-lg text-slate-950" /></label>
+            <div className={`grid gap-2 ${editingLeaveId ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+              <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 text-lg font-extrabold text-white hover:bg-blue-800" type="submit"><Save className="h-5 w-5" />{editingLeaveId ? 'Update ใบลา' : 'Create ใบลา'}</button>
+              {editingLeaveId && editingLeave && (
+                <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-5 text-lg font-extrabold text-rose-700 hover:bg-rose-100" onClick={() => deleteLeave(editingLeave)} type="button"><Trash2 className="h-5 w-5" />Delete ใบลา</button>
+              )}
+              <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg border border-slate-300 px-5 text-lg font-extrabold text-slate-700 hover:bg-slate-50" onClick={cancelLeaveEdit} type="button"><X className="h-5 w-5" />{editingLeaveId ? 'Cancel' : 'Clear'}</button>
+            </div>
+          </div>
+        </form>
+
+        <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <h2 className="text-2xl font-extrabold text-slate-950">รายงานสถิติใบลาหยุดงาน</h2>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+              <select value={leaveFilters.month} onChange={(event) => setLeaveFilters({ ...leaveFilters, month: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><option value="all">ทุกเดือน</option><MonthOptions /></select>
+              <select value={leaveFilters.year} onChange={(event) => setLeaveFilters({ ...leaveFilters, year: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><option value="all">ทุกปี</option>{years.map((year) => <option key={year} value={year}>{Number(year) + 543}</option>)}</select>
+              <select value={clearLeaves.month} onChange={(event) => setClearLeaves({ ...clearLeaves, month: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><MonthOptions /></select>
+              <select value={clearLeaves.year} onChange={(event) => setClearLeaves({ ...clearLeaves, year: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold">{years.map((year) => <option key={year} value={year}>{Number(year) + 543}</option>)}</select>
+              <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 font-extrabold text-emerald-800 hover:bg-emerald-100" onClick={exportLeaveReport} type="button"><Download className="h-4 w-4" />Export</button>
+              <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 font-extrabold text-rose-700 hover:bg-rose-100" onClick={clearLeaveMonth} type="button"><Trash2 className="h-4 w-4" />ล้าง</button>
+            </div>
+          </div>
+          <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
+            <table className="w-full min-w-[1080px] text-left text-base">
+              <thead className="bg-slate-100 text-sm font-extrabold text-slate-600"><tr><th className="p-3">วันที่ยื่น</th><th className="p-3">พนักงาน</th><th className="p-3">ประเภทลา</th><th className="p-3">ตั้งแต่วันที่</th><th className="p-3">ถึงวันที่</th><th className="p-3">รวมวัน</th><th className="p-3">ผู้อนุมัติ</th><th className="p-3">สาเหตุ</th><th className="p-3 text-right">จัดการ</th></tr></thead>
+              <tbody className="divide-y divide-slate-200">
+                {filteredLeaveLogs.map((log) => {
+                  const employee = employeeMap.get(log.employeeId) || {};
+                  return <tr key={log.id} className="hover:bg-slate-50"><td className="p-3 font-bold">{dateText(log.submittedAt)}</td><td className="p-3 font-extrabold">{employeeFullName(employee)}</td><td className="p-3"><AttendanceStatusBadge status={log.type} /></td><td className="p-3">{dateText(log.startDate)}</td><td className="p-3">{dateText(log.endDate)}</td><td className="p-3 font-extrabold text-blue-800">{log.totalDays}</td><td className="p-3">{log.approver || '-'}</td><td className="max-w-[260px] break-words p-3">{log.reason || '-'}</td><td className="p-3"><div className="flex justify-end gap-2"><button className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 font-extrabold text-blue-800 hover:bg-blue-100" onClick={() => editLeave(log)} type="button"><Edit3 className="h-4 w-4" />แก้ไข</button><button className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-3 font-extrabold text-rose-700 hover:bg-rose-100" onClick={() => deleteLeave(log)} type="button"><Trash2 className="h-4 w-4" />ลบ</button></div></td></tr>;
+                })}
+                {filteredLeaveLogs.length === 0 && <tr><td className="p-8 text-center text-slate-500" colSpan={9}>ยังไม่มีใบลา</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      )}
+
+      {employeeSubTab === 'reports' && (
+      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <h2 className="text-2xl font-extrabold text-slate-950">ตารางสรุป</h2>
+          <div className="grid gap-2 sm:grid-cols-4">
+            <select value={summaryFilters.day} onChange={(event) => setSummaryFilters({ ...summaryFilters, day: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><DayOptions /></select>
+            <select value={summaryFilters.month} onChange={(event) => setSummaryFilters({ ...summaryFilters, month: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><MonthOptions /></select>
+            <select value={summaryFilters.year} onChange={(event) => setSummaryFilters({ ...summaryFilters, year: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold">{years.map((year) => <option key={year} value={year}>{Number(year) + 543}</option>)}</select>
+            <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 font-extrabold text-emerald-800 hover:bg-emerald-100" onClick={exportEmployeeSummary} type="button"><Download className="h-4 w-4" />Export</button>
+          </div>
+        </div>
+        <h3 className="mb-3 mt-5 text-xl font-extrabold text-slate-950">รายงานสรุปชั่วโมงทำงานสะสม รายเดือน/รายปี</h3>
+        <div className="overflow-x-auto rounded-lg border border-slate-200">
+          <table className="w-full min-w-[980px] text-left text-base">
+            <thead className="bg-slate-100 text-sm font-extrabold text-slate-600"><tr><th className="p-3">รหัสพนักงาน</th><th className="p-3">ชื่อ-นามสกุล</th><th className="p-3">ชื่อเล่น</th><th className="p-3">ตำแหน่ง</th><th className="p-3">จำนวนวันลงเวลา</th><th className="p-3">ชั่วโมงเดือนที่เลือก</th><th className="p-3">ชั่วโมงตลอดปี</th><th className="p-3">สถานะพนักงาน</th></tr></thead>
+            <tbody className="divide-y divide-slate-200">{summaryRows.map((row) => <tr key={row.employee.id}><td className="p-3 font-mono font-extrabold">{row.employee.code}</td><td className="p-3 font-bold">{employeeFullName(row.employee)}</td><td className="p-3">{row.employee.nickname || '-'}</td><td className="p-3">{row.employee.position}</td><td className="p-3 font-extrabold">{row.filteredDays}</td><td className="p-3 font-extrabold text-emerald-700">{row.monthHours}</td><td className="p-3 font-extrabold text-blue-800">{row.yearHours}</td><td className="p-3"><EmployeeStatusBadge status={row.employee.status} /></td></tr>)}</tbody>
+          </table>
+        </div>
+        <h3 className="mb-3 mt-6 text-xl font-extrabold text-slate-950">ตารางเปรียบเทียบสถิติมาร่วมงานสะสมแยกตามตำแหน่ง</h3>
+        <div className="overflow-x-auto rounded-lg border border-slate-200">
+          <table className="w-full min-w-[1180px] text-left text-base">
+            <thead className="bg-slate-100 text-sm font-extrabold text-slate-600"><tr><th className="p-3">รหัสพนักงาน</th><th className="p-3">ชื่อ-นามสกุล</th><th className="p-3">ชื่อเล่น</th><th className="p-3">ตำแหน่งงาน</th>{ATTENDANCE_STATUS_KEYS.map((status) => <th key={status} className="p-3"><AttendanceStatusBadge status={status} /></th>)}</tr></thead>
+            <tbody className="divide-y divide-slate-200">{comparisonRows.map((row) => <tr key={row.employee.id}><td className="p-3 font-mono font-extrabold">{row.employee.code}</td><td className="p-3 font-bold">{employeeFullName(row.employee)}</td><td className="p-3">{row.employee.nickname || '-'}</td><td className="p-3">{row.employee.position}</td>{ATTENDANCE_STATUS_KEYS.map((status) => <td key={status} className="p-3 font-extrabold text-slate-800">{row.counts[status] || 0}</td>)}</tr>)}</tbody>
+          </table>
+        </div>
+      </div>
+      )}
+
+      {detailEmployee && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+          <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl">
+            <StockModalHeader title="รายละเอียดพนักงาน" onClose={() => setDetailEmployee(null)} />
+            <div className="grid gap-3 text-lg">
+              <Info label="รหัสพนักงาน" value={detailEmployee.code} />
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <p className="text-sm font-bold text-slate-500">สถานะพนักงาน</p>
+                <div className="mt-1"><EmployeeStatusBadge status={detailEmployee.status} /></div>
+              </div>
+              <Info label="ชื่อจริง" value={detailEmployee.firstName || '-'} />
+              <Info label="นามสกุล" value={detailEmployee.lastName || '-'} />
+              <Info label="ชื่อเล่น" value={detailEmployee.nickname || '-'} />
+              <Info label="ตำแหน่งงาน" value={detailEmployee.position} />
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function EmployeeInput({ label, value, onChange, type = 'text', placeholder = '', step }) {
+  return (
+    <label className="block">
+      <span className="text-lg font-extrabold text-slate-800">{label}</span>
+      <input type={type} step={step} value={value || ''} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="mt-2 min-h-14 w-full rounded-lg border border-slate-300 bg-white px-4 text-lg text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
+    </label>
+  );
+}
+
+function EmployeeTimeInput({ label, value, onChange, onBlur }) {
+  return (
+    <label className="block">
+      <span className="text-lg font-extrabold text-slate-800">{label}</span>
+      <input
+        type="text"
+        inputMode="numeric"
+        maxLength={5}
+        value={value || ''}
+        onBlur={(event) => {
+          const nextValue = finalizeTimeInput(event.target.value);
+          onChange(nextValue);
+          if (onBlur) onBlur(nextValue);
+        }}
+        onChange={(event) => onChange(normalizeTimeInput(event.target.value))}
+        placeholder="09:00"
+        className="mt-2 min-h-14 w-full rounded-lg border border-slate-300 bg-white px-4 font-mono text-lg text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
+      />
+    </label>
+  );
+}
+
+function EmployeeSelect({ label, value, employees, onChange }) {
+  return (
+    <label className="block">
+      <span className="text-lg font-extrabold text-slate-800">{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)} className="mt-2 min-h-14 w-full rounded-lg border border-slate-300 bg-white px-4 text-lg font-bold text-slate-950">
+        <option value="">เลือกพนักงาน</option>
+        {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.code} - {employeeFullName(employee)} ({employee.nickname || '-'})</option>)}
+      </select>
+    </label>
+  );
+}
+
+function EmployeeStatusBadge({ status }) {
+  const theme = EMPLOYEE_STATUS_THEME[status] || EMPLOYEE_STATUS_THEME[EMPLOYEE_STATUSES[0]];
+  return <StatusBadge label={status || EMPLOYEE_STATUSES[0]} theme={theme} />;
+}
+
+function AttendanceStatusBadge({ status }) {
+  const theme = ATTENDANCE_STATUS_THEME[status] || ATTENDANCE_STATUS_THEME['มาทำงาน'];
+  return <StatusBadge label={status || '-'} theme={theme} />;
+}
+
+function StatusBadge({ label, theme }) {
+  return (
+    <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm font-semibold ${theme.badge}`}>
+      <span className={`h-2 w-2 rounded-full ${theme.dot}`} />
+      {label}
+    </span>
+  );
+}
+
+function MonthOptions() {
+  return MONTHS_TH.map((month, index) => <option key={month} value={String(index + 1).padStart(2, '0')}>{month}</option>);
+}
+
+function DayOptions() {
+  return (
+    <>
+      <option value="all">ทุกวัน</option>
+      {Array.from({ length: 31 }, (_, index) => String(index + 1).padStart(2, '0')).map((day) => <option key={day} value={day}>{Number(day)}</option>)}
+    </>
+  );
+}
+
+function AttendanceTable({ rows, onEdit, onDelete }) {
+  return (
+    <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
+      <table className="w-full min-w-[1280px] text-left text-base">
+        <thead className="bg-slate-100 text-sm font-extrabold text-slate-600">
+          <tr><th className="p-3">วันที่</th><th className="p-3">รหัสพนักงาน</th><th className="p-3">ชื่อ-นามสกุล</th><th className="p-3">ชื่อเล่น</th><th className="p-3">ตำแหน่ง</th><th className="p-3">เวลาเข้าเช้า</th><th className="p-3">เวลาออกพักเที่ยง</th><th className="p-3">เวลากลับจากพัก</th><th className="p-3">เวลาออกงานเย็น</th><th className="p-3">สถานะ</th><th className="p-3">ชั่วโมงทำงานรวม</th><th className="p-3 text-right">จัดการ</th></tr>
+        </thead>
+        <tbody className="divide-y divide-slate-200">
+          {rows.map((log) => (
+            <tr key={log.id} className="hover:bg-slate-50">
+              <td className="p-3 font-bold">{dateText(log.date)}</td>
+              <td className="p-3 font-mono font-extrabold">{log.employee.code || log.employeeCode || '-'}</td>
+              <td className="p-3 font-bold">{employeeFullName(log.employee)}</td>
+              <td className="p-3">{log.employee.nickname || '-'}</td>
+              <td className="p-3">{log.employee.position || '-'}</td>
+              <td className="p-3 font-mono">{timeText(log.morningIn)}</td>
+              <td className="p-3 font-mono">{timeText(log.lunchOut)}</td>
+              <td className="p-3 font-mono">{timeText(log.afternoonIn)}</td>
+              <td className="p-3 font-mono">{timeText(log.eveningOut)}</td>
+              <td className="p-3"><AttendanceStatusBadge status={log.status} /></td>
+              <td className="p-3 font-extrabold text-emerald-700">{log.hours || 0} ชม.</td>
+              <td className="p-3">
+                <div className="flex justify-end gap-2">
+                  <button className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 font-extrabold text-blue-800 hover:bg-blue-100" onClick={() => onEdit(log)} type="button"><Edit3 className="h-4 w-4" />แก้ไข</button>
+                  <button className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-3 font-extrabold text-rose-700 hover:bg-rose-100" onClick={() => onDelete(log)} type="button"><Trash2 className="h-4 w-4" />ลบ</button>
+                </div>
+              </td>
+            </tr>
+          ))}
+          {rows.length === 0 && <tr><td className="p-8 text-center text-slate-500" colSpan={12}>ยังไม่มีประวัติตอกเวลา</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function StockSummaryCard({ title, value, className }) {
   return (
     <div className={`rounded-xl border p-5 shadow-sm ${className}`}>
@@ -1753,7 +3177,7 @@ function StockSummaryCard({ title, value, className }) {
   );
 }
 
-function Dashboard({ stats, vehicles, stockProducts, statusFilter, setStatusFilter }) {
+function Dashboard({ stats, vehicles, stockProducts, shiftSummary, statusFilter, setStatusFilter }) {
   const today = dateInputValue(new Date());
   const monthRange = chartRange('month');
   const monthVehicles = vehicles.filter((vehicle) => inChartRange(dateKey(vehicle), monthRange));
@@ -1782,6 +3206,9 @@ function Dashboard({ stats, vehicles, stockProducts, statusFilter, setStatusFilt
     { title: 'รถเข้าซ่อมเดือนนี้', value: `${monthVehicles.length} คัน`, icon: <Car />, tone: 'slate' },
     { title: 'มูลค่าสต็อกคงเหลือ', value: `฿${money(stockSummary.totalValue)}`, icon: <Package />, tone: 'emerald' },
     { title: 'สินค้าใกล้หมด', value: `${stockSummary.lowStock} รายการ`, icon: <Clock />, tone: 'amber' },
+    { title: 'จำนวนเวรวันนี้', value: `${shiftSummary.todayCount} เวร`, icon: <UserCheck />, tone: 'blue' },
+    { title: 'จำนวน OT วันนี้', value: `${shiftSummary.todayOt} เวร`, icon: <Clock />, tone: 'violet' },
+    { title: 'ชั่วโมงเวรสะสมเดือนนี้', value: `${shiftSummary.monthHours} ชม.`, icon: <TrendingUp />, tone: 'emerald' },
   ];
   const alerts = [
     { level: 'red', title: 'รถเกินกำหนดส่ง', value: `${overdueVehicles.length} คัน` },
@@ -1795,7 +3222,6 @@ function Dashboard({ stats, vehicles, stockProducts, statusFilter, setStatusFilt
     <section className="space-y-5">
       <div>
         <h2 className="text-3xl font-extrabold text-slate-950">Executive Dashboard</h2>
-        <p className="text-lg font-bold text-slate-500">ภาพรวมสำคัญของอู่จากข้อมูลจริงในระบบ</p>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -1831,8 +3257,8 @@ function Dashboard({ stats, vehicles, stockProducts, statusFilter, setStatusFilt
               <p className="text-base font-bold text-slate-500">10 รายการล่าสุด</p>
             </div>
           </div>
-          <div className="overflow-x-auto rounded-lg border border-slate-200">
-            <table className="w-full min-w-[760px] text-left text-base">
+          <div className="max-w-full overflow-x-auto rounded-lg border border-slate-200">
+            <table className="w-full min-w-[640px] text-left text-base md:min-w-[760px]">
               <thead className="bg-slate-100 font-extrabold text-slate-600">
                 <tr>
                   <th className="p-3">เลขใบแจ้งหนี้</th>
@@ -1868,6 +3294,7 @@ function DashboardCompactCard({ title, value, icon, tone = 'slate', active = fal
     emerald: 'border-emerald-200 bg-emerald-50 text-emerald-800',
     rose: 'border-rose-200 bg-rose-50 text-rose-800',
     pink: 'border-pink-200 bg-pink-50 text-pink-800',
+    violet: 'border-violet-200 bg-violet-50 text-violet-800',
     amber: 'border-amber-200 bg-amber-50 text-amber-800',
     orange: 'border-orange-200 bg-orange-50 text-orange-800',
     slate: 'border-slate-200 bg-slate-50 text-slate-800',
@@ -2003,8 +3430,8 @@ function DashboardVehicleList({ vehicles, statusFilter }) {
         <h2 className="text-2xl font-extrabold text-slate-950">{title}</h2>
         <p className="text-lg font-bold text-slate-500">{vehicles.length} คัน</p>
       </div>
-      <div className="overflow-x-auto rounded-lg border border-slate-200">
-        <table className="w-full min-w-[860px] text-left text-lg">
+      <div className="max-w-full overflow-x-auto rounded-lg border border-slate-200">
+        <table className="w-full min-w-[640px] text-left text-base md:min-w-[860px] md:text-lg">
           <thead className="bg-slate-100 text-base font-extrabold text-slate-600">
             <tr>
               <th className="p-4">เลขใบแจ้งหนี้ / รถ</th>
@@ -2094,7 +3521,6 @@ function ManagementDashboard({ vehicles, stockProducts }) {
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <h2 className="text-3xl font-extrabold text-slate-950">Management Dashboard</h2>
-            <p className="text-lg font-bold text-slate-500">ศูนย์รวมรายงานผู้บริหารจากข้อมูลรถและสต็อกจริงในระบบ</p>
           </div>
           <div className="flex flex-wrap gap-2">
             {CHART_FILTERS.map(([key, label]) => (
@@ -2323,7 +3749,7 @@ function ChartPanel({ title, data, period, setPeriod, type }) {
 
 function VehicleForm({ initial, onSave, onCancel }) {
   const [form, setForm] = useState(() => normalizeVehicle(initial));
-  const [brandMode, setBrandMode] = useState(BRAND_OPTIONS.includes(initial.brand) && initial.brand !== 'อื่น ๆ' ? 'select' : 'custom');
+  const [brandMode, setBrandMode] = useState(!initial.brand || (BRAND_OPTIONS.includes(initial.brand) && initial.brand !== OTHER_OPTION) ? 'select' : 'custom');
   const [modelMode, setModelMode] = useState('select');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -2331,8 +3757,8 @@ function VehicleForm({ initial, onSave, onCancel }) {
   useEffect(() => {
     const next = normalizeVehicle(initial);
     setForm(next);
-    setBrandMode(BRAND_OPTIONS.includes(next.brand) && next.brand !== 'อื่น ๆ' ? 'select' : 'custom');
-    setModelMode((MODEL_OPTIONS[next.brand] || []).includes(next.model) ? 'select' : 'custom');
+    setBrandMode(!next.brand || (BRAND_OPTIONS.includes(next.brand) && next.brand !== OTHER_OPTION) ? 'select' : 'custom');
+    setModelMode(!next.model || ((MODEL_OPTIONS[next.brand] || []).includes(next.model) && next.model !== OTHER_OPTION) ? 'select' : 'custom');
   }, [initial]);
 
   const update = (field, value) => setForm((current) => ({ ...current, [field]: value }));
@@ -2366,7 +3792,7 @@ function VehicleForm({ initial, onSave, onCancel }) {
   };
 
   return (
-    <form onSubmit={submit} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
+    <form onSubmit={submit} className="max-w-full rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
       <div className="mb-3 flex flex-col gap-2 border-b border-slate-200 pb-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <p className="text-sm font-extrabold text-blue-700">ข้อมูลเคสซ่อม</p>
@@ -2379,7 +3805,7 @@ function VehicleForm({ initial, onSave, onCancel }) {
         </div>
       </div>
       {error && <p className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-base font-bold text-rose-700">{error}</p>}
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_300px]">
+      <div className="grid max-w-full gap-3 xl:grid-cols-[minmax(0,1fr)_300px]">
         <div className="space-y-2.5">
           <FormSection title="ข้อมูลรถ">
             <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-4">
@@ -2424,7 +3850,7 @@ function VehicleForm({ initial, onSave, onCancel }) {
                   <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                     {vehicleImages(form).map((image, index) => (
                       <div key={`${image}-${index}`} className="rounded-lg border border-slate-200 bg-white p-2">
-                        <img className="h-24 w-full rounded-lg bg-slate-50 object-contain" src={image} alt={`รูปประกอบรถ ${index + 1}`} />
+                        <img className="h-24 w-full rounded-lg bg-slate-50 object-contain" src={image} alt={`รูปประกอบรถ ${index + 1}`} loading="lazy" />
                         <button className="mt-2 inline-flex min-h-9 w-full items-center justify-center rounded-lg border border-rose-200 px-3 text-sm font-bold text-rose-700 hover:bg-rose-50" onClick={() => removeImage(image)} type="button">
                           ลบ
                         </button>
@@ -2460,7 +3886,7 @@ function VehicleForm({ initial, onSave, onCancel }) {
 
 function FormSection({ title, children }) {
   return (
-    <section className="rounded-xl border border-slate-200 bg-slate-50/70 p-2.5">
+    <section className="max-w-full rounded-xl border border-slate-200 bg-slate-50/70 p-2.5">
       <h3 className="text-lg font-extrabold text-slate-950">{title}</h3>
       <div className="mt-2">{children}</div>
     </section>
@@ -2471,7 +3897,7 @@ function FormSummaryRow({ label, value }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-2.5">
       <p className="text-sm font-bold text-slate-500">{label}</p>
-      <p className="mt-1 truncate text-lg font-extrabold text-slate-950">{value}</p>
+      <p className="mt-1 break-words text-lg font-extrabold text-slate-950">{value}</p>
     </div>
   );
 }
@@ -2483,10 +3909,10 @@ function BrandField({ form, update, mode, setMode }) {
       <div className="mt-1 grid gap-1">
         {mode === 'select' ? (
           <select
-            value={BRAND_OPTIONS.includes(form.brand) ? form.brand : 'อื่น ๆ'}
+            value={BRAND_OPTIONS.includes(form.brand) ? form.brand : OTHER_OPTION}
             onChange={(event) => {
               const value = event.target.value;
-              if (value === 'อื่น ๆ') {
+              if (value === OTHER_OPTION) {
                 setMode('custom');
                 update('brand', '');
                 update('model', '');
@@ -2518,7 +3944,15 @@ function ModelField({ form, update, mode, setMode, choices }) {
       <span className="text-sm font-extrabold text-slate-800">รุ่นรถ</span>
       <div className="mt-1 grid gap-1">
         {mode === 'select' && hasChoices ? (
-          <select value={choices.includes(form.model) ? form.model : ''} onChange={(event) => update('model', event.target.value)} className="min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100">
+          <select value={choices.includes(form.model) ? form.model : ''} onChange={(event) => {
+            const value = event.target.value;
+            if (value === OTHER_OPTION) {
+              setMode('custom');
+              update('model', '');
+            } else {
+              update('model', value);
+            }
+          }} className="min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2.5 text-sm text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100">
             <option value="">เลือกรุ่น</option>
             {choices.map((option) => <option key={option} value={option}>{option}</option>)}
           </select>
@@ -2588,7 +4022,6 @@ function VehicleTable({
         <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <h2 className="text-3xl font-extrabold text-slate-950">{title}</h2>
-            <p className="text-lg text-slate-600">ค้นหา กรองสถานะ ดูรายละเอียด และอัปโหลดรูปได้จากตารางนี้</p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[1.4fr_1fr_1fr_1fr_1fr_auto]">
             <input value={query} onChange={(event) => setQuery(event.target.value)} className="min-h-12 rounded-lg border border-slate-300 px-3 text-lg" placeholder="ค้นหาชื่อ เบอร์ ทะเบียน เลขใบแจ้งหนี้ VIN" />
@@ -2617,8 +4050,8 @@ function VehicleTable({
             </button>
           </div>
         </div>
-        <div className="overflow-x-auto rounded-lg border border-slate-200">
-          <table className="w-full min-w-[1320px] text-left text-lg">
+        <div className="max-w-full overflow-x-auto rounded-lg border border-slate-200">
+          <table className="w-full min-w-[860px] text-left text-base md:min-w-[1320px] md:text-lg">
             <thead className="bg-slate-100 text-base font-extrabold text-slate-600">
               <tr>
                 <th className="p-4">เลขใบแจ้งหนี้ / รถ</th>
@@ -2687,7 +4120,7 @@ function VehicleTable({
                             <Eye className="h-5 w-5" />
                             ดูรูป {vehicleImages(vehicle).length}
                           </a>
-                          <img className="h-12 w-16 rounded-lg border border-slate-200 object-cover" src={vehicleImages(vehicle)[0]} alt="รูปประกอบรถ" />
+                          <img className="h-12 w-16 rounded-lg border border-slate-200 object-cover" src={vehicleImages(vehicle)[0]} alt="รูปประกอบรถ" loading="lazy" />
                         </>
                       ) : (
                         <span className="text-base font-bold text-slate-500">ยังไม่มีรูป</span>
@@ -2822,8 +4255,8 @@ function RevenueSummary({ vehicles }) {
         </select>
       </div>
       <Metric title="รายได้จากรถซ่อมเสร็จ" value={`฿${money(total)}`} icon={<Banknote />} tone="revenue" />
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-        <table className="w-full min-w-[560px] text-left text-lg">
+      <div className="max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+        <table className="w-full min-w-[420px] text-left text-base md:min-w-[560px] md:text-lg">
           <thead className="bg-slate-100 text-base font-extrabold text-slate-600"><tr><th className="p-4">เดือน</th><th className="p-4 text-right">รายได้จากรถซ่อมเสร็จ</th></tr></thead>
           <tbody className="divide-y divide-slate-200">
             {rows.map((row) => <tr key={row.label}><td className="p-4 font-bold">{row.label}</td><td className="p-4 text-right font-extrabold text-emerald-700">฿{money(row.revenue)}</td></tr>)}
@@ -2949,6 +4382,27 @@ function FinancialAdmin({ headers }) {
     });
     return Array.from(methods);
   }, [summaryTransactions]);
+  const exportFinancialTransactions = () => {
+    downloadCsv(
+      `financial-transactions-${filterSegment(filters.year)}-${filterSegment(filters.month)}.csv`,
+      [
+        { key: 'date', label: 'วันที่' },
+        { key: 'time', label: 'เวลา' },
+        { key: 'type', label: 'ประเภท' },
+        { key: 'payment_method', label: 'ช่องทาง' },
+        { key: 'description', label: 'รายละเอียด' },
+        { key: 'amount', label: 'จำนวนเงิน' },
+      ],
+      transactions.map((transaction) => ({
+        date: String(transaction.date || '').slice(0, 10),
+        time: transaction.time || '-',
+        type: transaction.type === 'income' ? 'รายรับ' : 'รายจ่าย',
+        payment_method: transaction.payment_method || '-',
+        description: transaction.description || '-',
+        amount: Number(transaction.amount || 0),
+      })),
+    );
+  };
 
   return (
     <section className="space-y-5">
@@ -2994,10 +4448,16 @@ function FinancialAdmin({ headers }) {
             <h2 className="text-3xl font-extrabold text-slate-950">จัดการการเงิน</h2>
             <p className="text-lg text-slate-600">ค้นหา กรอง เพิ่ม แก้ไข และลบรายการธุรกรรมของร้าน</p>
           </div>
-          <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 text-xl font-extrabold text-white hover:bg-blue-800" onClick={() => setEditing({ ...emptyFinancialTransaction })} type="button">
-            <Plus className="h-6 w-6" />
-            เพิ่มรายการธุรกรรม
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-5 text-xl font-extrabold text-emerald-800 hover:bg-emerald-100" onClick={exportFinancialTransactions} type="button">
+              <Download className="h-6 w-6" />
+              Export CSV
+            </button>
+            <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 text-xl font-extrabold text-white hover:bg-blue-800" onClick={() => setEditing({ ...emptyFinancialTransaction })} type="button">
+              <Plus className="h-6 w-6" />
+              เพิ่มรายการธุรกรรม
+            </button>
+          </div>
         </div>
 
         <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-[1.4fr_1fr_1fr_1fr_1fr_1fr]">
@@ -3027,8 +4487,8 @@ function FinancialAdmin({ headers }) {
 
         {error && <p className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-lg font-bold text-rose-700">{error}</p>}
 
-        <div className="overflow-x-auto rounded-lg border border-slate-200">
-          <table className="w-full min-w-[980px] text-left text-lg">
+        <div className="max-w-full overflow-x-auto rounded-lg border border-slate-200">
+          <table className="w-full min-w-[760px] text-left text-base md:min-w-[980px] md:text-lg">
             <thead className="bg-slate-100 text-base font-extrabold text-slate-600">
               <tr>
                 <th className="p-4">วันที่</th>
@@ -3068,7 +4528,7 @@ function FinancialAdmin({ headers }) {
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="mb-4 text-2xl font-extrabold text-slate-950">สรุปรายปี พ.ศ. 2568-2579</h2>
+        <h2 className="mb-4 text-2xl font-extrabold text-slate-950">สรุปรายปี พ.ศ. {REPORT_YEAR_RANGE_LABEL}</h2>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {summary.byYear.map((row) => (
             <div key={row.year} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
@@ -3166,8 +4626,8 @@ function FinancialFormModal({ initial, saving, onClose, onSave }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/50 p-0 sm:items-center sm:p-4">
-      <form onSubmit={submit} className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:rounded-2xl" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-slate-950/50 p-0 sm:items-center sm:p-4">
+      <form onSubmit={submit} className="max-h-[92vh] w-full max-w-[calc(100vw-1rem)] overflow-y-auto rounded-t-2xl bg-white p-4 shadow-2xl sm:max-w-3xl sm:rounded-2xl sm:p-5" role="dialog" aria-modal="true">
         <div className="mb-5 flex items-start justify-between gap-4 border-b border-slate-200 pb-4">
           <div>
             <p className="text-lg font-bold text-blue-700">รายการการเงิน</p>
@@ -3225,8 +4685,8 @@ function FinancialFormModal({ initial, saving, onClose, onSave }) {
 
 function VehicleDetailModal({ vehicle, onClose }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/50 p-0 sm:items-center sm:p-4">
-      <div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:rounded-2xl" role="dialog" aria-modal="true" aria-labelledby="vehicle-detail-title">
+    <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-slate-950/50 p-0 sm:items-center sm:p-4">
+      <div className="max-h-[92vh] w-full max-w-[calc(100vw-1rem)] overflow-y-auto rounded-t-2xl bg-white p-4 shadow-2xl sm:max-w-5xl sm:rounded-2xl sm:p-5" role="dialog" aria-modal="true" aria-labelledby="vehicle-detail-title">
         <div className="mb-5 flex items-start justify-between gap-4 border-b border-slate-200 pb-4">
           <div>
             <p className="text-lg font-bold text-slate-500">รายละเอียดรถ</p>
@@ -3262,7 +4722,7 @@ function VehicleDetailModal({ vehicle, onClose }) {
             <div className="grid gap-4 sm:grid-cols-2">
               {vehicleImages(vehicle).map((image, index) => (
                 <div key={`${image}-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <img className="max-h-[320px] w-full rounded-xl bg-white object-contain" src={image} alt={`รูปใบเสร็จหรือรูปประกอบรถ ${index + 1}`} />
+                  <img className="max-h-[320px] w-full rounded-xl bg-white object-contain" src={image} alt={`รูปใบเสร็จหรือรูปประกอบรถ ${index + 1}`} loading="lazy" />
                   <a className="mt-3 inline-flex min-h-12 items-center gap-2 rounded-lg bg-blue-700 px-4 text-lg font-extrabold text-white hover:bg-blue-800" href={image} target="_blank" rel="noopener noreferrer">
                     <Eye className="h-5 w-5" />
                     เปิดดูรูป {index + 1}

@@ -2,6 +2,7 @@ import { query } from '../../../lib/db';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const TYPE_OPTIONS = new Set(['income', 'expense']);
+const BASE_YEAR = 2023;
 
 function json(data, init = {}) {
   return new Response(JSON.stringify(data), {
@@ -37,8 +38,11 @@ function normalizeYear(value) {
   const year = cleanString(value, 4);
   if (!/^\d{4}$/.test(year)) return '';
   const numberYear = Number(year);
-  if (numberYear >= 2568 && numberYear <= 2579) return String(numberYear - 543);
-  return year;
+  const currentYear = new Date().getFullYear();
+  const maxYear = currentYear + 50;
+  const normalizedYear = numberYear > 2400 ? numberYear - 543 : numberYear;
+  if (normalizedYear < BASE_YEAR || normalizedYear > maxYear) return '';
+  return String(normalizedYear);
 }
 
 function formatSqlDate(value) {

@@ -1,3 +1,5 @@
+import { isAuthorizedAdminRequest, getAuthorizedAdminFromRequest } from '../../../lib/adminAuth';
+import { insertAuditLogSafe } from '../../../lib/auditLog';
 import { query } from '../../../lib/db';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
@@ -64,70 +66,66 @@ async function ensureIndex(sql) {
   }
 }
 
+async function ensureColumn(sql) {
+  try {
+    await query(sql);
+  } catch (error) {
+    if (Number(error?.errno || 0) !== 1060) throw error;
+  }
+}
+
 async function ensureFinancialTransactionsTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS financial_transactions (
       id VARCHAR(64) PRIMARY KEY,
-      date DATE NOT NULL,
+      date DATE NULL,
       time TIME NULL,
-      type ENUM('income','expense') NOT NULL,
-      payment_method VARCHAR(100) NOT NULL,
-      description TEXT NOT NULL,
-      amount DECIMAL(12,2) NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      transaction_date DATE NOT NULL,
+      type VARCHAR(50) NOT NULL,
+      category VARCHAR(100) NULL,
+      description TEXT NULL,
+      amount DECIMAL(12,2) DEFAULT 0,
+      payment_method VARCHAR(100) NULL,
+      related_vehicle_id VARCHAR(64) NULL,
+      note TEXT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
 
-  await ensureIndex('CREATE INDEX idx_financial_transactions_date ON financial_transactions(date)');
+  await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN date DATE NULL');
+  await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN time TIME NULL');
+  await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN transaction_date DATE NULL');
+  await ensureColumn("ALTER TABLE financial_transactions ADD COLUMN category VARCHAR(100) NULL");
+  await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN related_vehicle_id VARCHAR(64) NULL');
+  await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN note TEXT NULL');
+  await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN payment_method VARCHAR(100) NULL');
+  await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN description TEXT NULL');
+  await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN amount DECIMAL(12,2) DEFAULT 0');
+
+  await query(`
+    UPDATE financial_transactions
+    SET transaction_date = COALESCE(transaction_date, date)
+    WHERE transaction_date IS NULL
+  `).catch(() => {});
+
+  await ensureIndex('CREATE INDEX idx_financial_transactions_date ON financial_transactions(transaction_date)');
   await ensureIndex('CREATE INDEX idx_financial_transactions_type ON financial_transactions(type)');
   await ensureIndex('CREATE INDEX idx_financial_transactions_payment_method ON financial_transactions(payment_method)');
-}
-
-async function ensureEmployeesTable() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS employees (
-      id VARCHAR(64) PRIMARY KEY,
-      code VARCHAR(255) NOT NULL,
-      name VARCHAR(255),
-      role VARCHAR(100),
-      active TINYINT(1) NOT NULL DEFAULT 1,
-      createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE KEY idx_employees_code (code(255))
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
-
-  await ensureIndex('ALTER TABLE employees ADD UNIQUE KEY idx_employees_code (code(255))');
-  await query(
-    `INSERT IGNORE INTO employees (id, code, name, role, active)
-     VALUES (?, ?, ?, ?, 1)`,
-    ['emp-default', 'jBm1679800329229#ProAuto!', 'พนักงานอู่', 'admin']
-  );
-}
-
-async function isAuthorizedToken(request) {
-  const suppliedToken = cleanString(request.headers.get('x-vehicle-admin-token'), 255);
-  if (!suppliedToken) return false;
-  const configuredToken = process.env.VEHICLE_ADMIN_TOKEN;
-  if (configuredToken && suppliedToken === configuredToken) return true;
-
-  await ensureEmployeesTable();
-  const rows = await query(
-    'SELECT id FROM employees WHERE code = ? AND active = 1 LIMIT 1',
-    [suppliedToken]
-  );
-  return Array.isArray(rows) && rows.length > 0;
 }
 
 function normalizeRow(row) {
   return {
     id: row.id,
-    date: formatSqlDate(row.date),
+    date: formatSqlDate(row.transaction_date || row.date),
     time: formatSqlTime(row.time),
     type: TYPE_OPTIONS.has(row.type) ? row.type : 'income',
     payment_method: row.payment_method || '',
     description: row.description || '',
     amount: Number(row.amount || 0),
+    category: row.category || '',
+    note: row.note || '',
+    related_vehicle_id: row.related_vehicle_id || '',
     created_at: row.created_at || null,
     updated_at: row.updated_at || null,
   };
@@ -136,7 +134,7 @@ function normalizeRow(row) {
 function normalizeBody(body) {
   if (!body || typeof body !== 'object') return { error: 'รูปแบบข้อมูลไม่ถูกต้อง' };
 
-  const date = cleanDate(body.date);
+  const date = cleanDate(body.date || body.transaction_date);
   if (!date) return { error: 'กรุณาระบุวันที่ทำรายการให้ถูกต้อง' };
 
   const type = cleanString(body.type, 16);
@@ -159,9 +157,12 @@ function normalizeBody(body) {
       date,
       time: cleanTime(body.time),
       type,
+      category: cleanString(body.category, 100) || null,
       payment_method: paymentMethod,
       description,
       amount,
+      related_vehicle_id: cleanString(body.related_vehicle_id || body.relatedVehicleId, 64) || null,
+      note: cleanString(body.note, 5000) || null,
     },
   };
 }
@@ -177,9 +178,9 @@ function buildWhere(url) {
   const year = normalizeYear(url.searchParams.get('year'));
 
   if (search) {
-    where.push('(LOWER(description) LIKE ? OR LOWER(payment_method) LIKE ?)');
+    where.push('(LOWER(description) LIKE ? OR LOWER(payment_method) LIKE ? OR LOWER(category) LIKE ?)');
     const like = `%${search.toLowerCase()}%`;
-    params.push(like, like);
+    params.push(like, like, like);
   }
   if (TYPE_OPTIONS.has(type)) {
     where.push('type = ?');
@@ -190,15 +191,15 @@ function buildWhere(url) {
     params.push(paymentMethod);
   }
   if (/^\d{4}$/.test(year)) {
-    where.push('YEAR(date) = ?');
+    where.push('YEAR(transaction_date) = ?');
     params.push(year);
   }
   if (/^\d{2}$/.test(month)) {
-    where.push('MONTH(date) = ?');
+    where.push('MONTH(transaction_date) = ?');
     params.push(month);
   }
   if (/^\d{2}$/.test(day)) {
-    where.push('DAY(date) = ?');
+    where.push('DAY(transaction_date) = ?');
     params.push(day);
   }
 
@@ -210,7 +211,7 @@ function buildWhere(url) {
 
 export async function GET(request) {
   try {
-    if (!(await isAuthorizedToken(request))) return json({ error: 'ไม่มีสิทธิ์ใช้งานข้อมูลการเงิน' }, { status: 403 });
+    if (!(await isAuthorizedAdminRequest(request))) return json({ error: 'ไม่มีสิทธิ์ใช้งานข้อมูลการเงิน' }, { status: 403 });
     await ensureFinancialTransactionsTable();
 
     const url = new URL(request.url);
@@ -218,7 +219,7 @@ export async function GET(request) {
     const rows = await query(
       `SELECT * FROM financial_transactions
        ${where.clause}
-       ORDER BY date DESC, COALESCE(time, '23:59:59') DESC, created_at DESC
+       ORDER BY transaction_date DESC, COALESCE(time, '23:59:59') DESC, created_at DESC
        LIMIT 2000`,
       where.params
     );
@@ -232,7 +233,8 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    if (!(await isAuthorizedToken(request))) return json({ error: 'ไม่มีสิทธิ์บันทึกข้อมูลการเงิน' }, { status: 403 });
+    const admin = await getAuthorizedAdminFromRequest(request);
+    if (!admin) return json({ error: 'ไม่มีสิทธิ์บันทึกข้อมูลการเงิน' }, { status: 403 });
 
     let body;
     try {
@@ -246,29 +248,54 @@ export async function POST(request) {
     const { transaction } = normalized;
 
     await ensureFinancialTransactionsTable();
+    const beforeRows = await query('SELECT * FROM financial_transactions WHERE id = ? LIMIT 1', [transaction.id]);
+    const beforeTransaction = Array.isArray(beforeRows) && beforeRows.length ? normalizeRow(beforeRows[0]) : null;
     await query(
       `INSERT INTO financial_transactions (
-        id, date, time, type, payment_method, description, amount
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        id, date, time, transaction_date, type, category, description, amount, payment_method, related_vehicle_id, note
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
         date = VALUES(date),
         time = VALUES(time),
+        transaction_date = VALUES(transaction_date),
         type = VALUES(type),
-        payment_method = VALUES(payment_method),
+        category = VALUES(category),
         description = VALUES(description),
-        amount = VALUES(amount)`,
+        amount = VALUES(amount),
+        payment_method = VALUES(payment_method),
+        related_vehicle_id = VALUES(related_vehicle_id),
+        note = VALUES(note)`,
       [
         transaction.id,
         transaction.date,
         transaction.time,
+        transaction.date,
         transaction.type,
-        transaction.payment_method,
+        transaction.category,
         transaction.description,
         transaction.amount,
+        transaction.payment_method,
+        transaction.related_vehicle_id,
+        transaction.note,
       ]
     );
 
-    return json({ success: true, transaction }, { status: 200 });
+    const savedRows = await query('SELECT * FROM financial_transactions WHERE id = ? LIMIT 1', [transaction.id]);
+    const savedTransaction = normalizeRow(savedRows[0] || transaction);
+    await insertAuditLogSafe({
+      action: beforeTransaction ? 'UPDATE' : 'CREATE',
+      module: 'FINANCIAL',
+      entityType: 'FINANCIAL_TRANSACTION',
+      entityId: savedTransaction.id,
+      createdBy: admin.displayName || admin.username,
+      detail: {
+        targetLabel: savedTransaction.description || savedTransaction.id,
+        beforeData: beforeTransaction,
+        afterData: savedTransaction,
+      },
+    });
+
+    return json({ success: true, transaction: savedTransaction }, { status: 200 });
   } catch (error) {
     console.error('[financial-transactions] POST failed', error);
     return json({ error: 'บันทึกรายการการเงินไม่สำเร็จ กรุณาลองใหม่อีกครั้ง' }, { status: 503 });
@@ -277,12 +304,29 @@ export async function POST(request) {
 
 export async function DELETE(request) {
   try {
-    if (!(await isAuthorizedToken(request))) return json({ error: 'ไม่มีสิทธิ์ลบข้อมูลการเงิน' }, { status: 403 });
+    const admin = await getAuthorizedAdminFromRequest(request);
+    if (!admin) return json({ error: 'ไม่มีสิทธิ์ลบข้อมูลการเงิน' }, { status: 403 });
     const id = cleanString(new URL(request.url).searchParams.get('id'), 64);
     if (!id) return json({ error: 'กรุณาระบุ id ของรายการที่ต้องการลบ' }, { status: 400 });
 
     await ensureFinancialTransactionsTable();
+    const rows = await query('SELECT * FROM financial_transactions WHERE id = ? LIMIT 1', [id]);
+    const previousTransaction = Array.isArray(rows) && rows.length ? normalizeRow(rows[0]) : null;
     await query('DELETE FROM financial_transactions WHERE id = ?', [id]);
+    if (previousTransaction) {
+      await insertAuditLogSafe({
+        action: 'DELETE',
+        module: 'FINANCIAL',
+        entityType: 'FINANCIAL_TRANSACTION',
+        entityId: previousTransaction.id,
+        createdBy: admin.displayName || admin.username,
+        detail: {
+          targetLabel: previousTransaction.description || previousTransaction.id,
+          beforeData: previousTransaction,
+          afterData: null,
+        },
+      });
+    }
     return json({ success: true }, { status: 200 });
   } catch (error) {
     console.error('[financial-transactions] DELETE failed', error);

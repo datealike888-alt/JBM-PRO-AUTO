@@ -7,6 +7,8 @@ import {
   normalizeLeaveLogRow,
   query,
 } from '../../../lib/employeeStorage';
+import { getAuthorizedAdminFromRequest } from '../../../lib/adminAuth';
+import { insertAuditLogSafe } from '../../../lib/auditLog';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
@@ -22,15 +24,20 @@ function buildWhere(url) {
   const params = [];
   const employeeId = cleanString(url.searchParams.get('employeeId'), 64);
   const type = cleanString(url.searchParams.get('type'), 100);
-  const submittedFilters = buildYearMonthDayFilters(url, 'submitted_at');
+  const status = cleanString(url.searchParams.get('status'), 50);
+  const submittedFilters = buildYearMonthDayFilters(url, 'created_at');
 
   if (employeeId) {
     where.push('employee_id = ?');
     params.push(employeeId);
   }
   if (type) {
-    where.push('type = ?');
+    where.push('leave_type = ?');
     params.push(type);
+  }
+  if (status) {
+    where.push('status = ?');
+    params.push(status);
   }
 
   where.push(...submittedFilters.where);
@@ -49,11 +56,12 @@ export async function GET(request) {
 
     const where = buildWhere(new URL(request.url));
     const rows = await query(
-      `SELECT id, employee_id, employee_code, type, start_date, end_date, total_days, approver,
-              reason, submitted_at, source, createdAt, updatedAt
-       FROM leave_logs
+      `SELECT el.id, el.employee_id, e.employee_code, el.leave_type, el.start_date, el.end_date, el.total_days, el.approver,
+              el.reason, el.status, el.created_at, el.updated_at
+       FROM employee_leaves el
+       LEFT JOIN employees e ON e.id = el.employee_id
        ${where.clause}
-       ORDER BY submitted_at DESC, createdAt DESC
+       ORDER BY el.created_at DESC
        LIMIT 5000`,
       where.params
     );
@@ -67,7 +75,8 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    if (!(await isAuthorizedToken(request))) return json({ error: 'Forbidden' }, { status: 403 });
+    const admin = await getAuthorizedAdminFromRequest(request);
+    if (!admin) return json({ error: 'Forbidden' }, { status: 403 });
 
     let body;
     try {
@@ -82,48 +91,68 @@ export async function POST(request) {
     }
 
     await ensureLeaveLogsTable();
+    const beforeRows = await query(
+      `SELECT el.id, el.employee_id, e.employee_code, el.leave_type, el.start_date, el.end_date, el.total_days, el.approver,
+              el.reason, el.status, el.created_at, el.updated_at
+       FROM employee_leaves el
+       LEFT JOIN employees e ON e.id = el.employee_id
+       WHERE el.id = ?
+       LIMIT 1`,
+      [log.id]
+    );
+    const previousLog = Array.isArray(beforeRows) && beforeRows.length ? normalizeLeaveLogRow(beforeRows[0]) : null;
     await query(
-      `INSERT INTO leave_logs (
-        id, employee_id, employee_code, type, start_date, end_date, total_days, approver,
-        reason, submitted_at, source, createdAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+      `INSERT INTO employee_leaves (
+        id, employee_id, leave_type, start_date, end_date, total_days, reason, approver, status, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
       ON DUPLICATE KEY UPDATE
         employee_id = VALUES(employee_id),
-        employee_code = VALUES(employee_code),
-        type = VALUES(type),
+        leave_type = VALUES(leave_type),
         start_date = VALUES(start_date),
         end_date = VALUES(end_date),
         total_days = VALUES(total_days),
-        approver = VALUES(approver),
         reason = VALUES(reason),
-        submitted_at = VALUES(submitted_at),
-        source = VALUES(source)`,
+        approver = VALUES(approver),
+        status = VALUES(status)`,
       [
         log.id,
         log.employeeId,
-        log.employeeCode,
         log.type,
         log.startDate,
         log.endDate,
         log.totalDays,
-        log.approver,
         log.reason,
-        log.submittedAt,
-        log.source,
+        log.approver,
+        log.status,
         log.createdAt,
       ]
     );
 
     const rows = await query(
-      `SELECT id, employee_id, employee_code, type, start_date, end_date, total_days, approver,
-              reason, submitted_at, source, createdAt, updatedAt
-       FROM leave_logs
-       WHERE id = ?
+      `SELECT el.id, el.employee_id, e.employee_code, el.leave_type, el.start_date, el.end_date, el.total_days, el.approver,
+              el.reason, el.status, el.created_at, el.updated_at
+       FROM employee_leaves el
+       LEFT JOIN employees e ON e.id = el.employee_id
+       WHERE el.id = ?
        LIMIT 1`,
       [log.id]
     );
 
-    return json({ success: true, log: normalizeLeaveLogRow(rows[0] || log) }, { status: 200 });
+    const savedLog = normalizeLeaveLogRow(rows[0] || log);
+    await insertAuditLogSafe({
+      action: previousLog ? 'UPDATE' : 'CREATE',
+      module: 'LEAVE',
+      entityType: 'EMPLOYEE_LEAVE',
+      entityId: savedLog.id,
+      createdBy: admin.displayName || admin.username,
+      detail: {
+        targetLabel: `${savedLog.employeeCode || savedLog.employeeId} ${savedLog.type}`.trim(),
+        beforeData: previousLog,
+        afterData: savedLog,
+      },
+    });
+
+    return json({ success: true, log: savedLog }, { status: 200 });
   } catch (error) {
     console.error('[leave-logs] POST failed', error);
     return json({ error: 'Unable to save leave log' }, { status: 503 });
@@ -132,12 +161,37 @@ export async function POST(request) {
 
 export async function DELETE(request) {
   try {
-    if (!(await isAuthorizedToken(request))) return json({ error: 'Forbidden' }, { status: 403 });
+    const admin = await getAuthorizedAdminFromRequest(request);
+    if (!admin) return json({ error: 'Forbidden' }, { status: 403 });
     const id = cleanString(new URL(request.url).searchParams.get('id'), 64);
     if (!id) return json({ error: 'Missing id parameter' }, { status: 400 });
 
     await ensureLeaveLogsTable();
-    await query('DELETE FROM leave_logs WHERE id = ?', [id]);
+    const rows = await query(
+      `SELECT el.id, el.employee_id, e.employee_code, el.leave_type, el.start_date, el.end_date, el.total_days, el.approver,
+              el.reason, el.status, el.created_at, el.updated_at
+       FROM employee_leaves el
+       LEFT JOIN employees e ON e.id = el.employee_id
+       WHERE el.id = ?
+       LIMIT 1`,
+      [id]
+    );
+    const previousLog = Array.isArray(rows) && rows.length ? normalizeLeaveLogRow(rows[0]) : null;
+    await query('DELETE FROM employee_leaves WHERE id = ?', [id]);
+    if (previousLog) {
+      await insertAuditLogSafe({
+        action: 'DELETE',
+        module: 'LEAVE',
+        entityType: 'EMPLOYEE_LEAVE',
+        entityId: previousLog.id,
+        createdBy: admin.displayName || admin.username,
+        detail: {
+          targetLabel: `${previousLog.employeeCode || previousLog.employeeId} ${previousLog.type}`.trim(),
+          beforeData: previousLog,
+          afterData: null,
+        },
+      });
+    }
     return json({ success: true }, { status: 200 });
   } catch (error) {
     console.error('[leave-logs] DELETE failed', error);

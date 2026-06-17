@@ -1,4 +1,10 @@
-import { query } from '../../../../lib/db';
+import {
+  createAdminSession,
+  ensureAdminUsersTable,
+  getAuthorizedAdminFromRequest,
+  validateAdminCredentials,
+} from '../../../../lib/adminAuth';
+import { SESSION_COOKIE_NAME } from '../../../../lib/session';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const MAX_REQUEST_BYTES = 12 * 1024 * 1024;
@@ -17,32 +23,35 @@ function getContentLength(request) {
   return Number.isFinite(length) ? length : 0;
 }
 
-async function ensureEmployeesTable() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS employees (
-      id VARCHAR(64) PRIMARY KEY,
-      code VARCHAR(255) NOT NULL,
-      name VARCHAR(255),
-      role VARCHAR(100),
-      active TINYINT(1) NOT NULL DEFAULT 1,
-      createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE KEY idx_employees_code (code(255))
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
+function buildSessionCookie(token) {
+  const secure = String(process.env.SESSION_COOKIE_SECURE || 'false').toLowerCase() === 'true';
+  return [
+    `${SESSION_COOKIE_NAME}=${token}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    secure ? 'Secure' : '',
+    `Max-Age=${7 * 24 * 60 * 60}`,
+  ].filter(Boolean).join('; ');
+}
 
+export async function GET(request) {
   try {
-    await query('ALTER TABLE employees ADD UNIQUE KEY idx_employees_code (code(255))');
+    const admin = await getAuthorizedAdminFromRequest(request);
+    if (!admin) return json({ authenticated: false }, { status: 401 });
+    return json({
+      authenticated: true,
+      admin: {
+        id: admin.id,
+        username: admin.username,
+        displayName: admin.displayName,
+        role: admin.role,
+      },
+    }, { status: 200, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
-    if (![1061, 1062].includes(Number(error?.errno || 0))) {
-      console.warn('[admin/validate] unable to ensure employees.code index', error);
-    }
+    console.error('[admin/validate] GET failed', error);
+    return json({ authenticated: false }, { status: 401 });
   }
-
-  await query(
-    `INSERT IGNORE INTO employees (id, code, name, role, active)
-     VALUES (?, ?, ?, ?, 1)`,
-    ['emp-default', 'jBm1679800329229#ProAuto!', 'พนักงานอู่', 'admin']
-  );
 }
 
 export async function POST(request) {
@@ -57,29 +66,34 @@ export async function POST(request) {
     return json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const code = String(body?.code || '').trim();
-  if (!code) return json({ error: 'กรุณากรอกรหัสพนักงาน' }, { status: 400 });
+  const username = String(body?.username || '').trim();
+  const password = String(body?.password || '');
+  if (!username || !password) {
+    return json({ error: 'Username and password are required' }, { status: 400 });
+  }
 
   try {
-    await ensureEmployeesTable();
-    const rows = await query(
-      'SELECT id, code, name, role, active FROM employees WHERE code = ? AND active = 1 LIMIT 1',
-      [code]
-    );
-    const employee = Array.isArray(rows) && rows.length ? rows[0] : null;
-    if (!employee) return json({ error: 'รหัสพนักงานไม่ถูกต้อง' }, { status: 403 });
+    await ensureAdminUsersTable();
+    const admin = await validateAdminCredentials(username, password);
+    if (!admin) return json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' }, { status: 403 });
 
+    const token = await createAdminSession(admin);
     return json({
       success: true,
-      employee: {
-        id: employee.id,
-        code: employee.code,
-        name: employee.name,
-        role: employee.role,
+      admin: {
+        id: admin.id,
+        username: admin.username,
+        displayName: admin.displayName,
+        role: admin.role,
       },
-    }, { status: 200 });
+    }, {
+      status: 200,
+      headers: {
+        'Set-Cookie': buildSessionCookie(token),
+      },
+    });
   } catch (error) {
     console.error('[admin/validate] POST failed', error);
-    return json({ error: 'ระบบตรวจสอบรหัสพนักงานไม่พร้อมใช้งาน' }, { status: 503 });
+    return json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' }, { status: 403 });
   }
 }

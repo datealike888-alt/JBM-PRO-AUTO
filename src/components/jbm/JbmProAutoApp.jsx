@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -46,7 +46,6 @@ import {
   Settings,
   ShieldCheck,
   Trash2,
-  TrendingUp,
   Upload,
   UserCheck,
   Wallet,
@@ -56,7 +55,15 @@ import {
 
 const API_URL = '/api/vehicles';
 const FINANCIAL_API_URL = '/api/financial-transactions';
-const ADMIN_TOKEN_STORAGE_KEY = 'jbm-admin-token';
+const STOCK_CATEGORIES_API_URL = '/api/stock/categories';
+const STOCK_PRODUCTS_API_URL = '/api/stock/products';
+const STOCK_MOVEMENTS_API_URL = '/api/stock/movements';
+const EMPLOYEES_API_URL = '/api/employees';
+const EMPLOYEE_POSITIONS_API_URL = '/api/employee-positions';
+const EMPLOYEE_ATTENDANCE_API_URL = '/api/employee-attendance';
+const EMPLOYEE_LEAVES_API_URL = '/api/employee-leaves';
+const ATTENDANCE_SETTINGS_API_URL = '/api/attendance-settings';
+const AUDIT_LOGS_API_URL = '/api/audit-logs';
 const SHIFT_LOGS_STORAGE_KEY = 'jbm_shift_logs_v1';
 const DEFAULT_STATUS = 'จองคิว';
 const FINAL_STATUS = 'ซ่อมเสร็จรอส่ง';
@@ -100,12 +107,6 @@ const REPORT_YEARS = Array.from({ length: CURRENT_YEAR + 10 - BASE_YEAR + 1 }, (
 const REPORT_YEAR_RANGE_LABEL = `${BASE_YEAR + 543}-${CURRENT_YEAR + 10 + 543}`;
 const DEFAULT_SHIFT_EMPLOYEES = ['JBM Admin', 'ช่างประจำอู่', 'ฝ่ายสต็อก', 'ฝ่ายบัญชี'];
 const SHIFT_TYPES = ['เวรปกติ', 'เวร OT', 'เวรพิเศษ'];
-const EMPLOYEES_STORAGE_KEY = 'jbm_employees_v1';
-const EMPLOYEE_POSITIONS_STORAGE_KEY = 'jbm_employee_positions_v1';
-const EMPLOYEE_ATTENDANCE_STORAGE_KEY = 'jbm_employee_attendance_v1';
-const EMPLOYEE_LEAVES_STORAGE_KEY = 'jbm_employee_leaves_v1';
-const EMPLOYEE_ATTENDANCE_SETTINGS_STORAGE_KEY = 'jbm_employee_attendance_settings_v1';
-const AUDIT_LOGS_STORAGE_KEY = 'jbm_audit_logs_v1';
 const EMPLOYEE_STATUSES = ['ทำงานอยู่', 'พักงาน', 'ลาออก'];
 const DEFAULT_EMPLOYEE_POSITIONS = ['เจ้าของอู่', 'ผู้จัดการ', 'พนักงานบัญชี', 'พนักงานสต๊อก', 'ช่าง'];
 const OTHER_EMPLOYEE_POSITION = 'อื่นๆ';
@@ -120,34 +121,34 @@ const DEFAULT_ATTENDANCE_SETTINGS = {
   workEnd: '18:00',
 };
 const EMPLOYEE_STATUS_THEME = {
-  ทำงานอยู่: {
+  'ทำงานอยู่': {
     badge: 'border-emerald-200 bg-emerald-50 text-emerald-800',
     dot: 'bg-emerald-500',
     card: 'border-emerald-200 bg-emerald-50 text-emerald-800',
   },
-  พักงาน: {
+  'พักงาน': {
     badge: 'border-orange-200 bg-orange-50 text-orange-800',
     dot: 'bg-orange-500',
     card: 'border-orange-200 bg-orange-50 text-orange-800',
   },
-  ลาออก: {
+  'ลาออก': {
     badge: 'border-rose-200 bg-rose-50 text-rose-800',
     dot: 'bg-rose-500',
     card: 'border-rose-200 bg-rose-50 text-rose-800',
   },
 };
 const ATTENDANCE_STATUS_THEME = {
-  มาทำงาน: {
+  'มาทำงาน': {
     badge: 'border-emerald-200 bg-emerald-50 text-emerald-800',
     dot: 'bg-emerald-500',
     card: 'border-emerald-200 bg-emerald-50 text-emerald-800',
   },
-  สายเช้า: {
+  'สายเช้า': {
     badge: 'border-yellow-200 bg-yellow-50 text-yellow-800',
     dot: 'bg-yellow-500',
     card: 'border-yellow-200 bg-yellow-50 text-yellow-800',
   },
-  สายบ่าย: {
+  'สายบ่าย': {
     badge: 'border-orange-200 bg-orange-50 text-orange-800',
     dot: 'bg-orange-500',
     card: 'border-orange-200 bg-orange-50 text-orange-800',
@@ -157,22 +158,22 @@ const ATTENDANCE_STATUS_THEME = {
     dot: 'bg-pink-500',
     card: 'border-pink-200 bg-pink-50 text-pink-800',
   },
-  ขาดงาน: {
+  'ขาดงาน': {
     badge: 'border-rose-200 bg-rose-50 text-rose-800',
     dot: 'bg-rose-500',
     card: 'border-rose-200 bg-rose-50 text-rose-800',
   },
-  ลาป่วย: {
+  'ลาป่วย': {
     badge: 'border-blue-200 bg-blue-50 text-blue-800',
     dot: 'bg-blue-500',
     card: 'border-blue-200 bg-blue-50 text-blue-800',
   },
-  ลากิจ: {
+  'ลากิจ': {
     badge: 'border-violet-200 bg-violet-50 text-violet-800',
     dot: 'bg-violet-500',
     card: 'border-violet-200 bg-violet-50 text-violet-800',
   },
-  ลาพักร้อน: {
+  'ลาพักร้อน': {
     badge: 'border-sky-200 bg-sky-50 text-sky-800',
     dot: 'bg-sky-500',
     card: 'border-sky-200 bg-sky-50 text-sky-800',
@@ -194,37 +195,37 @@ const MONTHS_TH = [
   'ธันวาคม',
 ];
 const STATUS_THEME = {
-  จองคิว: {
+  'จองคิว': {
     card: 'border-pink-200 bg-pink-50 text-pink-800',
     badge: 'border-pink-200 bg-pink-50 text-pink-800',
     button: 'border-pink-200 bg-pink-50 text-pink-800 hover:bg-pink-100',
     chart: '#db2777',
   },
-  กำลังตรวจเช็ค: {
+  'กำลังตรวจเช็ค': {
     card: 'border-sky-200 bg-sky-50 text-sky-800',
     badge: 'border-sky-200 bg-sky-50 text-sky-800',
     button: 'border-sky-200 bg-sky-50 text-sky-800 hover:bg-sky-100',
     chart: '#0284c7',
   },
-  รออะไหล่: {
+  'รออะไหล่': {
     card: 'border-orange-200 bg-orange-50 text-orange-800',
     badge: 'border-orange-200 bg-orange-50 text-orange-800',
     button: 'border-orange-200 bg-orange-50 text-orange-800 hover:bg-orange-100',
     chart: '#ea580c',
   },
-  กำลังซ่อม: {
+  'กำลังซ่อม': {
     card: 'border-yellow-200 bg-yellow-50 text-yellow-800',
     badge: 'border-yellow-200 bg-yellow-50 text-yellow-900',
     button: 'border-yellow-200 bg-yellow-50 text-yellow-900 hover:bg-yellow-100',
     chart: '#ca8a04',
   },
-  ซ่อมเสร็จรอส่ง: {
+  'ซ่อมเสร็จรอส่ง': {
     card: 'border-emerald-200 bg-emerald-50 text-emerald-800',
     badge: 'border-emerald-200 bg-emerald-50 text-emerald-800',
     button: 'border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100',
     chart: '#059669',
   },
-  ปิดงาน: {
+  'ปิดงาน': {
     card: 'border-slate-900 bg-slate-950 text-white',
     badge: 'border-slate-900 bg-slate-950 text-white',
     button: 'border-slate-900 bg-slate-950 text-white hover:bg-slate-800',
@@ -377,15 +378,6 @@ function normalizeAttendanceSettings(settings = {}) {
   };
 }
 
-function readAttendanceSettings() {
-  if (typeof window === 'undefined') return DEFAULT_ATTENDANCE_SETTINGS;
-  try {
-    return normalizeAttendanceSettings(JSON.parse(window.localStorage.getItem(EMPLOYEE_ATTENDANCE_SETTINGS_STORAGE_KEY) || '{}'));
-  } catch {
-    return DEFAULT_ATTENDANCE_SETTINGS;
-  }
-}
-
 function normalizeEmployee(employee = {}) {
   return {
     id: employee.id || `emp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -410,12 +402,14 @@ function auditSafeData(value) {
 function currentAuditActor() {
   if (typeof window === 'undefined') return { actorName: 'System', actorRole: 'owner' };
   try {
-    const code = String(window.localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) || '').trim();
-    const employees = readStorageArray(EMPLOYEES_STORAGE_KEY).map(normalizeEmployee);
-    const employee = employees.find((item) => normalizeAdminIdentity(item.code) === normalizeAdminIdentity(code));
-    const actorName = employee ? employeeFullName(employee) || employee.nickname || employee.code : (code || 'System');
-    const actorRole = employee?.position || 'Owner';
-    return { actorName, actorRole };
+    const storedAdmin = window.__JBM_ADMIN_PROFILE__ || null;
+    if (storedAdmin?.displayName || storedAdmin?.username) {
+      return {
+        actorName: storedAdmin.displayName || storedAdmin.username,
+        actorRole: storedAdmin.role || 'Admin',
+      };
+    }
+    return { actorName: 'System', actorRole: 'Owner' };
   } catch (error) {
     console.error('[audit] resolve actor failed', error);
     return { actorName: 'System', actorRole: 'Owner' };
@@ -438,8 +432,21 @@ function addAuditLog(entry = {}) {
       afterData: auditSafeData(entry.afterData),
       createdAt: entry.createdAt || new Date().toISOString(),
     };
-    const logs = readStorageArray(AUDIT_LOGS_STORAGE_KEY);
-    window.localStorage.setItem(AUDIT_LOGS_STORAGE_KEY, JSON.stringify([nextEntry, ...logs].slice(0, 1000)));
+    fetch(AUDIT_LOGS_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: nextEntry.id,
+        action: nextEntry.action,
+        module: nextEntry.module,
+        entityType: nextEntry.module,
+        entityId: nextEntry.targetId,
+        createdBy: nextEntry.actorName,
+        detail: nextEntry,
+      }),
+    }).catch((error) => {
+      console.error('[audit] sync failed', error);
+    });
   } catch (error) {
     console.error('[audit] addAuditLog failed', error);
   }
@@ -856,10 +863,10 @@ function Header({ admin = false }) {
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
       <div className={`${admin ? 'flex min-h-16 items-center justify-between' : 'flex flex-col py-3 sm:min-h-16 sm:flex-row sm:items-center sm:justify-between sm:py-0'} mx-auto max-w-7xl gap-3 px-4 sm:px-6 lg:px-8`}>
-        <Link href="/" className="flex items-center gap-3">
+        <Link href="/" className="flex min-w-fit items-center gap-3">
           <img src="/images/jbm-public/jbmlogo.webp" className="h-12 w-12 rounded-lg object-cover" alt="JBM PRO AUTO Logo" />
-          <div>
-            <p className="text-xl font-extrabold leading-tight text-slate-950">JBM PRO AUTO</p>
+          <div className="min-w-fit">
+            <p className="whitespace-nowrap text-xl font-extrabold leading-tight text-slate-950">JBM PRO AUTO</p>
           </div>
         </Link>
         <nav className={admin ? 'flex min-w-0 items-center gap-1 overflow-x-auto sm:gap-2' : 'grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-cols-none sm:flex sm:items-center'}>
@@ -894,38 +901,11 @@ function StatusPill({ status }) {
   return <span className={`inline-flex rounded-lg border px-3 py-1.5 text-base font-extrabold ${theme.badge}`}>{status || DEFAULT_STATUS}</span>;
 }
 
-function normalizeSearchText(value) {
-  return String(value || '').trim().toLowerCase();
-}
-
-function normalizeDigits(value) {
-  return String(value || '').replace(/\D/g, '');
-}
-
-function isNameSearchQuery(query, vehicle) {
-  const text = normalizeSearchText(query);
-  if (!text || !vehicle) return false;
-
-  const ownerName = normalizeSearchText(vehicle.owner_name);
-  const licensePlate = normalizeSearchText(vehicle.license_plate);
-  const invoiceNumber = normalizeSearchText(vehicle.invoice_number);
-  const vin = normalizeSearchText(vehicle.vin);
-  const phoneDigits = normalizeDigits(vehicle.phone);
-  const queryDigits = normalizeDigits(text);
-
-  const matchesOwnerName = ownerName.includes(text);
-  const matchesOtherIdentifier = [licensePlate, invoiceNumber, vin].some((value) => value && value.includes(text))
-    || (queryDigits && phoneDigits.includes(queryDigits));
-
-  return matchesOwnerName && !matchesOtherIdentifier;
-}
-
 function CustomerSearch() {
   const [query, setQuery] = useState('');
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const privacyMode = result ? isNameSearchQuery(query, result) : false;
 
   const submit = async (event) => {
     event.preventDefault();
@@ -981,31 +961,9 @@ function CustomerSearch() {
       </div>
 
       {result && (
-        privacyMode ? (
-          <div className="mt-6">
-            <StatusProgress status={result.status} />
-          </div>
-        ) : (
-          <div className="mt-6 grid gap-5 xl:grid-cols-[.8fr_1.2fr]">
-            <div className="space-y-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-              <div className="flex flex-col gap-3 border-b border-slate-200 pb-5 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0">
-                  <p className="text-base font-bold text-slate-500">เลขใบแจ้งหนี้/ใบเสร็จ</p>
-                  <h2 className="break-words text-2xl font-extrabold text-slate-950 sm:text-3xl">{result.invoice_number || '-'}</h2>
-                  <p className="break-words text-lg font-bold text-slate-700 sm:text-xl">{result.brand || '-'} {result.model || ''}</p>
-                </div>
-                <StatusPill status={result.status} />
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Info label="ชื่อลูกค้า" value={result.owner_name || '-'} />
-                <Info label="ทะเบียนรถ" value={result.license_plate || '-'} />
-                <Info label="เลขใบแจ้งหนี้" value={result.invoice_number || '-'} />
-                <Info label="สถานะปัจจุบัน" value={result.status || DEFAULT_STATUS} />
-              </div>
-            </div>
-            <StatusProgress status={result.status} />
-          </div>
-        )
+        <div className="mt-6">
+          <StatusProgress status={result.status} />
+        </div>
       )}
     </section>
   );
@@ -1121,7 +1079,7 @@ function HomePage() {
             <div className="grid gap-6 lg:grid-cols-[.85fr_1.15fr] lg:items-center">
               <div className="min-w-0">
                 <p className="text-lg font-extrabold text-blue-700">เช็คสถานะออนไลน์</p>
-                <h2 className="mt-2 text-3xl font-extrabold leading-tight text-slate-950 sm:text-4xl">ค้นหางานซ่อมได้ทันที ไม่ต้องรอโทรถาม</h2>
+                <h2 className="mt-2 text-3xl font-extrabold leading-tight text-slate-950 sm:text-4xl">เช็คสถานะรถได้ทันที ไม่ต้องรอโทรถาม</h2>
 
                 <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                   <img className="aspect-[16/10] h-auto w-full object-cover" src="/images/jbm-public/JBMa.webp" alt="บรรยากาศอู่ซ่อมรถยุโรป JBM PRO AUTO" loading="lazy" />
@@ -1232,11 +1190,11 @@ function StatusPage() {
 }
 
 function AdminApp() {
-  const [token, setToken] = useState(() => {
-    if (typeof window === 'undefined') return '';
-    return window.localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) || '';
-  });
-  const [tokenInput, setTokenInput] = useState('');
+  const [token, setToken] = useState('');
+  const [, setAdminProfile] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [usernameInput, setUsernameInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
   const [loginError, setLoginError] = useState('');
   const [vehicles, setVehicles] = useState([]);
   const [active, setActive] = useState('dashboard');
@@ -1270,59 +1228,60 @@ function AdminApp() {
     note: '',
   }));
   const [shiftFilters, setShiftFilters] = useState({ month: 'all', year: String(CURRENT_YEAR), employeeName: 'all' });
-  const [stockProducts, setStockProducts] = useState(() => {
-    if (typeof window === 'undefined') return INITIAL_STOCK_PRODUCTS;
-    try {
-      const saved = window.localStorage.getItem(STOCK_PRODUCTS_STORAGE_KEY);
-      const parsed = saved ? JSON.parse(saved) : null;
-      if (isLegacyMockStockProducts(parsed)) {
-        clearStockStorageKeys();
-        return INITIAL_STOCK_PRODUCTS;
-      }
-      const source = Array.isArray(parsed) ? parsed : INITIAL_STOCK_PRODUCTS;
-      return source.map(normalizeStockProduct);
-    } catch {
-      return INITIAL_STOCK_PRODUCTS.map(normalizeStockProduct);
-    }
-  });
-  const [stockCategories, setStockCategories] = useState(() => {
-    if (typeof window === 'undefined') return INITIAL_STOCK_CATEGORIES;
-    try {
-      const saved = window.localStorage.getItem(STOCK_CATEGORIES_STORAGE_KEY);
-      const parsed = saved ? JSON.parse(saved) : null;
-      const source = Array.isArray(parsed) ? parsed : INITIAL_STOCK_CATEGORIES;
-      return source.map(normalizeStockCategory).filter((category) => category.name);
-    } catch {
-      return INITIAL_STOCK_CATEGORIES;
-    }
-  });
-  const [stockMovements, setStockMovements] = useState(() => {
-    if (typeof window === 'undefined') return [];
-    try {
-      const saved = window.localStorage.getItem(STOCK_MOVEMENTS_STORAGE_KEY);
-      const parsed = saved ? JSON.parse(saved) : null;
-      return Array.isArray(parsed) ? parsed : INITIAL_STOCK_MOVEMENTS;
-    } catch {
-      return INITIAL_STOCK_MOVEMENTS;
-    }
-  });
+  const [stockProducts, setStockProducts] = useState(INITIAL_STOCK_PRODUCTS);
+  const [stockCategories, setStockCategories] = useState(INITIAL_STOCK_CATEGORIES);
+  const [stockMovements, setStockMovements] = useState(INITIAL_STOCK_MOVEMENTS);
   const activeTab = active;
 
-  const headers = useCallback(() => ({ 'x-vehicle-admin-token': token }), [token]);
+  const headers = useCallback(() => ({}), []);
   const setActiveTab = useCallback((key) => {
     setActive(key);
     setMobileMenu(false);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/admin/validate', { method: 'GET', cache: 'no-store' })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (cancelled) return;
+        if (response.ok && data?.authenticated && data?.admin) {
+          window.__JBM_ADMIN_PROFILE__ = data.admin;
+          setAdminProfile(data.admin);
+          setToken('cookie-session');
+        } else {
+          window.__JBM_ADMIN_PROFILE__ = null;
+          setAdminProfile(null);
+          setToken('');
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        window.__JBM_ADMIN_PROFILE__ = null;
+        setAdminProfile(null);
+        setToken('');
+      })
+      .finally(() => {
+        if (!cancelled) setAuthChecked(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const logout = useCallback(() => {
-    window.localStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
+    fetch('/api/admin/logout', { method: 'POST', headers: headers() }).catch(() => {});
+    window.__JBM_ADMIN_PROFILE__ = null;
     setToken('');
-    setTokenInput('');
+    setAdminProfile(null);
+    setUsernameInput('');
+    setPasswordInput('');
     setLoginError('');
     setVehicles([]);
     setActive('dashboard');
     setMobileMenu(false);
-  }, []);
+  }, [headers]);
 
   const loadVehicles = useCallback(async () => {
     if (!token) return;
@@ -1344,17 +1303,34 @@ function AdminApp() {
     loadVehicles();
   }, [loadVehicles]);
 
-  useEffect(() => {
-    window.localStorage.setItem(STOCK_PRODUCTS_STORAGE_KEY, JSON.stringify(stockProducts));
-  }, [stockProducts]);
+  const loadStockData = useCallback(async () => {
+    if (!token) return;
+    try {
+      const [categoriesResponse, productsResponse, movementsResponse] = await Promise.all([
+        fetch(STOCK_CATEGORIES_API_URL, { headers: headers() }),
+        fetch(STOCK_PRODUCTS_API_URL, { headers: headers() }),
+        fetch(STOCK_MOVEMENTS_API_URL, { headers: headers() }),
+      ]);
+      const [categoriesData, productsData, movementsData] = await Promise.all([
+        categoriesResponse.json().catch(() => ({})),
+        productsResponse.json().catch(() => ({})),
+        movementsResponse.json().catch(() => ({})),
+      ]);
+      if (!categoriesResponse.ok || !productsResponse.ok || !movementsResponse.ok) throw new Error('load stock failed');
+      setStockCategories((categoriesData.categories || []).map(normalizeStockCategory).filter((category) => category.name));
+      setStockProducts((productsData.products || []).map(normalizeStockProduct));
+      setStockMovements(movementsData.movements || []);
+    } catch (error) {
+      console.error('[admin] load stock failed', error);
+      setStockCategories([]);
+      setStockProducts([]);
+      setStockMovements([]);
+    }
+  }, [headers, token]);
 
   useEffect(() => {
-    window.localStorage.setItem(STOCK_CATEGORIES_STORAGE_KEY, JSON.stringify(stockCategories));
-  }, [stockCategories]);
-
-  useEffect(() => {
-    window.localStorage.setItem(STOCK_MOVEMENTS_STORAGE_KEY, JSON.stringify(stockMovements));
-  }, [stockMovements]);
+    loadStockData();
+  }, [loadStockData]);
 
   useEffect(() => {
     window.localStorage.setItem(SHIFT_LOGS_STORAGE_KEY, JSON.stringify(shiftLogs));
@@ -1362,8 +1338,8 @@ function AdminApp() {
 
   const login = async (event) => {
     event.preventDefault();
-    if (!tokenInput.trim()) {
-      setLoginError('กรุณากรอกรหัสพนักงาน');
+    if (!usernameInput.trim() || !passwordInput) {
+      setLoginError('กรุณากรอกชื่อผู้ใช้และรหัสผ่าน');
       return;
     }
     setLoginError('');
@@ -1372,16 +1348,20 @@ function AdminApp() {
       const response = await fetch('/api/admin/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: tokenInput.trim() }),
+        credentials: 'same-origin',
+        body: JSON.stringify({ username: usernameInput.trim(), password: passwordInput }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || 'เข้าสู่ระบบไม่สำเร็จ');
-      const nextToken = tokenInput.trim();
-      window.localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, nextToken);
-      setToken(nextToken);
-      setTokenInput('');
+      const nextAdmin = data?.admin || null;
+      if (!nextAdmin) throw new Error('เข้าสู่ระบบไม่สำเร็จ');
+      window.__JBM_ADMIN_PROFILE__ = nextAdmin;
+      setToken('cookie-session');
+      setAdminProfile(nextAdmin);
+      setUsernameInput('');
+      setPasswordInput('');
     } catch (error) {
-      setLoginError(error.message || 'รหัสพนักงานไม่ถูกต้อง');
+      setLoginError(error.message || 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
     } finally {
       setLoading(false);
     }
@@ -1425,77 +1405,86 @@ function AdminApp() {
     }
   };
 
-  const adjustStockQuantity = useCallback((id, amount) => {
-    setStockProducts((items) => items.map((item) => {
-      if (item.id !== id) return item;
-      const before = Number(item.quantity || 0);
-      const after = Math.max(0, before + amount);
-      const change = after - before;
-      if (change === 0) return item;
-      setStockMovements((current) => [
-        makeStockMovement(item, change > 0 ? 'รับเข้า' : 'เบิกออก', change, before, after, change > 0 ? 'เพิ่มจำนวนจากหน้าสต็อก' : 'ลดจำนวนจากหน้าสต็อก'),
-        ...current,
-      ]);
-      return { ...item, quantity: after };
-    }));
-  }, []);
-
-  const saveStockProduct = useCallback((product) => {
-    const normalized = normalizeStockProduct(product);
-    setStockProducts((items) => {
-      const exists = items.some((item) => item.id === normalized.id);
-      if (!exists) {
-        const created = { ...normalized, id: normalized.id || `stk-${Date.now()}` };
-        setStockMovements((current) => [
-          makeStockMovement(created, 'เพิ่มสินค้าใหม่', Number(created.quantity || 0), 0, Number(created.quantity || 0), 'เพิ่มสินค้าใหม่'),
-          ...current,
-        ]);
-        return [created, ...items];
-      }
-      return items.map((item) => {
-        if (item.id !== normalized.id) return item;
-        const before = Number(item.quantity || 0);
-        const after = Number(normalized.quantity || 0);
-        if (before !== after) {
-          setStockMovements((current) => [
-            makeStockMovement(normalized, 'ปรับยอด', after - before, before, after, 'แก้ไขจำนวนจากฟอร์มสินค้า'),
-            ...current,
-          ]);
-        }
-        return normalized;
-      });
+  const adjustStockQuantity = useCallback(async (id, amount) => {
+    const item = stockProducts.find((product) => product.id === id);
+    if (!item) return;
+    const before = Number(item.quantity || 0);
+    const after = Math.max(0, before + amount);
+    const change = after - before;
+    if (change === 0) return;
+    await fetch(STOCK_PRODUCTS_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers() },
+      body: JSON.stringify({ ...item, quantity: after }),
     });
-  }, []);
+    await fetch(STOCK_MOVEMENTS_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers() },
+      body: JSON.stringify(makeStockMovement(item, change > 0 ? 'รับเข้า' : 'เบิกออก', change, before, after, change > 0 ? 'เพิ่มจำนวนจากหน้าสต็อก' : 'ลดจำนวนจากหน้าสต็อก')),
+    });
+    await loadStockData();
+  }, [headers, loadStockData, stockProducts]);
 
-  const deleteStockProduct = useCallback((product) => {
-    setStockProducts((items) => items.filter((item) => item.id !== product.id));
-    setStockMovements((current) => [
-      makeStockMovement(product, 'ลบสินค้า', -Number(product.quantity || 0), Number(product.quantity || 0), 0, 'ลบรายการสินค้าออกจากสต็อก'),
-      ...current,
-    ]);
-  }, []);
+  const saveStockProduct = useCallback(async (product) => {
+    const normalized = normalizeStockProduct(product);
+    const previous = stockProducts.find((item) => item.id === normalized.id);
+    const response = await fetch(STOCK_PRODUCTS_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers() },
+      body: JSON.stringify(normalized),
+    });
+    if (!response.ok) throw new Error('บันทึกสินค้าไม่สำเร็จ');
+    const before = Number(previous?.quantity || 0);
+    const after = Number(normalized.quantity || 0);
+    if (!previous || before !== after) {
+      await fetch(STOCK_MOVEMENTS_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers() },
+        body: JSON.stringify(makeStockMovement(normalized, previous ? 'ปรับยอด' : 'เพิ่มสินค้าใหม่', after - before, before, after, previous ? 'แก้ไขจำนวนจากฟอร์มสินค้า' : 'เพิ่มสินค้าใหม่')),
+      });
+    }
+    await loadStockData();
+  }, [headers, loadStockData, stockProducts]);
 
-  const saveStockCategory = useCallback((category) => {
+  const deleteStockProduct = useCallback(async (product) => {
+    await fetch(STOCK_MOVEMENTS_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers() },
+      body: JSON.stringify(makeStockMovement(product, 'ลบสินค้า', -Number(product.quantity || 0), Number(product.quantity || 0), 0, 'ลบรายการสินค้าออกจากสต็อก')),
+    });
+    await fetch(`${STOCK_PRODUCTS_API_URL}?id=${encodeURIComponent(product.id)}`, {
+      method: 'DELETE',
+      headers: headers(),
+    });
+    await loadStockData();
+  }, [headers, loadStockData]);
+
+  const saveStockCategory = useCallback(async (category) => {
     const normalized = normalizeStockCategory(category);
     if (!normalized.name) return;
-    setStockCategories((items) => {
-      const exists = Boolean(normalized.id) && items.some((item) => item.id === normalized.id);
-      if (exists) return items.map((item) => (item.id === normalized.id ? normalized : item));
-      return [{ ...normalized, id: normalized.id || `stock-cat-${Date.now()}` }, ...items];
+    const response = await fetch(STOCK_CATEGORIES_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers() },
+      body: JSON.stringify(normalized),
     });
-  }, []);
+    if (!response.ok) throw new Error('บันทึกหมวดหมู่ไม่สำเร็จ');
+    await loadStockData();
+  }, [headers, loadStockData]);
 
-  const toggleStockCategory = useCallback((id) => {
-    setStockCategories((items) => items.map((item) => (
-      item.id === id ? { ...item, is_active: !item.is_active } : item
-    )));
-  }, []);
+  const toggleStockCategory = useCallback(async (id) => {
+    const currentCategory = stockCategories.find((item) => item.id === id);
+    if (!currentCategory) return;
+    const response = await fetch(STOCK_CATEGORIES_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers() },
+      body: JSON.stringify({ ...currentCategory, is_active: !currentCategory.is_active }),
+    });
+    if (!response.ok) throw new Error('อัปเดตหมวดหมู่ไม่สำเร็จ');
+    await loadStockData();
+  }, [headers, loadStockData, stockCategories]);
 
   const clearStockSampleData = useCallback(() => {
-    clearStockStorageKeys();
-    setStockProducts(INITIAL_STOCK_PRODUCTS);
-    setStockCategories(INITIAL_STOCK_CATEGORIES);
-    setStockMovements(INITIAL_STOCK_MOVEMENTS);
+    alert('ปิดการล้างข้อมูลสต็อกอัตโนมัติแล้ว กรุณาจัดการผ่านฐานข้อมูลหรือ API ทีละรายการ');
   }, []);
 
   const activeEmployees = useMemo(() => {
@@ -1528,18 +1517,6 @@ function AdminApp() {
       return true;
     });
   }, [shiftFilters, shiftLogs]);
-
-  const shiftSummary = useMemo(() => {
-    const today = dateInputValue(new Date());
-    const month = today.slice(0, 7);
-    const todayRows = shiftLogs.filter((log) => log.date === today);
-    const monthRows = shiftLogs.filter((log) => String(log.date || '').startsWith(month));
-    return {
-      todayCount: todayRows.length,
-      todayOt: todayRows.filter((log) => log.shiftType === 'เวร OT').length,
-      monthHours: Number(monthRows.reduce((sum, log) => sum + Number(log.hours || 0), 0).toFixed(2)),
-    };
-  }, [shiftLogs]);
 
   const alertCustom = useCallback((message) => {
     if (typeof window !== 'undefined') window.alert(message);
@@ -1618,6 +1595,17 @@ function AdminApp() {
   ];
 
   if (!token) {
+    if (!authChecked) {
+      return (
+        <div className="min-h-screen bg-slate-50">
+          <Header admin />
+          <main className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-xl items-center justify-center px-4 py-10 sm:px-6">
+            <div className="rounded-xl border border-slate-200 bg-white px-6 py-5 text-lg font-bold text-slate-600 shadow-sm">กำลังตรวจสอบ session ผู้ดูแลระบบ...</div>
+          </main>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen bg-slate-50">
         <Header admin />
@@ -1625,13 +1613,23 @@ function AdminApp() {
           <form onSubmit={login} className="w-full rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
             <h1 className="text-3xl font-extrabold text-slate-950">เข้าสู่ระบบ</h1>
             <p className="mt-1 text-xl text-slate-600">ป้องกันหลังบ้านสำหรับพนักงาน</p>
-            <label className="mt-6 block text-xl font-extrabold text-slate-700" htmlFor="admin-token">รหัสพนักงาน</label>
+            <label className="mt-6 block text-xl font-extrabold text-slate-700" htmlFor="admin-username">ชื่อผู้ใช้</label>
             <input
-              id="admin-token"
-              value={tokenInput}
-              onChange={(event) => setTokenInput(event.target.value)}
+              id="admin-username"
+              value={usernameInput}
+              onChange={(event) => setUsernameInput(event.target.value)}
+              className="mt-2 min-h-16 w-full rounded-lg border border-slate-300 px-5 text-xl outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
+              type="text"
+              autoComplete="username"
+            />
+            <label className="mt-4 block text-xl font-extrabold text-slate-700" htmlFor="admin-password">รหัสผ่าน</label>
+            <input
+              id="admin-password"
+              value={passwordInput}
+              onChange={(event) => setPasswordInput(event.target.value)}
               className="mt-2 min-h-16 w-full rounded-lg border border-slate-300 px-5 text-xl outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
               type="password"
+              autoComplete="current-password"
             />
             {loginError && <p className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-lg font-bold text-rose-700">{loginError}</p>}
             <button className="mt-5 inline-flex min-h-16 w-full items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 text-xl font-extrabold text-white hover:bg-blue-800" type="submit">
@@ -1686,7 +1684,7 @@ function AdminApp() {
             </button>
           </div>
           <div className="space-y-6 p-4 sm:p-6">
-            {activeTab === 'dashboard' && <Dashboard stats={stats} vehicles={vehicles} stockProducts={stockProducts} shiftSummary={shiftSummary} statusFilter={dashboardStatusFilter} setStatusFilter={setDashboardStatusFilter} />}
+            {activeTab === 'dashboard' && <Dashboard stats={stats} vehicles={vehicles} stockProducts={stockProducts} statusFilter={dashboardStatusFilter} setStatusFilter={setDashboardStatusFilter} />}
             {activeTab === 'form' && <VehicleForm initial={editing || emptyVehicle} onSave={saveVehicle} onCancel={() => setActiveTab('dashboard')} />}
             {activeTab === 'shift-duty' && <ShiftDutyPage />}
             {activeTab === 'all' && (
@@ -2230,7 +2228,7 @@ function ShiftDutyPage() {
   const current = currentYearMonth();
   const emptyEmployee = { id: '', code: '', status: EMPLOYEE_STATUSES[0], firstName: '', lastName: '', nickname: '', position: DEFAULT_EMPLOYEE_POSITIONS[4] };
   const emptyLeave = { employeeId: '', type: LEAVE_TYPES[0], startDate: today, endDate: today, approver: '', reason: '' };
-  const [attendanceSettings, setAttendanceSettings] = useState(() => readAttendanceSettings());
+  const [attendanceSettings, setAttendanceSettings] = useState(DEFAULT_ATTENDANCE_SETTINGS);
   const emptyAttendance = {
     employeeId: '',
     date: today,
@@ -2240,10 +2238,10 @@ function ShiftDutyPage() {
     eveningOut: attendanceSettings.workEnd,
     method: 'auto',
   };
-  const [employees, setEmployees] = useState(() => readStorageArray(EMPLOYEES_STORAGE_KEY).map(normalizeEmployee));
-  const [positions, setPositions] = useState(() => Array.from(new Set([...DEFAULT_EMPLOYEE_POSITIONS, ...readStorageArray(EMPLOYEE_POSITIONS_STORAGE_KEY).filter(Boolean)])));
-  const [attendanceLogs, setAttendanceLogs] = useState(() => readStorageArray(EMPLOYEE_ATTENDANCE_STORAGE_KEY));
-  const [leaveLogs, setLeaveLogs] = useState(() => readStorageArray(EMPLOYEE_LEAVES_STORAGE_KEY));
+  const [employees, setEmployees] = useState([]);
+  const [positions, setPositions] = useState(DEFAULT_EMPLOYEE_POSITIONS);
+  const [attendanceLogs, setAttendanceLogs] = useState([]);
+  const [leaveLogs, setLeaveLogs] = useState([]);
   const [employeeForm, setEmployeeForm] = useState(emptyEmployee);
   const [customPosition, setCustomPosition] = useState('');
   const [detailEmployee, setDetailEmployee] = useState(null);
@@ -2258,25 +2256,43 @@ function ShiftDutyPage() {
   const [summaryFilters, setSummaryFilters] = useState({ day: 'all', month: current.month, year: current.year });
   const [employeeSubTab, setEmployeeSubTab] = useState('dashboard');
 
-  useEffect(() => {
-    window.localStorage.setItem(EMPLOYEES_STORAGE_KEY, JSON.stringify(employees));
-  }, [employees]);
+  const authHeaders = useCallback(() => {
+    return {};
+  }, []);
+
+  const loadEmployeeData = useCallback(async () => {
+    try {
+      const [employeesResponse, positionsResponse, attendanceResponse, leavesResponse, settingsResponse] = await Promise.all([
+        fetch(EMPLOYEES_API_URL, { headers: authHeaders() }),
+        fetch(EMPLOYEE_POSITIONS_API_URL, { headers: authHeaders() }),
+        fetch(EMPLOYEE_ATTENDANCE_API_URL, { headers: authHeaders() }),
+        fetch(EMPLOYEE_LEAVES_API_URL, { headers: authHeaders() }),
+        fetch(ATTENDANCE_SETTINGS_API_URL, { headers: authHeaders() }),
+      ]);
+      const [employeesData, positionsData, attendanceData, leavesData, settingsData] = await Promise.all([
+        employeesResponse.json().catch(() => ({})),
+        positionsResponse.json().catch(() => ({})),
+        attendanceResponse.json().catch(() => ({})),
+        leavesResponse.json().catch(() => ({})),
+        settingsResponse.json().catch(() => ({})),
+      ]);
+      if (!employeesResponse.ok || !positionsResponse.ok || !attendanceResponse.ok || !leavesResponse.ok || !settingsResponse.ok) {
+        throw new Error('load employee data failed');
+      }
+      setEmployees((employeesData.employees || []).map(normalizeEmployee));
+      const nextPositions = (positionsData.positions || []).map((position) => position.name).filter(Boolean);
+      setPositions(Array.from(new Set([...DEFAULT_EMPLOYEE_POSITIONS, ...nextPositions])));
+      setAttendanceLogs(attendanceData.logs || []);
+      setLeaveLogs(leavesData.logs || []);
+      setAttendanceSettings(normalizeAttendanceSettings(settingsData.settings || DEFAULT_ATTENDANCE_SETTINGS));
+    } catch (error) {
+      console.error('[employee] load failed', error);
+    }
+  }, [authHeaders]);
 
   useEffect(() => {
-    window.localStorage.setItem(EMPLOYEE_ATTENDANCE_SETTINGS_STORAGE_KEY, JSON.stringify(normalizeAttendanceSettings(attendanceSettings)));
-  }, [attendanceSettings]);
-
-  useEffect(() => {
-    window.localStorage.setItem(EMPLOYEE_POSITIONS_STORAGE_KEY, JSON.stringify(positions.filter((position) => !DEFAULT_EMPLOYEE_POSITIONS.includes(position))));
-  }, [positions]);
-
-  useEffect(() => {
-    window.localStorage.setItem(EMPLOYEE_ATTENDANCE_STORAGE_KEY, JSON.stringify(attendanceLogs));
-  }, [attendanceLogs]);
-
-  useEffect(() => {
-    window.localStorage.setItem(EMPLOYEE_LEAVES_STORAGE_KEY, JSON.stringify(leaveLogs));
-  }, [leaveLogs]);
+    loadEmployeeData();
+  }, [loadEmployeeData]);
 
   const employeeMap = useMemo(() => new Map(employees.map((employee) => [employee.id, employee])), [employees]);
   const activeEmployees = employees.filter((employee) => employee.status === 'ทำงานอยู่');
@@ -2451,7 +2467,7 @@ function ShiftDutyPage() {
   const editingAttendance = editingAttendanceId ? attendanceLogs.find((log) => log.id === editingAttendanceId) : null;
   const editingLeave = editingLeaveId ? leaveLogs.find((log) => log.id === editingLeaveId) : null;
 
-  const saveEmployee = (event) => {
+  const saveEmployee = async (event) => {
     event.preventDefault();
     const normalized = normalizeEmployee(employeeForm);
     const previousEmployee = normalized.id ? employees.find((employee) => employee.id === normalized.id) || null : null;
@@ -2466,8 +2482,23 @@ function ShiftDutyPage() {
       return;
     }
     const nextEmployee = { ...normalized, position: nextPosition };
-    if (!positions.includes(nextPosition)) setPositions((items) => [...items, nextPosition]);
-    setEmployees((items) => (items.some((item) => item.id === nextEmployee.id) ? items.map((item) => (item.id === nextEmployee.id ? nextEmployee : item)) : [nextEmployee, ...items]));
+    if (!positions.includes(nextPosition)) {
+      await fetch(EMPLOYEE_POSITIONS_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ name: nextPosition, sortOrder: positions.length + 1, active: true }),
+      });
+    }
+    const response = await fetch(EMPLOYEES_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(nextEmployee),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      window.alert(data?.error || 'บันทึกข้อมูลพนักงานไม่สำเร็จ');
+      return;
+    }
     addAuditLog({
       action: previousEmployee ? 'UPDATE' : 'CREATE',
       module: 'EMPLOYEE',
@@ -2478,6 +2509,7 @@ function ShiftDutyPage() {
     });
     setEmployeeForm(emptyEmployee);
     setCustomPosition('');
+    await loadEmployeeData();
   };
 
   const editEmployee = (employee) => {
@@ -2490,10 +2522,13 @@ function ShiftDutyPage() {
     setCustomPosition('');
   };
 
-  const deleteEmployee = (employee) => {
+  const deleteEmployee = async (employee) => {
     if (!window.confirm(`ยืนยันการลบข้อมูลพนักงาน ${employeeFullName(employee)}`)) return;
     const previousEmployee = employees.find((item) => item.id === employee.id) || employee;
-    setEmployees((items) => items.filter((item) => item.id !== employee.id));
+    await fetch(`${EMPLOYEES_API_URL}?id=${encodeURIComponent(employee.id)}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
     addAuditLog({
       action: 'DELETE',
       module: 'EMPLOYEE',
@@ -2504,9 +2539,10 @@ function ShiftDutyPage() {
     });
     if (employeeForm.id === employee.id) cancelEmployeeEdit();
     if (detailEmployee?.id === employee.id) setDetailEmployee(null);
+    await loadEmployeeData();
   };
 
-  const deleteCustomPosition = (position) => {
+  const deleteCustomPosition = async (position) => {
     if (DEFAULT_EMPLOYEE_POSITIONS.includes(position) || position === OTHER_EMPLOYEE_POSITION) return;
     const usedBy = employees.filter((employee) => employee.position === position);
     if (usedBy.length > 0) {
@@ -2514,11 +2550,22 @@ function ShiftDutyPage() {
       return;
     }
     if (!window.confirm(`ยืนยันการลบตำแหน่ง "${position}"`)) return;
-    setPositions((items) => items.filter((item) => item !== position));
+    const existing = (await (async () => {
+      const response = await fetch(EMPLOYEE_POSITIONS_API_URL, { headers: authHeaders() });
+      const data = await response.json().catch(() => ({}));
+      return (data.positions || []).find((item) => item.name === position);
+    })());
+    if (existing?.id) {
+      await fetch(`${EMPLOYEE_POSITIONS_API_URL}?id=${encodeURIComponent(existing.id)}`, {
+        method: 'DELETE',
+        headers: authHeaders(),
+      });
+    }
     if (employeeForm.position === position) setEmployeeForm((form) => ({ ...form, position: DEFAULT_EMPLOYEE_POSITIONS[4] }));
+    await loadEmployeeData();
   };
 
-  const saveAttendance = (event) => {
+  const saveAttendance = async (event) => {
     event.preventDefault();
     const previousLog = editingAttendanceId ? attendanceLogs.find((log) => log.id === editingAttendanceId) || null : null;
     if (!attendanceForm.employeeId) {
@@ -2566,9 +2613,16 @@ function ShiftDutyPage() {
       hours: hasWorkHours ? calculateWorkHours(normalizedMorningIn, normalizedLunchOut, normalizedAfternoonIn, normalizedEveningOut) : 0,
       createdAt: editingAttendanceId ? (attendanceLogs.find((log) => log.id === editingAttendanceId)?.createdAt || new Date().toISOString()) : new Date().toISOString(),
     };
-    setAttendanceLogs((items) => (editingAttendanceId
-      ? items.map((item) => (item.id === editingAttendanceId ? nextLog : item))
-      : [nextLog, ...items]));
+    const response = await fetch(EMPLOYEE_ATTENDANCE_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(nextLog),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      window.alert(data?.error || 'บันทึกลงเวลาไม่สำเร็จ');
+      return;
+    }
     addAuditLog({
       action: previousLog ? 'UPDATE' : 'CREATE',
       module: 'ATTENDANCE',
@@ -2579,6 +2633,7 @@ function ShiftDutyPage() {
     });
     setAttendanceForm((form) => ({ ...emptyAttendance, employeeId: form.employeeId, date: form.date }));
     setEditingAttendanceId('');
+    await loadEmployeeData();
   };
 
   const editAttendance = (log) => {
@@ -2600,11 +2655,14 @@ function ShiftDutyPage() {
     setEditingAttendanceId('');
   };
 
-  const deleteAttendance = (log) => {
+  const deleteAttendance = async (log) => {
     const employee = employeeMap.get(log.employeeId) || {};
     if (!window.confirm(`ยืนยันการลบประวัติลงเวลาของ ${employeeFullName(employee)} วันที่ ${dateText(log.date)}`)) return;
     const previousLog = attendanceLogs.find((item) => item.id === log.id) || log;
-    setAttendanceLogs((items) => items.filter((item) => item.id !== log.id));
+    await fetch(`${EMPLOYEE_ATTENDANCE_API_URL}?id=${encodeURIComponent(log.id)}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
     addAuditLog({
       action: 'DELETE',
       module: 'ATTENDANCE',
@@ -2614,16 +2672,25 @@ function ShiftDutyPage() {
       afterData: null,
     });
     if (editingAttendanceId === log.id) cancelAttendanceEdit();
+    await loadEmployeeData();
   };
 
-  const clearAttendanceMonth = () => {
+  const clearAttendanceMonth = async () => {
     if (!clearAttendance.month || !clearAttendance.year) return;
     if (!window.confirm(`ยืนยันล้างประวัติตอกเวลาของเดือน ${clearAttendance.month}/${Number(clearAttendance.year) + 543}`)) return;
     const prefix = `${clearAttendance.year}-${clearAttendance.month}`;
-    setAttendanceLogs((items) => items.filter((log) => !String(log.date || '').startsWith(prefix)));
+    await Promise.all(
+      attendanceLogs
+        .filter((log) => String(log.date || '').startsWith(prefix))
+        .map((log) => fetch(`${EMPLOYEE_ATTENDANCE_API_URL}?id=${encodeURIComponent(log.id)}`, {
+          method: 'DELETE',
+          headers: authHeaders(),
+        }))
+    );
+    await loadEmployeeData();
   };
 
-  const saveLeave = (event) => {
+  const saveLeave = async (event) => {
     event.preventDefault();
     const previousLeave = editingLeaveId ? leaveLogs.find((log) => log.id === editingLeaveId) || null : null;
     if (!leaveForm.employeeId || leaveDays <= 0) {
@@ -2638,9 +2705,16 @@ function ShiftDutyPage() {
       totalDays: leaveDays,
       submittedAt: editingLeaveId ? (leaveLogs.find((log) => log.id === editingLeaveId)?.submittedAt || today) : today,
     };
-    setLeaveLogs((items) => (editingLeaveId
-      ? items.map((item) => (item.id === editingLeaveId ? nextLeave : item))
-      : [nextLeave, ...items]));
+    const response = await fetch(EMPLOYEE_LEAVES_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(nextLeave),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      window.alert(data?.error || 'บันทึกใบลาไม่สำเร็จ');
+      return;
+    }
     addAuditLog({
       action: previousLeave ? 'UPDATE' : 'CREATE',
       module: 'LEAVE',
@@ -2651,6 +2725,7 @@ function ShiftDutyPage() {
     });
     setLeaveForm((form) => ({ ...emptyLeave, employeeId: form.employeeId }));
     setEditingLeaveId('');
+    await loadEmployeeData();
   };
 
   const editLeave = (leave) => {
@@ -2670,11 +2745,14 @@ function ShiftDutyPage() {
     setEditingLeaveId('');
   };
 
-  const deleteLeave = (leave) => {
+  const deleteLeave = async (leave) => {
     if (!window.confirm(`ยืนยันการลบใบลาของ ${employeeFullName(employeeMap.get(leave.employeeId) || {})}`)) return;
     const employee = employeeMap.get(leave.employeeId) || {};
     const previousLeave = leaveLogs.find((item) => item.id === leave.id) || leave;
-    setLeaveLogs((items) => items.filter((item) => item.id !== leave.id));
+    await fetch(`${EMPLOYEE_LEAVES_API_URL}?id=${encodeURIComponent(leave.id)}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
     addAuditLog({
       action: 'DELETE',
       module: 'LEAVE',
@@ -2684,6 +2762,7 @@ function ShiftDutyPage() {
       afterData: null,
     });
     if (editingLeaveId === leave.id) cancelLeaveEdit();
+    await loadEmployeeData();
   };
 
   const updateAttendanceSetting = (field, value) => {
@@ -2700,7 +2779,7 @@ function ShiftDutyPage() {
     }
   };
 
-  const finalizeAttendanceSetting = (field) => {
+  const finalizeAttendanceSetting = async (field) => {
     const nextValue = finalizeTimeInput(attendanceSettings[field]);
     setAttendanceSettings((settings) => ({ ...settings, [field]: nextValue }));
     const formFieldMap = {
@@ -2712,13 +2791,26 @@ function ShiftDutyPage() {
     if (formFieldMap[field]) {
       setAttendanceForm((form) => ({ ...form, [formFieldMap[field]]: nextValue }));
     }
+    await fetch(ATTENDANCE_SETTINGS_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ id: 'attendance-settings-default', ...attendanceSettings, [field]: nextValue }),
+    });
   };
 
-  const clearLeaveMonth = () => {
+  const clearLeaveMonth = async () => {
     if (!clearLeaves.month || !clearLeaves.year) return;
     if (!window.confirm(`ยืนยันล้างตารางใบลาของเดือน ${clearLeaves.month}/${Number(clearLeaves.year) + 543}`)) return;
     const prefix = `${clearLeaves.year}-${clearLeaves.month}`;
-    setLeaveLogs((items) => items.filter((log) => !String(log.submittedAt || '').startsWith(prefix)));
+    await Promise.all(
+      leaveLogs
+        .filter((log) => String(log.submittedAt || '').startsWith(prefix))
+        .map((log) => fetch(`${EMPLOYEE_LEAVES_API_URL}?id=${encodeURIComponent(log.id)}`, {
+          method: 'DELETE',
+          headers: authHeaders(),
+        }))
+    );
+    await loadEmployeeData();
   };
 
   const employeeTabs = [
@@ -3177,7 +3269,7 @@ function StockSummaryCard({ title, value, className }) {
   );
 }
 
-function Dashboard({ stats, vehicles, stockProducts, shiftSummary, statusFilter, setStatusFilter }) {
+function Dashboard({ stats, vehicles, stockProducts, statusFilter, setStatusFilter }) {
   const today = dateInputValue(new Date());
   const monthRange = chartRange('month');
   const monthVehicles = vehicles.filter((vehicle) => inChartRange(dateKey(vehicle), monthRange));
@@ -3206,9 +3298,6 @@ function Dashboard({ stats, vehicles, stockProducts, shiftSummary, statusFilter,
     { title: 'รถเข้าซ่อมเดือนนี้', value: `${monthVehicles.length} คัน`, icon: <Car />, tone: 'slate' },
     { title: 'มูลค่าสต็อกคงเหลือ', value: `฿${money(stockSummary.totalValue)}`, icon: <Package />, tone: 'emerald' },
     { title: 'สินค้าใกล้หมด', value: `${stockSummary.lowStock} รายการ`, icon: <Clock />, tone: 'amber' },
-    { title: 'จำนวนเวรวันนี้', value: `${shiftSummary.todayCount} เวร`, icon: <UserCheck />, tone: 'blue' },
-    { title: 'จำนวน OT วันนี้', value: `${shiftSummary.todayOt} เวร`, icon: <Clock />, tone: 'violet' },
-    { title: 'ชั่วโมงเวรสะสมเดือนนี้', value: `${shiftSummary.monthHours} ชม.`, icon: <TrendingUp />, tone: 'emerald' },
   ];
   const alerts = [
     { level: 'red', title: 'รถเกินกำหนดส่ง', value: `${overdueVehicles.length} คัน` },
@@ -4744,3 +4833,4 @@ export default function JbmProAutoApp({ mode = 'home' }) {
   if (mode === 'status') return <StatusPage />;
   return <HomePage />;
 }
+

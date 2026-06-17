@@ -27,7 +27,7 @@ export async function GET(request) {
 
     const rows = await query(
       `SELECT id, employee_id, morning_start, morning_late_after, lunch_out, afternoon_start,
-              afternoon_late_after, work_end, source, createdAt, updatedAt
+              afternoon_late_after, work_end, source, created_at, updated_at
        FROM attendance_settings
        WHERE ${id ? 'id = ?' : employeeId ? 'employee_id = ?' : 'id = ?'}
        LIMIT 1`,
@@ -84,7 +84,7 @@ export async function POST(request) {
 
     const rows = await query(
       `SELECT id, employee_id, morning_start, morning_late_after, lunch_out, afternoon_start,
-              afternoon_late_after, work_end, source, createdAt, updatedAt
+              afternoon_late_after, work_end, source, created_at, updated_at
        FROM attendance_settings
        WHERE id = ?
        LIMIT 1`,
@@ -123,3 +123,4 @@ export async function DELETE(request) {
     return json({ error: 'Unable to delete attendance settings' }, { status: 503 });
   }
 }
+

@@ -27,9 +27,9 @@ function parseArgs(argv = []) {
 
 function getDbConfig() {
     return {
-        host: process.env.DB_HOST || '127.0.0.1',
+        host: process.env.DB_HOST || '',
         port: String(process.env.DB_PORT || '3306'),
-        user: process.env.DB_USER || 'root',
+        user: process.env.DB_USER || '',
         password: process.env.DB_PASSWORD || '',
         database: process.env.DB_NAME || 'jbm_pro_auto',
     };
@@ -48,6 +48,9 @@ function promptConfirm(message) {
 async function run() {
     const args = parseArgs(process.argv.slice(2));
     const cfg = getDbConfig();
+    if (!cfg.host || !cfg.user) {
+        throw new Error('Missing DB_HOST or DB_USER');
+    }
     const filePath = path.resolve(args.file || '');
     if (!args.file) {
         throw new Error('Usage: npm run restore:db -- --file ./backups/your-dump.sql');
@@ -109,4 +112,3 @@ run().catch((err) => {
     console.error('[restore] error:', err?.message || err);
     process.exit(1);
 });
-

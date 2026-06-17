@@ -22,7 +22,7 @@ export async function GET(request) {
     await ensureEmployeePositionsTable();
 
     const rows = await query(
-      `SELECT id, name, sort_order, active, createdAt, updatedAt
+      `SELECT id, name, sort_order, active, created_at, updated_at
        FROM employee_positions
        ORDER BY sort_order ASC, name ASC`
     );
@@ -67,7 +67,7 @@ export async function POST(request) {
     );
 
     const rows = await query(
-      `SELECT id, name, sort_order, active, createdAt, updatedAt
+      `SELECT id, name, sort_order, active, created_at, updated_at
        FROM employee_positions
        WHERE id = ?
        LIMIT 1`,
@@ -95,3 +95,4 @@ export async function DELETE(request) {
     return json({ error: 'Unable to delete employee position' }, { status: 503 });
   }
 }
+

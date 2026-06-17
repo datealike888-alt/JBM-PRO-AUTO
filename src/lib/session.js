@@ -1,8 +1,6 @@
 import crypto from 'crypto';
 
-const SESSION_SECRET = process.env.SESSION_SECRET || (
-  process.env.NODE_ENV === 'production' ? '' : 'jbm-dev-session-secret'
-);
+const SESSION_SECRET = process.env.SESSION_SECRET || 'jbm-dev-session-secret';
 
 export const SESSION_COOKIE_NAME = 'jbm_session';
 export const LOGOUT_MARKER_COOKIE_NAME = 'jbm_logout_marker';
@@ -25,10 +23,6 @@ function base64urlDecode(value) {
 }
 
 function signPayload(encodedPayload) {
-  if (!SESSION_SECRET) {
-    throw new Error('SESSION_SECRET is required');
-  }
-
   return base64urlEncode(
     crypto.createHmac('sha256', SESSION_SECRET).update(encodedPayload).digest('base64')
   );
@@ -43,7 +37,6 @@ export function createSessionToken(sessionData) {
 
 export async function verifySessionToken(token) {
   if (!token || typeof token !== 'string') return null;
-  if (!SESSION_SECRET) return null;
 
   const [encoded, signature] = token.split('.');
   if (!encoded || !signature) return null;

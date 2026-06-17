@@ -1,63 +1,162 @@
-import { createPool } from 'mariadb';
+import { getDbConfig, query, testConnection } from '../../../lib/db';
+import { ensureAdminSessionsTable, ensureAdminUsersTable } from '../../../lib/adminAuth';
+import { ensureAuditLogsTable } from '../../../lib/auditLog';
+import { ensureAttendanceLogsTable, ensureAttendanceSettingsTable, ensureEmployeePositionsTable, ensureEmployeesTable, ensureLeaveLogsTable } from '../../../lib/employeeStorage';
+import { ensureStockCategoriesTable, ensureStockMovementsTable, ensureStockProductsTable } from '../../../lib/stockStorage';
 
+async function ensureVehiclesTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS vehicles (
+      id VARCHAR(64) PRIMARY KEY,
+      invoice_number VARCHAR(100) NULL,
+      license_plate VARCHAR(100) NULL,
+      owner_name VARCHAR(255) NULL,
+      phone VARCHAR(50) NULL,
+      brand VARCHAR(100) NULL,
+      model VARCHAR(100) NULL,
+      car_brand VARCHAR(100) NULL,
+      car_model VARCHAR(100) NULL,
+      color VARCHAR(100) NULL,
+      vin VARCHAR(100) NULL,
+      mileage INT NULL,
+      status VARCHAR(100) NULL,
+      status_detail TEXT NULL,
+      repair_cost DECIMAL(12,2) DEFAULT 0,
+      booking_date DATE NULL,
+      estimated_completion_date DATE NULL,
+      entry_date DATE NULL,
+      booking_time VARCHAR(50) NULL,
+      estimated_completion DATE NULL,
+      receipt_image MEDIUMTEXT NULL,
+      receipt_images MEDIUMTEXT NULL,
+      receipt_name VARCHAR(255) NULL,
+      receipt_url TEXT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+}
 
+async function ensureFinancialTransactionsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS financial_transactions (
+      id VARCHAR(64) PRIMARY KEY,
+      date DATE NULL,
+      time TIME NULL,
+      transaction_date DATE NOT NULL,
+      type VARCHAR(50) NOT NULL,
+      category VARCHAR(100) NULL,
+      description TEXT NULL,
+      amount DECIMAL(12,2) DEFAULT 0,
+      payment_method VARCHAR(100) NULL,
+      related_vehicle_id VARCHAR(64) NULL,
+      note TEXT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+}
 
-function getDbConfig() {
-  if (process.env.DATABASE_URL) {
-    const url = new URL(process.env.DATABASE_URL);
-    return {
-      host: url.hostname,
-      port: parseInt(url.port, 10) || 3306,
-      user: decodeURIComponent(url.username) || process.env.DB_USER || 'root',
-      password: decodeURIComponent(url.password) || process.env.DB_PASSWORD || '',
-      database: url.pathname?.slice(1) || process.env.DB_NAME || 'jbm_pro_auto',
-      connectionLimit: 1,
-      connectTimeout: 3000,
-    };
-  }
+async function ensureVehicleReceiptsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS vehicle_receipts (
+      id VARCHAR(64) PRIMARY KEY,
+      vehicle_id VARCHAR(64) NOT NULL,
+      file_name VARCHAR(255) NULL,
+      file_url TEXT NULL,
+      mime_type VARCHAR(100) NULL,
+      file_size INT NULL,
+      uploaded_by VARCHAR(100) NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+}
 
-  return {
-    host: process.env.DB_HOST || '127.0.0.1',
-    port: parseInt(process.env.DB_PORT, 10) || 3306,
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'jbm_pro_auto',
-    connectionLimit: 1,
-    connectTimeout: 3000,
-  };
+async function ensureSystemSettingsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS system_settings (
+      setting_key VARCHAR(100) PRIMARY KEY,
+      setting_value TEXT NULL,
+      setting_type VARCHAR(50) NULL,
+      description TEXT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
 }
 
 export async function GET() {
-  const checks = {
-    app: 'ok',
-    database: 'unknown',
+  const tableChecks = {
+    admin_users: false,
+    admin_sessions: false,
+    vehicles: false,
+    vehicle_receipts: false,
+    financial_transactions: false,
+    employees: false,
+    employee_positions: false,
+    employee_attendance: false,
+    employee_leaves: false,
+    attendance_settings: false,
+    stock_categories: false,
+    stock_products: false,
+    stock_movements: false,
+    audit_logs: false,
+    system_settings: false,
   };
 
+  let charset = '';
   let status = 200;
-  let pool;
+  let database = 'disconnected';
 
   try {
-    pool = createPool(getDbConfig());
-    await pool.query('SELECT 1');
-    checks.database = 'ok';
+    await ensureAdminUsersTable();
+    await ensureAdminSessionsTable();
+    await ensureVehiclesTable();
+    await ensureVehicleReceiptsTable();
+    await ensureFinancialTransactionsTable();
+    await ensureEmployeesTable();
+    await ensureEmployeePositionsTable();
+    await ensureAttendanceLogsTable();
+    await ensureLeaveLogsTable();
+    await ensureAttendanceSettingsTable();
+    await ensureStockCategoriesTable();
+    await ensureStockProductsTable();
+    await ensureStockMovementsTable();
+    await ensureAuditLogsTable();
+    await ensureSystemSettingsTable();
+
+    await testConnection();
+    database = 'connected';
+
+    const rows = await query(`
+      SELECT TABLE_NAME, TABLE_COLLATION
+      FROM information_schema.tables
+      WHERE TABLE_SCHEMA = ?
+        AND TABLE_NAME IN ('admin_users', 'admin_sessions', 'vehicles', 'vehicle_receipts', 'financial_transactions', 'employees', 'employee_positions', 'employee_attendance', 'employee_leaves', 'attendance_settings', 'stock_categories', 'stock_products', 'stock_movements', 'audit_logs', 'system_settings')
+    `, [getDbConfig().database]);
+
+    for (const row of rows) {
+      tableChecks[row.TABLE_NAME] = true;
+      if (!charset && row.TABLE_COLLATION) charset = String(row.TABLE_COLLATION);
+    }
   } catch (error) {
-    checks.database = 'degraded';
+    console.error('[health] GET failed', error);
     status = 503;
-  } finally {
-    await pool?.end();
   }
 
-  return Response.json(
-    {
-      status: status === 200 ? 'ok' : 'degraded',
-      checks,
-      timestamp: new Date().toISOString(),
+  const ok = database === 'connected' && Object.values(tableChecks).every(Boolean);
+  if (!ok) status = 503;
+
+  return Response.json({
+    ok,
+    server: 'running',
+    database,
+    charset: charset || 'unknown',
+    utf8mb4: charset.includes('utf8mb4'),
+    tables: tableChecks,
+  }, {
+    status,
+    headers: {
+      'Cache-Control': 'no-store',
     },
-    {
-      status,
-      headers: {
-        'Cache-Control': 'no-store',
-      },
-    }
-  );
+  });
 }

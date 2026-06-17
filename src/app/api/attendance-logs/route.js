@@ -7,6 +7,8 @@ import {
   normalizeAttendanceLogRow,
   query,
 } from '../../../lib/employeeStorage';
+import { getAuthorizedAdminFromRequest } from '../../../lib/adminAuth';
+import { insertAuditLogSafe } from '../../../lib/auditLog';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
@@ -22,8 +24,7 @@ function buildWhere(url) {
   const params = [];
   const employeeId = cleanString(url.searchParams.get('employeeId'), 64);
   const status = cleanString(url.searchParams.get('status'), 100);
-  const method = cleanString(url.searchParams.get('method'), 100);
-  const dateFilters = buildYearMonthDayFilters(url, 'date');
+  const dateFilters = buildYearMonthDayFilters(url, 'work_date');
 
   if (employeeId) {
     where.push('employee_id = ?');
@@ -32,10 +33,6 @@ function buildWhere(url) {
   if (status) {
     where.push('status = ?');
     params.push(status);
-  }
-  if (method) {
-    where.push('method = ?');
-    params.push(method);
   }
 
   where.push(...dateFilters.where);
@@ -54,16 +51,30 @@ export async function GET(request) {
 
     const where = buildWhere(new URL(request.url));
     const rows = await query(
-      `SELECT id, employee_id, employee_code, date, morning_in, lunch_out, afternoon_in, evening_out,
-              method, status, hours, source, createdAt, updatedAt
-       FROM attendance_logs
+      `SELECT ea.id, ea.employee_id, e.employee_code, ea.work_date, ea.check_in_time, ea.lunch_out_time, ea.lunch_in_time, ea.check_out_time,
+              ea.status, ea.total_hours, ea.ot_hours, ea.note, ea.created_at, ea.updated_at
+       FROM employee_attendance ea
+       LEFT JOIN employees e ON e.id = ea.employee_id
        ${where.clause}
-       ORDER BY date DESC, createdAt DESC
+       ORDER BY ea.work_date DESC, ea.created_at DESC
        LIMIT 5000`,
       where.params
     );
 
-    return json({ success: true, logs: rows.map(normalizeAttendanceLogRow) }, { status: 200, headers: { 'Cache-Control': 'no-store' } });
+    return json({
+      success: true,
+      logs: rows.map((row) => normalizeAttendanceLogRow({
+        ...row,
+        employee_code: row.employee_code,
+        work_date: row.work_date,
+        check_in_time: row.check_in_time,
+        lunch_out_time: row.lunch_out_time,
+        lunch_in_time: row.lunch_in_time,
+        check_out_time: row.check_out_time,
+        total_hours: row.total_hours,
+        ot_hours: row.ot_hours,
+      })),
+    }, { status: 200, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     console.error('[attendance-logs] GET failed', error);
     return json({ error: 'Attendance service unavailable' }, { status: 503 });
@@ -72,7 +83,8 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    if (!(await isAuthorizedToken(request))) return json({ error: 'Forbidden' }, { status: 403 });
+    const admin = await getAuthorizedAdminFromRequest(request);
+    if (!admin) return json({ error: 'Forbidden' }, { status: 403 });
 
     let body;
     try {
@@ -87,50 +99,73 @@ export async function POST(request) {
     }
 
     await ensureAttendanceLogsTable();
+    const beforeRows = await query(
+      `SELECT ea.id, ea.employee_id, e.employee_code, ea.work_date, ea.check_in_time, ea.lunch_out_time, ea.lunch_in_time, ea.check_out_time,
+              ea.status, ea.total_hours, ea.ot_hours, ea.note, ea.created_at, ea.updated_at
+       FROM employee_attendance ea
+       LEFT JOIN employees e ON e.id = ea.employee_id
+       WHERE ea.id = ?
+       LIMIT 1`,
+      [log.id]
+    );
+    const previousLog = Array.isArray(beforeRows) && beforeRows.length ? normalizeAttendanceLogRow(beforeRows[0]) : null;
     await query(
-      `INSERT INTO attendance_logs (
-        id, employee_id, employee_code, date, morning_in, lunch_out, afternoon_in, evening_out,
-        method, status, hours, source, createdAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+      `INSERT INTO employee_attendance (
+        id, employee_id, work_date, check_in_time, lunch_out_time, lunch_in_time, check_out_time,
+        status, total_hours, ot_hours, note, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
       ON DUPLICATE KEY UPDATE
         employee_id = VALUES(employee_id),
-        employee_code = VALUES(employee_code),
-        date = VALUES(date),
-        morning_in = VALUES(morning_in),
-        lunch_out = VALUES(lunch_out),
-        afternoon_in = VALUES(afternoon_in),
-        evening_out = VALUES(evening_out),
-        method = VALUES(method),
+        work_date = VALUES(work_date),
+        check_in_time = VALUES(check_in_time),
+        lunch_out_time = VALUES(lunch_out_time),
+        lunch_in_time = VALUES(lunch_in_time),
+        check_out_time = VALUES(check_out_time),
         status = VALUES(status),
-        hours = VALUES(hours),
-        source = VALUES(source)`,
+        total_hours = VALUES(total_hours),
+        ot_hours = VALUES(ot_hours),
+        note = VALUES(note)`,
       [
         log.id,
         log.employeeId,
-        log.employeeCode,
         log.date,
         log.morningIn,
         log.lunchOut,
         log.afternoonIn,
         log.eveningOut,
-        log.method,
         log.status,
         log.hours,
-        log.source,
+        log.otHours,
+        log.note,
         log.createdAt,
       ]
     );
 
     const rows = await query(
-      `SELECT id, employee_id, employee_code, date, morning_in, lunch_out, afternoon_in, evening_out,
-              method, status, hours, source, createdAt, updatedAt
-       FROM attendance_logs
-       WHERE id = ?
+      `SELECT ea.id, ea.employee_id, e.employee_code, ea.work_date, ea.check_in_time, ea.lunch_out_time, ea.lunch_in_time, ea.check_out_time,
+              ea.status, ea.total_hours, ea.ot_hours, ea.note, ea.created_at, ea.updated_at
+       FROM employee_attendance ea
+       LEFT JOIN employees e ON e.id = ea.employee_id
+       WHERE ea.id = ?
        LIMIT 1`,
       [log.id]
     );
 
-    return json({ success: true, log: normalizeAttendanceLogRow(rows[0] || log) }, { status: 200 });
+    const savedLog = normalizeAttendanceLogRow(rows[0] || log);
+    await insertAuditLogSafe({
+      action: previousLog ? 'UPDATE' : 'CREATE',
+      module: 'ATTENDANCE',
+      entityType: 'EMPLOYEE_ATTENDANCE',
+      entityId: savedLog.id,
+      createdBy: admin.displayName || admin.username,
+      detail: {
+        targetLabel: `${savedLog.employeeCode || savedLog.employeeId} ${savedLog.date}`.trim(),
+        beforeData: previousLog,
+        afterData: savedLog,
+      },
+    });
+
+    return json({ success: true, log: savedLog }, { status: 200 });
   } catch (error) {
     console.error('[attendance-logs] POST failed', error);
     return json({ error: 'Unable to save attendance log' }, { status: 503 });
@@ -139,12 +174,37 @@ export async function POST(request) {
 
 export async function DELETE(request) {
   try {
-    if (!(await isAuthorizedToken(request))) return json({ error: 'Forbidden' }, { status: 403 });
+    const admin = await getAuthorizedAdminFromRequest(request);
+    if (!admin) return json({ error: 'Forbidden' }, { status: 403 });
     const id = cleanString(new URL(request.url).searchParams.get('id'), 64);
     if (!id) return json({ error: 'Missing id parameter' }, { status: 400 });
 
     await ensureAttendanceLogsTable();
-    await query('DELETE FROM attendance_logs WHERE id = ?', [id]);
+    const rows = await query(
+      `SELECT ea.id, ea.employee_id, e.employee_code, ea.work_date, ea.check_in_time, ea.lunch_out_time, ea.lunch_in_time, ea.check_out_time,
+              ea.status, ea.total_hours, ea.ot_hours, ea.note, ea.created_at, ea.updated_at
+       FROM employee_attendance ea
+       LEFT JOIN employees e ON e.id = ea.employee_id
+       WHERE ea.id = ?
+       LIMIT 1`,
+      [id]
+    );
+    const previousLog = Array.isArray(rows) && rows.length ? normalizeAttendanceLogRow(rows[0]) : null;
+    await query('DELETE FROM employee_attendance WHERE id = ?', [id]);
+    if (previousLog) {
+      await insertAuditLogSafe({
+        action: 'DELETE',
+        module: 'ATTENDANCE',
+        entityType: 'EMPLOYEE_ATTENDANCE',
+        entityId: previousLog.id,
+        createdBy: admin.displayName || admin.username,
+        detail: {
+          targetLabel: `${previousLog.employeeCode || previousLog.employeeId} ${previousLog.date}`.trim(),
+          beforeData: previousLog,
+          afterData: null,
+        },
+      });
+    }
     return json({ success: true }, { status: 200 });
   } catch (error) {
     console.error('[attendance-logs] DELETE failed', error);

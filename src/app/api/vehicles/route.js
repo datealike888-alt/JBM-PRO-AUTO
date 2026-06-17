@@ -1,4 +1,7 @@
+﻿import { isAuthorizedAdminRequest } from '../../../lib/adminAuth';
 import { query } from '../../../lib/db';
+import { getAuthorizedAdminFromRequest } from '../../../lib/adminAuth';
+import { insertAuditLogSafe } from '../../../lib/auditLog';
 import { v2 as cloudinary } from 'cloudinary';
 
 cloudinary.config({
@@ -59,11 +62,16 @@ function cleanDate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
 }
 
+function normalizeStatusText(value) {
+  return cleanString(value, 64).normalize('NFC');
+}
+
 function normalizeStatus(value) {
-  const raw = cleanString(value, 64);
+  const raw = normalizeStatusText(value);
   if (!raw) return DEFAULT_STATUS;
   const mapped = STATUS_ALIASES.get(raw) || raw;
-  return STATUS_OPTIONS.includes(mapped) ? mapped : DEFAULT_STATUS;
+  const matched = STATUS_OPTIONS.find((option) => normalizeStatusText(option) === normalizeStatusText(mapped));
+  return matched || DEFAULT_STATUS;
 }
 
 function normalizeMoney(value) {
@@ -170,41 +178,6 @@ async function ensureVehiclesTable() {
   await ensureIndex('CREATE INDEX idx_vehicles_vin ON vehicles(vin)');
 }
 
-async function ensureEmployeesTable() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS employees (
-      id VARCHAR(64) PRIMARY KEY,
-      code VARCHAR(255) NOT NULL,
-      name VARCHAR(255),
-      role VARCHAR(100),
-      active TINYINT(1) NOT NULL DEFAULT 1,
-      createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE KEY idx_employees_code (code(255))
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
-
-  await ensureIndex('ALTER TABLE employees ADD UNIQUE KEY idx_employees_code (code(255))');
-  await query(
-    `INSERT IGNORE INTO employees (id, code, name, role, active)
-     VALUES (?, ?, ?, ?, 1)`,
-    ['emp-default', 'jBm1679800329229#ProAuto!', 'พนักงานอู่', 'admin']
-  );
-}
-
-async function isAuthorizedToken(request) {
-  const suppliedToken = String(request.headers.get('x-vehicle-admin-token') || '').trim();
-  if (!suppliedToken) return false;
-  const configuredToken = process.env.VEHICLE_ADMIN_TOKEN;
-  if (configuredToken && suppliedToken === configuredToken) return true;
-
-  await ensureEmployeesTable();
-  const rows = await query(
-    'SELECT id FROM employees WHERE code = ? AND active = 1 LIMIT 1',
-    [suppliedToken]
-  );
-  return Array.isArray(rows) && rows.length > 0;
-}
-
 function normalizeRow(row) {
   return {
     id: row.id,
@@ -233,21 +206,7 @@ function normalizePublicRow(row) {
   const normalized = normalizeRow(row);
   return {
     id: normalized.id,
-    invoice_number: normalized.invoice_number,
-    license_plate: normalized.license_plate,
-    owner_name: normalized.owner_name,
-    phone: normalized.phone,
-    brand: normalized.brand,
-    model: normalized.model,
-    color: normalized.color,
-    vin: normalized.vin,
-    mileage: normalized.mileage,
     status: normalized.status,
-    booking_date: normalized.booking_date,
-    estimated_completion_date: normalized.estimated_completion_date,
-    status_detail: normalized.status_detail,
-    receipt_image: normalized.receipt_image,
-    receipt_images: normalized.receipt_images,
   };
 }
 
@@ -381,7 +340,7 @@ export async function GET(request) {
     const wantsInShop = url.searchParams.get('in_shop') === '1';
     const status = cleanString(url.searchParams.get('status'), 64);
 
-    if ((wantsAdminData || wantsSummary || wantsInShop || status) && !(await isAuthorizedToken(request))) {
+    if ((wantsAdminData || wantsSummary || wantsInShop || status) && !(await isAuthorizedAdminRequest(request))) {
       return json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -461,7 +420,8 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    if (!(await isAuthorizedToken(request))) return json({ error: 'Forbidden' }, { status: 403 });
+    const admin = await getAuthorizedAdminFromRequest(request);
+    if (!admin) return json({ error: 'Forbidden' }, { status: 403 });
     if (getContentLength(request) > MAX_REQUEST_BYTES) return json({ error: 'Request body too large' }, { status: 413 });
 
     let body;
@@ -479,6 +439,8 @@ export async function POST(request) {
     vehicle.receipt_image = vehicle.receipt_images[0] || vehicle.receipt_image || null;
 
     await ensureVehiclesTable();
+    const beforeRows = await query('SELECT * FROM vehicles WHERE id = ? LIMIT 1', [vehicle.id]);
+    const beforeVehicle = Array.isArray(beforeRows) && beforeRows.length ? normalizeRow(beforeRows[0]) : null;
     await query(
       `INSERT INTO vehicles (
         id, invoice_number, license_plate, owner_name, phone, brand, model, color, vin, mileage,
@@ -522,7 +484,22 @@ export async function POST(request) {
       ]
     );
 
-    return json({ success: true, vehicle: normalizeRow(vehicle) }, { status: 200 });
+    const savedRows = await query('SELECT * FROM vehicles WHERE id = ? LIMIT 1', [vehicle.id]);
+    const savedVehicle = normalizeRow(savedRows[0] || vehicle);
+    await insertAuditLogSafe({
+      action: beforeVehicle ? 'UPDATE' : 'CREATE',
+      module: 'VEHICLE',
+      entityType: 'VEHICLE',
+      entityId: savedVehicle.id,
+      createdBy: admin.displayName || admin.username,
+      detail: {
+        targetLabel: savedVehicle.invoice_number || savedVehicle.license_plate || savedVehicle.id,
+        beforeData: beforeVehicle,
+        afterData: savedVehicle,
+      },
+    });
+
+    return json({ success: true, vehicle: savedVehicle }, { status: 200 });
   } catch (error) {
     console.error('[vehicles] POST failed', error);
     return json({ error: 'Vehicle service unavailable' }, { status: 503 });
@@ -531,14 +508,32 @@ export async function POST(request) {
 
 export async function DELETE(request) {
   try {
-    if (!(await isAuthorizedToken(request))) return json({ error: 'Forbidden' }, { status: 403 });
+    const admin = await getAuthorizedAdminFromRequest(request);
+    if (!admin) return json({ error: 'Forbidden' }, { status: 403 });
     const id = cleanString(new URL(request.url).searchParams.get('id'), 64);
     if (!id) return json({ error: 'Missing id parameter' }, { status: 400 });
     await ensureVehiclesTable();
+    const rows = await query('SELECT * FROM vehicles WHERE id = ? LIMIT 1', [id]);
+    const previousVehicle = Array.isArray(rows) && rows.length ? normalizeRow(rows[0]) : null;
     await query('DELETE FROM vehicles WHERE id = ?', [id]);
+    if (previousVehicle) {
+      await insertAuditLogSafe({
+        action: 'DELETE',
+        module: 'VEHICLE',
+        entityType: 'VEHICLE',
+        entityId: previousVehicle.id,
+        createdBy: admin.displayName || admin.username,
+        detail: {
+          targetLabel: previousVehicle.invoice_number || previousVehicle.license_plate || previousVehicle.id,
+          beforeData: previousVehicle,
+          afterData: null,
+        },
+      });
+    }
     return json({ success: true }, { status: 200 });
   } catch (error) {
     console.error('[vehicles] DELETE failed', error);
     return json({ error: 'Vehicle service unavailable' }, { status: 503 });
   }
 }
+

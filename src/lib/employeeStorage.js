@@ -1,3 +1,4 @@
+import { isAuthorizedAdminRequest } from './adminAuth';
 import { query } from './db';
 
 const DEFAULT_ATTENDANCE_SETTINGS = {
@@ -8,6 +9,14 @@ const DEFAULT_ATTENDANCE_SETTINGS = {
   afternoonLateAfter: '13:31',
   workEnd: '18:00',
 };
+
+const DEFAULT_POSITIONS = [
+  ['position-owner', 'เจ้าของอู่', 1],
+  ['position-manager', 'ผู้จัดการ', 2],
+  ['position-accounting', 'พนักงานบัญชี', 3],
+  ['position-stock', 'พนักงานสต๊อก', 4],
+  ['position-mechanic', 'ช่าง', 5],
+];
 
 function cleanString(value, maxLength = 255) {
   if (value === null || value === undefined) return '';
@@ -63,14 +72,6 @@ function formatSqlTime(value) {
   return String(value).slice(0, 5);
 }
 
-async function ensureColumn(sql) {
-  try {
-    await query(sql);
-  } catch (error) {
-    if (Number(error?.errno || 0) !== 1060) throw error;
-  }
-}
-
 async function ensureIndex(sql) {
   try {
     await query(sql);
@@ -79,49 +80,65 @@ async function ensureIndex(sql) {
   }
 }
 
+async function ensureColumn(sql) {
+  try {
+    await query(sql);
+  } catch (error) {
+    if (Number(error?.errno || 0) !== 1060) throw error;
+  }
+}
+
 export async function ensureEmployeesTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS employees (
       id VARCHAR(64) PRIMARY KEY,
-      code VARCHAR(255) NOT NULL,
-      name VARCHAR(255) NULL,
-      role VARCHAR(100) NULL,
-      active TINYINT(1) NOT NULL DEFAULT 1,
-      status VARCHAR(100) NULL DEFAULT 'working',
+      employee_code VARCHAR(100) NOT NULL,
       first_name VARCHAR(255) NULL,
       last_name VARCHAR(255) NULL,
-      nickname VARCHAR(255) NULL,
-      position VARCHAR(255) NULL,
-      createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      UNIQUE KEY idx_employees_code (code(255))
+      nickname VARCHAR(100) NULL,
+      position VARCHAR(100) NULL,
+      phone VARCHAR(50) NULL,
+      status VARCHAR(50) DEFAULT 'ทำงานอยู่',
+      start_date DATE NULL,
+      note TEXT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY idx_employees_employee_code (employee_code),
+      INDEX idx_employees_status (status),
+      INDEX idx_employees_position (position)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
 
-  const columnSql = [
-    'ALTER TABLE employees ADD COLUMN name VARCHAR(255) NULL',
-    'ALTER TABLE employees ADD COLUMN role VARCHAR(100) NULL',
-    'ALTER TABLE employees ADD COLUMN active TINYINT(1) NOT NULL DEFAULT 1',
-    "ALTER TABLE employees ADD COLUMN status VARCHAR(100) NULL DEFAULT 'working'",
-    'ALTER TABLE employees ADD COLUMN first_name VARCHAR(255) NULL',
-    'ALTER TABLE employees ADD COLUMN last_name VARCHAR(255) NULL',
-    'ALTER TABLE employees ADD COLUMN nickname VARCHAR(255) NULL',
-    'ALTER TABLE employees ADD COLUMN position VARCHAR(255) NULL',
-    'ALTER TABLE employees ADD COLUMN createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
-    'ALTER TABLE employees ADD COLUMN updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
-  ];
-
-  for (const sql of columnSql) await ensureColumn(sql);
-
-  await ensureIndex('ALTER TABLE employees ADD UNIQUE KEY idx_employees_code (code(255))');
+  await ensureColumn('ALTER TABLE employees ADD COLUMN employee_code VARCHAR(100) NULL');
+  await ensureColumn('ALTER TABLE employees ADD COLUMN code VARCHAR(255) NULL');
+  await ensureColumn('ALTER TABLE employees ADD COLUMN name VARCHAR(255) NULL');
+  await ensureColumn('ALTER TABLE employees ADD COLUMN role VARCHAR(100) NULL');
+  await ensureColumn('ALTER TABLE employees ADD COLUMN active TINYINT(1) NOT NULL DEFAULT 1');
+  await ensureColumn('ALTER TABLE employees ADD COLUMN first_name VARCHAR(255) NULL');
+  await ensureColumn('ALTER TABLE employees ADD COLUMN last_name VARCHAR(255) NULL');
+  await ensureColumn('ALTER TABLE employees ADD COLUMN nickname VARCHAR(100) NULL');
+  await ensureColumn('ALTER TABLE employees ADD COLUMN position VARCHAR(100) NULL');
+  await ensureColumn('ALTER TABLE employees ADD COLUMN phone VARCHAR(50) NULL');
+  await ensureColumn("ALTER TABLE employees ADD COLUMN status VARCHAR(50) DEFAULT 'ทำงานอยู่'");
+  await ensureColumn('ALTER TABLE employees ADD COLUMN start_date DATE NULL');
+  await ensureColumn('ALTER TABLE employees ADD COLUMN note TEXT NULL');
+  await ensureColumn('ALTER TABLE employees ADD COLUMN createdAt TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP');
+  await ensureColumn('ALTER TABLE employees ADD COLUMN updatedAt TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
+  await ensureColumn('ALTER TABLE employees ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP');
+  await ensureColumn('ALTER TABLE employees ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
+  await ensureIndex('CREATE UNIQUE INDEX idx_employees_employee_code ON employees(employee_code)');
   await ensureIndex('CREATE INDEX idx_employees_status ON employees(status)');
   await ensureIndex('CREATE INDEX idx_employees_position ON employees(position)');
 
-  await query(
-    `INSERT IGNORE INTO employees (id, code, name, role, active, status, first_name, last_name, nickname, position)
-     VALUES (?, ?, ?, ?, 1, 'working', ?, ?, ?, ?)`,
-    ['emp-default', 'jBm1679800329229#ProAuto!', 'JBM Admin', 'admin', 'JBM', 'Admin', 'Admin', 'Owner']
-  );
+  await query(`
+    UPDATE employees
+    SET
+      employee_code = COALESCE(employee_code, code),
+      code = COALESCE(code, employee_code),
+      created_at = COALESCE(created_at, createdAt),
+      updated_at = COALESCE(updated_at, updatedAt)
+    WHERE employee_code IS NULL OR code IS NULL OR created_at IS NULL OR updated_at IS NULL
+  `).catch(() => {});
 }
 
 export async function ensureEmployeePositionsTable() {
@@ -131,24 +148,24 @@ export async function ensureEmployeePositionsTable() {
       name VARCHAR(255) NOT NULL,
       sort_order INT NOT NULL DEFAULT 0,
       active TINYINT(1) NOT NULL DEFAULT 1,
-      createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      UNIQUE KEY idx_employee_positions_name (name(255))
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY idx_employee_positions_name (name),
+      INDEX idx_employee_positions_sort_order (sort_order)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
 
-  await ensureIndex('ALTER TABLE employee_positions ADD UNIQUE KEY idx_employee_positions_name (name(255))');
-  await ensureIndex('CREATE INDEX idx_employee_positions_sort_order ON employee_positions(sort_order)');
+  await ensureColumn('ALTER TABLE employee_positions ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP');
+  await ensureColumn('ALTER TABLE employee_positions ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
+  await query(`
+    UPDATE employee_positions
+    SET
+      created_at = COALESCE(created_at, createdAt),
+      updated_at = COALESCE(updated_at, updatedAt)
+    WHERE created_at IS NULL OR updated_at IS NULL
+  `).catch(() => {});
 
-  const defaultPositions = [
-    ['position-owner', 'เจ้าของอู่', 1],
-    ['position-manager', 'ผู้จัดการ', 2],
-    ['position-accounting', 'พนักงานบัญชี', 3],
-    ['position-stock', 'พนักงานสต็อก', 4],
-    ['position-mechanic', 'ช่าง', 5],
-  ];
-
-  for (const [id, name, sortOrder] of defaultPositions) {
+  for (const [id, name, sortOrder] of DEFAULT_POSITIONS) {
     await query(
       `INSERT IGNORE INTO employee_positions (id, name, sort_order, active)
        VALUES (?, ?, ?, 1)`,
@@ -159,51 +176,60 @@ export async function ensureEmployeePositionsTable() {
 
 export async function ensureAttendanceLogsTable() {
   await query(`
-    CREATE TABLE IF NOT EXISTS attendance_logs (
+    CREATE TABLE IF NOT EXISTS employee_attendance (
       id VARCHAR(64) PRIMARY KEY,
       employee_id VARCHAR(64) NOT NULL,
-      employee_code VARCHAR(255) NULL,
-      date DATE NOT NULL,
-      morning_in TIME NULL,
-      lunch_out TIME NULL,
-      afternoon_in TIME NULL,
-      evening_out TIME NULL,
-      method VARCHAR(100) NULL,
+      work_date DATE NOT NULL,
+      check_in_time TIME NULL,
+      lunch_out_time TIME NULL,
+      lunch_in_time TIME NULL,
+      check_out_time TIME NULL,
       status VARCHAR(100) NULL,
-      hours DECIMAL(10,2) NOT NULL DEFAULT 0,
-      source VARCHAR(32) NOT NULL DEFAULT 'api',
-      createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      total_hours DECIMAL(5,2) DEFAULT 0,
+      ot_hours DECIMAL(5,2) DEFAULT 0,
+      note TEXT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY idx_employee_attendance_unique (employee_id, work_date),
+      INDEX idx_employee_attendance_work_date (work_date),
+      INDEX idx_employee_attendance_status (status),
+      CONSTRAINT fk_employee_attendance_employee_id
+        FOREIGN KEY (employee_id) REFERENCES employees(id)
+        ON UPDATE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
 
-  await ensureIndex('CREATE INDEX idx_attendance_logs_employee_id ON attendance_logs(employee_id)');
-  await ensureIndex('CREATE INDEX idx_attendance_logs_date ON attendance_logs(date)');
-  await ensureIndex('CREATE INDEX idx_attendance_logs_status ON attendance_logs(status)');
+  await ensureColumn('ALTER TABLE employee_attendance ADD COLUMN note TEXT NULL');
+  await ensureColumn('ALTER TABLE employee_attendance ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP');
+  await ensureColumn('ALTER TABLE employee_attendance ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
 }
 
 export async function ensureLeaveLogsTable() {
   await query(`
-    CREATE TABLE IF NOT EXISTS leave_logs (
+    CREATE TABLE IF NOT EXISTS employee_leaves (
       id VARCHAR(64) PRIMARY KEY,
       employee_id VARCHAR(64) NOT NULL,
-      employee_code VARCHAR(255) NULL,
-      type VARCHAR(100) NOT NULL,
-      start_date DATE NOT NULL,
-      end_date DATE NOT NULL,
-      total_days DECIMAL(10,2) NOT NULL DEFAULT 0,
-      approver VARCHAR(255) NULL,
+      leave_type VARCHAR(100) NULL,
+      start_date DATE NULL,
+      end_date DATE NULL,
+      total_days DECIMAL(5,2) DEFAULT 0,
       reason TEXT NULL,
-      submitted_at DATE NULL,
-      source VARCHAR(32) NOT NULL DEFAULT 'api',
-      createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      approver VARCHAR(255) NULL,
+      status VARCHAR(50) DEFAULT 'รออนุมัติ',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_employee_leaves_employee_id (employee_id),
+      INDEX idx_employee_leaves_start_date (start_date),
+      INDEX idx_employee_leaves_status (status),
+      CONSTRAINT fk_employee_leaves_employee_id
+        FOREIGN KEY (employee_id) REFERENCES employees(id)
+        ON UPDATE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
 
-  await ensureIndex('CREATE INDEX idx_leave_logs_employee_id ON leave_logs(employee_id)');
-  await ensureIndex('CREATE INDEX idx_leave_logs_date ON leave_logs(start_date)');
-  await ensureIndex('CREATE INDEX idx_leave_logs_end_date ON leave_logs(end_date)');
+  await ensureColumn("ALTER TABLE employee_leaves ADD COLUMN status VARCHAR(50) DEFAULT 'รออนุมัติ'");
+  await ensureColumn('ALTER TABLE employee_leaves ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP');
+  await ensureColumn('ALTER TABLE employee_leaves ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
 }
 
 export async function ensureAttendanceSettingsTable() {
@@ -218,12 +244,14 @@ export async function ensureAttendanceSettingsTable() {
       afternoon_late_after TIME NULL,
       work_end TIME NULL,
       source VARCHAR(32) NOT NULL DEFAULT 'api',
-      createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_attendance_settings_employee_id (employee_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
 
-  await ensureIndex('CREATE INDEX idx_attendance_settings_employee_id ON attendance_settings(employee_id)');
+  await ensureColumn('ALTER TABLE attendance_settings ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP');
+  await ensureColumn('ALTER TABLE attendance_settings ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
 
   await query(
     `INSERT IGNORE INTO attendance_settings (
@@ -250,53 +278,43 @@ export async function ensureEmployeeStorageTables() {
 }
 
 export async function isAuthorizedToken(request) {
-  const suppliedToken = cleanString(request.headers.get('x-vehicle-admin-token'), 255);
-  if (!suppliedToken) return false;
-
-  const configuredToken = process.env.VEHICLE_ADMIN_TOKEN;
-  if (configuredToken && suppliedToken === configuredToken) return true;
-
-  await ensureEmployeesTable();
-  const rows = await query(
-    'SELECT id FROM employees WHERE code = ? AND active = 1 LIMIT 1',
-    [suppliedToken]
-  );
-  return Array.isArray(rows) && rows.length > 0;
+  return isAuthorizedAdminRequest(request);
 }
 
 export function normalizeEmployeeRow(row) {
   return {
     id: row.id,
-    code: row.code || '',
-    status: row.status || 'working',
+    code: row.employee_code || '',
+    status: row.status || 'ทำงานอยู่',
     firstName: row.first_name || '',
     lastName: row.last_name || '',
     nickname: row.nickname || '',
     position: row.position || '',
-    role: row.role || '',
-    active: Boolean(row.active),
-    createdAt: row.createdAt || null,
-    updatedAt: row.updatedAt || null,
+    phone: row.phone || '',
+    startDate: formatSqlDate(row.start_date),
+    note: row.note || '',
+    active: row.status !== 'ลาออก',
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
   };
 }
 
 export function normalizeEmployeeInput(body = {}) {
-  const status = cleanString(body.status, 100) || 'working';
+  const status = cleanString(body.status, 50) || 'ทำงานอยู่';
   const firstName = cleanString(body.firstName, 255);
   const lastName = cleanString(body.lastName, 255);
-  const active = body.active === undefined ? status !== 'ลาออก' : normalizeBoolean(body.active, true);
 
   return {
     id: cleanString(body.id, 64) || `emp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    code: cleanString(body.code, 255),
-    name: cleanNullable(body.name, 255) || cleanNullable(`${firstName} ${lastName}`, 255),
-    role: cleanNullable(body.role, 100),
-    active,
-    status,
+    employeeCode: cleanString(body.code || body.employeeCode, 100),
     firstName,
     lastName,
-    nickname: cleanString(body.nickname, 255),
-    position: cleanString(body.position, 255),
+    nickname: cleanString(body.nickname, 100),
+    position: cleanString(body.position, 100),
+    phone: cleanNullable(body.phone, 50),
+    status,
+    startDate: cleanDate(body.startDate),
+    note: cleanNullable(body.note, 5000),
     createdAt: cleanDateTime(body.createdAt),
   };
 }
@@ -307,8 +325,8 @@ export function normalizeEmployeePositionRow(row) {
     name: row.name || '',
     sortOrder: Number(row.sort_order || 0),
     active: Boolean(row.active),
-    createdAt: row.createdAt || null,
-    updatedAt: row.updatedAt || null,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
   };
 }
 
@@ -326,17 +344,19 @@ export function normalizeAttendanceLogRow(row) {
     id: row.id,
     employeeId: row.employee_id,
     employeeCode: row.employee_code || '',
-    date: formatSqlDate(row.date),
-    morningIn: formatSqlTime(row.morning_in),
-    lunchOut: formatSqlTime(row.lunch_out),
-    afternoonIn: formatSqlTime(row.afternoon_in),
-    eveningOut: formatSqlTime(row.evening_out),
-    method: row.method || '',
+    date: formatSqlDate(row.work_date),
+    morningIn: formatSqlTime(row.check_in_time),
+    lunchOut: formatSqlTime(row.lunch_out_time),
+    afternoonIn: formatSqlTime(row.lunch_in_time),
+    eveningOut: formatSqlTime(row.check_out_time),
+    method: row.method || 'auto',
     status: row.status || '',
-    hours: Number(row.hours || 0),
+    hours: Number(row.total_hours || 0),
+    otHours: Number(row.ot_hours || 0),
+    note: row.note || '',
     source: row.source || 'api',
-    createdAt: row.createdAt || null,
-    updatedAt: row.updatedAt || null,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
   };
 }
 
@@ -344,15 +364,17 @@ export function normalizeAttendanceLogInput(body = {}) {
   return {
     id: cleanString(body.id, 64) || `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     employeeId: cleanString(body.employeeId, 64),
-    employeeCode: cleanNullable(body.employeeCode, 255),
+    employeeCode: cleanNullable(body.employeeCode, 100),
     date: cleanDate(body.date),
     morningIn: cleanTime(body.morningIn),
     lunchOut: cleanTime(body.lunchOut),
     afternoonIn: cleanTime(body.afternoonIn),
     eveningOut: cleanTime(body.eveningOut),
-    method: cleanNullable(body.method, 100),
+    method: cleanString(body.method, 100) || 'auto',
     status: cleanNullable(body.status, 100),
     hours: Math.max(0, normalizeNumber(body.hours, 0)),
+    otHours: Math.max(0, normalizeNumber(body.otHours, 0)),
+    note: cleanNullable(body.note, 5000),
     source: cleanString(body.source, 32) || 'api',
     createdAt: cleanDateTime(body.createdAt),
   };
@@ -363,16 +385,16 @@ export function normalizeLeaveLogRow(row) {
     id: row.id,
     employeeId: row.employee_id,
     employeeCode: row.employee_code || '',
-    type: row.type || '',
+    type: row.leave_type || '',
     startDate: formatSqlDate(row.start_date),
     endDate: formatSqlDate(row.end_date),
     totalDays: Number(row.total_days || 0),
     approver: row.approver || '',
     reason: row.reason || '',
-    submittedAt: formatSqlDate(row.submitted_at),
-    source: row.source || 'api',
-    createdAt: row.createdAt || null,
-    updatedAt: row.updatedAt || null,
+    status: row.status || 'รออนุมัติ',
+    submittedAt: formatSqlDate(row.created_at),
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
   };
 }
 
@@ -380,15 +402,14 @@ export function normalizeLeaveLogInput(body = {}) {
   return {
     id: cleanString(body.id, 64) || `leave-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     employeeId: cleanString(body.employeeId, 64),
-    employeeCode: cleanNullable(body.employeeCode, 255),
-    type: cleanString(body.type, 100),
+    employeeCode: cleanNullable(body.employeeCode, 100),
+    type: cleanString(body.type || body.leaveType, 100),
     startDate: cleanDate(body.startDate),
     endDate: cleanDate(body.endDate),
     totalDays: Math.max(0, normalizeNumber(body.totalDays, 0)),
     approver: cleanNullable(body.approver, 255),
     reason: cleanNullable(body.reason, 5000),
-    submittedAt: cleanDate(body.submittedAt),
-    source: cleanString(body.source, 32) || 'api',
+    status: cleanString(body.status, 50) || 'รออนุมัติ',
     createdAt: cleanDateTime(body.createdAt),
   };
 }
@@ -404,8 +425,8 @@ export function normalizeAttendanceSettingsRow(row) {
     afternoonLateAfter: formatSqlTime(row.afternoon_late_after),
     workEnd: formatSqlTime(row.work_end),
     source: row.source || 'api',
-    createdAt: row.createdAt || null,
-    updatedAt: row.updatedAt || null,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
   };
 }
 
@@ -423,7 +444,7 @@ export function normalizeAttendanceSettingsInput(body = {}) {
   };
 }
 
-export function buildYearMonthDayFilters(url, column = 'date') {
+export function buildYearMonthDayFilters(url, column = 'work_date') {
   const where = [];
   const params = [];
   const day = cleanString(url.searchParams.get('day'), 2);
@@ -446,4 +467,4 @@ export function buildYearMonthDayFilters(url, column = 'date') {
   return { where, params };
 }
 
-export { cleanDate, cleanString, query };
+export { cleanDate, cleanString, ensureColumn, ensureIndex, query };

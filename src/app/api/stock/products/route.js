@@ -69,13 +69,13 @@ export async function POST(request) {
     const product = normalizeStockProductInput(body);
     if (!product.productName) return json({ error: 'Product name is required' }, { status: 400 });
 
+    await ensureStockProductsTable();
     let categoryId = product.categoryId;
     if (!categoryId && product.categoryName) {
       const categoryRows = await query('SELECT id FROM stock_categories WHERE name = ? LIMIT 1', [product.categoryName]);
       categoryId = categoryRows[0]?.id || null;
     }
 
-    await ensureStockProductsTable();
     const beforeRows = await query(
       `SELECT sp.*, sc.name AS category_name
        FROM stock_products sp

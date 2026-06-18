@@ -24,7 +24,9 @@ export async function GET(request) {
     await ensureStockMovementsTable();
     const productId = cleanString(new URL(request.url).searchParams.get('productId'), 64);
     const rows = await query(
-      `SELECT sm.*, sp.product_code, sp.product_name
+      `SELECT sm.id, sm.product_id, sm.movement_type, sm.quantity, sm.quantity_before, sm.quantity_after, sm.note, sm.created_by, sm.created_at,
+              COALESCE(sm.product_code, sp.product_code) AS product_code,
+              COALESCE(sm.product_name, sp.product_name) AS product_name
        FROM stock_movements sm
        LEFT JOIN stock_products sp ON sp.id = sm.product_id
        ${productId ? 'WHERE sm.product_id = ?' : ''}
@@ -48,11 +50,13 @@ export async function POST(request) {
     await ensureStockMovementsTable();
     await query(
       `INSERT INTO stock_movements (
-        id, product_id, movement_type, quantity, quantity_before, quantity_after, note, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        id, product_id, product_code, product_name, movement_type, quantity, quantity_before, quantity_after, note, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         movement.id,
         movement.productId,
+        movement.productCode,
+        movement.productName,
         movement.movementType,
         movement.quantity,
         movement.quantityBefore,
@@ -62,11 +66,13 @@ export async function POST(request) {
       ]
     );
     const rows = await query(
-      `SELECT sm.*, sp.product_code, sp.product_name
+      `SELECT sm.id, sm.product_id, sm.movement_type, sm.quantity, sm.quantity_before, sm.quantity_after, sm.note, sm.created_by, sm.created_at,
+              COALESCE(sm.product_code, sp.product_code) AS product_code,
+              COALESCE(sm.product_name, sp.product_name) AS product_name
        FROM stock_movements sm
        LEFT JOIN stock_products sp ON sp.id = sm.product_id
-      WHERE sm.id = ?
-      LIMIT 1`,
+       WHERE sm.id = ?
+       LIMIT 1`,
       [movement.id]
     );
     const savedMovement = normalizeStockMovementRow(rows[0] || movement);
@@ -97,7 +103,9 @@ export async function DELETE(request) {
     if (!id) return json({ error: 'Missing id parameter' }, { status: 400 });
     await ensureStockMovementsTable();
     const rows = await query(
-      `SELECT sm.*, sp.product_code, sp.product_name
+      `SELECT sm.id, sm.product_id, sm.movement_type, sm.quantity, sm.quantity_before, sm.quantity_after, sm.note, sm.created_by, sm.created_at,
+              COALESCE(sm.product_code, sp.product_code) AS product_code,
+              COALESCE(sm.product_name, sp.product_name) AS product_name
        FROM stock_movements sm
        LEFT JOIN stock_products sp ON sp.id = sm.product_id
        WHERE sm.id = ?

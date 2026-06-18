@@ -13,3 +13,8 @@ coverage/
 .npm-cache/
 
 public/uploads/
+
+db/backup_*.sql
+.env
+.env.local
+.env.production

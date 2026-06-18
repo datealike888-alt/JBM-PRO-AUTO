@@ -80,3 +80,40 @@ p {
     word-break: break-word;
   }
 }
+
+/* Custom scrollbar for table containers and panels */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Custom transitions and animations */
+.glow-primary {
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
+}
+
+.glow-accent {
+  box-shadow: 0 0 15px rgba(250, 204, 21, 0.4);
+}
+
+.glow-success {
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);
+}
+
+.transition-all-300 {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+

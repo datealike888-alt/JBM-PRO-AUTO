@@ -32,6 +32,14 @@ async function ensureIndex(sql) {
   }
 }
 
+async function ensureColumn(sql) {
+  try {
+    await query(sql);
+  } catch (error) {
+    if (![1005, 1060, 1061, 1062, 1091, 1215, 1826].includes(Number(error?.errno || 0))) throw error;
+  }
+}
+
 export async function ensureStockCategoriesTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS stock_categories (
@@ -84,7 +92,9 @@ export async function ensureStockMovementsTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS stock_movements (
       id VARCHAR(64) PRIMARY KEY,
-      product_id VARCHAR(64) NOT NULL,
+      product_id VARCHAR(64) NULL,
+      product_code VARCHAR(100) NULL,
+      product_name VARCHAR(255) NULL,
       movement_type VARCHAR(50) NOT NULL,
       quantity INT NOT NULL,
       quantity_before INT DEFAULT 0,
@@ -97,8 +107,29 @@ export async function ensureStockMovementsTable() {
       CONSTRAINT fk_stock_movements_product_id
         FOREIGN KEY (product_id) REFERENCES stock_products(id)
         ON UPDATE CASCADE
+        ON DELETE SET NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
+  await ensureColumn('ALTER TABLE stock_movements ADD COLUMN product_code VARCHAR(100) NULL');
+  await ensureColumn('ALTER TABLE stock_movements ADD COLUMN product_name VARCHAR(255) NULL');
+  await query(`
+    UPDATE stock_movements sm
+    LEFT JOIN stock_products sp ON sp.id = sm.product_id
+    SET
+      sm.product_code = COALESCE(NULLIF(sm.product_code, ''), sp.product_code),
+      sm.product_name = COALESCE(NULLIF(sm.product_name, ''), sp.product_name)
+    WHERE sm.product_id IS NOT NULL
+      AND (
+        sm.product_code IS NULL OR sm.product_code = ''
+        OR sm.product_name IS NULL OR sm.product_name = ''
+      )
+  `);
+  await ensureColumn('ALTER TABLE stock_movements DROP FOREIGN KEY fk_stock_movements_product_id');
+  await ensureColumn('ALTER TABLE stock_movements MODIFY product_id VARCHAR(64) NULL');
+  await ensureColumn(`ALTER TABLE stock_movements ADD CONSTRAINT fk_stock_movements_product_id
+    FOREIGN KEY (product_id) REFERENCES stock_products(id)
+    ON UPDATE CASCADE
+    ON DELETE SET NULL`);
 }
 
 export async function ensureStockTables() {
@@ -187,11 +218,15 @@ export function normalizeStockProductRow(row) {
 }
 
 export function normalizeStockMovementInput(body = {}) {
+  const productCode = cleanNullable(body.code || body.product_code || body.productCode, 100);
+  const productName = cleanNullable(body.name || body.product_name || body.productName, 255);
   return {
     id: cleanString(body.id, 64) || `stock-move-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     productId: cleanString(body.product_id || body.productId, 64),
+    productCode,
+    productName,
     movementType: cleanString(body.type || body.movement_type, 50) || 'ADJUST',
-    quantity: Math.trunc(normalizeNumber(body.quantity, 0)),
+    quantity: Math.trunc(normalizeNumber(body.quantity ?? body.quantity_change, 0)),
     quantityBefore: Math.trunc(normalizeNumber(body.quantity_before, 0)),
     quantityAfter: Math.trunc(normalizeNumber(body.quantity_after, 0)),
     note: cleanNullable(body.note, 5000),
@@ -211,6 +246,8 @@ export function normalizeStockMovementRow(row) {
     quantity_after: Number(row.quantity_after || 0),
     code: row.product_code || '',
     name: row.product_name || '',
+    product_code: row.product_code || '',
+    product_name: row.product_name || '',
     note: row.note || '',
     created_by: row.created_by || '',
     created_at: row.created_at || null,

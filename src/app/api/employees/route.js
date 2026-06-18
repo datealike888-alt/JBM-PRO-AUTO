@@ -92,6 +92,15 @@ export async function POST(request) {
     }
 
     await ensureEmployeesTable();
+
+    const existingRows = await query(
+      'SELECT id FROM employees WHERE employee_code = ? AND id != ? LIMIT 1',
+      [employee.employeeCode, employee.id || '']
+    );
+    if (existingRows.length > 0) {
+      return json({ error: 'Employee code already exists' }, { status: 409 });
+    }
+
     const beforeRows = await query(
       `SELECT id, COALESCE(employee_code, code) AS employee_code, status, first_name, last_name, nickname, position, phone, start_date, note, created_at, updated_at
        FROM employees
@@ -140,9 +149,9 @@ export async function POST(request) {
     const rows = await query(
       `SELECT id, COALESCE(employee_code, code) AS employee_code, status, first_name, last_name, nickname, position, phone, start_date, note, created_at, updated_at
        FROM employees
-       WHERE id = ?
+       WHERE employee_code = ?
        LIMIT 1`,
-      [employee.id]
+      [employee.employeeCode]
     );
 
     const savedEmployee = normalizeEmployeeRow(rows[0] || employee);

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   Area,
@@ -937,7 +937,7 @@ function CustomerSearch() {
     const text = query.trim();
     if (!text) {
       setResult(null);
-      setError('กรุณากรอกชื่อเจ้าของรถ เบอร์โทรศัพท์ ทะเบียนรถ หรือเลขใบแจ้งหนี้');
+      setError('กรุณากรอกข้อมูลสำหรับค้นหาสถานะงานซ่อม');
       return;
     }
 
@@ -967,7 +967,7 @@ function CustomerSearch() {
           </div>
           <div className="min-w-0">
             <h2 className="text-2xl font-extrabold text-slate-950 sm:text-3xl">เช็คสถานะงานซ่อมรถ</h2>
-            <p className="mt-1.5 text-base font-semibold leading-relaxed text-slate-500">กรอกชื่อเจ้าของรถ / เบอร์โทรศัพท์ / ทะเบียนรถ / เลขใบแจ้งหนี้ เพื่อค้นหา</p>
+            <p className="mt-1.5 text-base font-semibold leading-relaxed text-slate-500">กรอกข้อมูลสำหรับค้นหา เพื่อตรวจสอบขั้นตอนการทำงานล่าสุด</p>
           </div>
         </div>
         
@@ -977,7 +977,7 @@ function CustomerSearch() {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               className="min-h-14 w-full rounded-xl border border-slate-300 bg-white pl-4 pr-4 text-lg font-bold text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100 placeholder:text-slate-400 sm:min-h-16 sm:px-5 sm:text-xl"
-              placeholder="ตัวอย่าง: กข 1234 หรือ 099-xxx-xxxx"
+              placeholder="กรอกข้อมูลค้นหาสถานะ"
             />
           </div>
           <button className="inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-700 to-blue-800 px-8 text-lg font-extrabold text-white hover:from-blue-600 hover:to-blue-700 transition-all-300 hover:scale-[1.02] active:scale-[0.98] sm:min-h-16 lg:w-auto shadow-lg shadow-blue-900/10" type="submit">
@@ -1004,62 +1004,15 @@ function CustomerSearch() {
       </div>
 
       {result && (
-        <div className="mt-8 grid gap-8 lg:grid-cols-[1.2fr_1.8fr]">
-          {/* Stepper column */}
-          <div className="order-2 lg:order-1">
-            <StatusProgress status={result.status} />
-          </div>
-
-          {/* Vehicle info card column */}
-          <div className="order-1 lg:order-2 space-y-6">
-            <div className="rounded-3xl border border-slate-200/80 bg-white p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 pb-5 gap-3">
-                <div>
-                  <span className="inline-block rounded-md bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700 mb-2">ข้อมูลผลการค้นหา</span>
-                  <h3 className="text-2xl font-extrabold text-slate-950 sm:text-3xl">
-                    {result.brand} {result.model}
-                  </h3>
-                  <p className="text-base font-bold text-slate-500 mt-1">ทะเบียน: <span className="text-slate-900 font-extrabold">{result.license_plate}</span></p>
-                </div>
-                <div className="sm:text-right">
-                  <span className="text-xs font-bold text-slate-400 block mb-1">สถานะปัจจุบัน</span>
-                  <StatusPill status={result.status} />
-                </div>
-              </div>
-
-              <div className="grid gap-4 mt-5 sm:grid-cols-2">
-                <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4">
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">เลขใบแจ้งหนี้/ใบเสร็จ</p>
-                  <p className="text-base font-bold text-slate-950 mt-1">{result.invoice_number || '-'}</p>
-                </div>
-                <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4">
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">ชื่อเจ้าของรถ</p>
-                  <p className="text-base font-bold text-slate-950 mt-1">{result.owner_name || '-'}</p>
-                </div>
-                <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4">
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">ระยะทางวิ่ง (เลขไมล์)</p>
-                  <p className="text-base font-bold text-slate-950 mt-1">
-                    {result.mileage ? `${Number(result.mileage).toLocaleString('th-TH')} กม.` : '-'}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4">
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">วันที่จองคิว</p>
-                  <p className="text-base font-bold text-slate-950 mt-1">{dateText(result.booking_date)}</p>
-                </div>
-                <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4 sm:col-span-2">
-                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">วันที่กำหนดส่งมอบ</p>
-                  <p className="text-base font-bold text-slate-950 mt-1">{dateText(result.estimated_completion_date)}</p>
-                </div>
-              </div>
-
-              {result.status_detail && (
-                <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50/50 p-5">
-                  <p className="text-xs font-bold text-blue-700 uppercase tracking-wider">รายละเอียดและบันทึกช่าง</p>
-                  <p className="text-base font-bold text-slate-800 mt-1.5 leading-relaxed">{result.status_detail}</p>
-                </div>
-              )}
+        <div className="mx-auto mt-8 w-full max-w-3xl space-y-4">
+          <div className="rounded-3xl border border-slate-200/80 bg-white p-5 text-center shadow-[0_8px_30px_rgb(0,0,0,0.04)] sm:p-6">
+            <p className="text-sm font-bold text-slate-500">สถานะปัจจุบัน</p>
+            <div className="mt-2 flex justify-center">
+              <StatusPill status={result.status} />
             </div>
+            <p className="mt-3 text-sm font-semibold leading-relaxed text-slate-500">หากต้องการรายละเอียดเพิ่มเติม กรุณาติดต่อ JBM PRO AUTO</p>
           </div>
+          <StatusProgress status={result.status} />
         </div>
       )}
     </section>
@@ -1837,16 +1790,36 @@ function AdminApp() {
     return vehicles.filter(isInShop).filter((vehicle) => matchesVehicle(vehicle, inShopQuery));
   }, [inShopQuery, vehicles]);
 
-  const adminNav = [
-    ['dashboard', 'Dashboard', Gauge],
-    ['form', 'เพิ่มคิว / ลงทะเบียนเคสซ่อม', Plus],
-    ['shift-duty', 'จัดการพนักงาน', UserCheck],
-    ['all', 'รถทั้งหมดในระบบ', Car],
-    ['calendar', 'ปฏิทินจองคิว', CalendarDays],
-    ['productStock', 'สต็อกสินค้า', Package],
-    ['in-shop', 'รถค้างในร้าน', Wrench],
-    ['finance', 'การเงิน', Coins],
-    ['charts', 'รายงาน / กราฟ', ClipboardList],
+  const adminNavGroups = [
+    {
+      group: 'ภาพรวม',
+      items: [
+        ['dashboard', 'Dashboard', Gauge],
+      ]
+    },
+    {
+      group: 'งานซ่อม',
+      items: [
+        ['form', 'เพิ่มคิว / ลงทะเบียนเคสซ่อม', Plus],
+        ['calendar', 'ปฏิทินจองคิว', CalendarDays],
+        ['in-shop', 'รถค้างในร้าน', Wrench],
+        ['all', 'รถทั้งหมดในระบบ', Car],
+      ]
+    },
+    {
+      group: 'จัดการร้าน',
+      items: [
+        ['productStock', 'สต็อกสินค้า', Package],
+        ['finance', 'การเงิน', Coins],
+        ['charts', 'รายงาน / กราฟ', ClipboardList],
+      ]
+    },
+    {
+      group: 'ระบบพนักงาน',
+      items: [
+        ['shift-duty', 'จัดการพนักงาน', UserCheck],
+      ]
+    }
   ];
 
   if (!token) {
@@ -1926,8 +1899,7 @@ function AdminApp() {
       </div>
     );
   }
-
-  const allAdminNav = adminNav;
+  const allAdminNav = adminNavGroups.flatMap((g) => g.items);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col lg:flex-row">
@@ -1956,24 +1928,31 @@ function AdminApp() {
             </div>
           </div>
 
-          <nav className="space-y-1 p-3">
-            {adminNav.map(([key, label, Icon]) => {
-              const active = activeTab === key;
-              return (
-                <button
-                  key={key}
-                  onClick={() => {
-                    setActiveTab(key);
-                    if (key === 'form') setEditing({ ...emptyVehicle });
-                  }}
-                  className={`flex min-h-12 w-full items-center gap-3.5 rounded-xl px-3.5 text-left text-sm font-bold transition-all duration-200 ${active ? 'bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/15' : 'text-slate-400 hover:bg-slate-900/60 hover:text-slate-200'}`}
-                  type="button"
-                >
-                  <Icon className={`h-5 w-5 shrink-0 transition-transform ${active ? 'scale-110' : 'group-hover:scale-110'}`} />
-                  <span className="min-w-0 break-words leading-tight">{label}</span>
-                </button>
-              );
-            })}
+          <nav className="space-y-4 p-3 pb-8">
+            {adminNavGroups.map((section, index) => (
+              <div key={index}>
+                <h3 className="px-3 text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">{section.group}</h3>
+                <div className="space-y-1">
+                  {section.items.map(([key, label, Icon]) => {
+                    const active = activeTab === key;
+                    return (
+                      <button
+                        key={key}
+                        onClick={() => {
+                          setActiveTab(key);
+                          if (key === 'form') setEditing({ ...emptyVehicle });
+                        }}
+                        className={`flex min-h-12 w-full items-center gap-3.5 rounded-xl px-3.5 text-left text-sm font-bold transition-all duration-200 ${active ? 'bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/15' : 'text-slate-400 hover:bg-slate-900/60 hover:text-slate-200'}`}
+                        type="button"
+                      >
+                        <Icon className={`h-5 w-5 shrink-0 transition-transform ${active ? 'scale-110' : 'group-hover:scale-110'}`} />
+                        <span className="min-w-0 break-words leading-tight">{label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </nav>
         </aside>
 
@@ -3853,11 +3832,83 @@ function Metric({ title, value, icon, tone = 'all', active = false, onClick }) {
   );
 }
 
+const BOOKING_DASH = '-';
+
+function readBookingVehicle(vehicle, keys, fallback = BOOKING_DASH) {
+  for (const key of keys) {
+    const value = vehicle?.[key];
+    if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+  }
+  return fallback;
+}
+
+function bookingDateKey(vehicle) {
+  return String(readBookingVehicle(vehicle, ['booking_date', 'entryDate'], '')).slice(0, 10);
+}
+
+function bookingTimeText(vehicle) {
+  const explicit = readBookingVehicle(vehicle, ['bookingTime', 'booking_time', 'time'], '');
+  if (explicit) return String(explicit).slice(0, 5);
+  const rawDate = String(readBookingVehicle(vehicle, ['booking_date', 'entryDate'], ''));
+  const timePart = rawDate.includes('T') ? rawDate.split('T')[1] : rawDate.slice(11);
+  return timePart ? timePart.slice(0, 5) : BOOKING_DASH;
+}
+
+function bookingVehicleBrand(vehicle) {
+  return readBookingVehicle(vehicle, ['car_brand', 'brand']);
+}
+
+function bookingVehicleModel(vehicle) {
+  return readBookingVehicle(vehicle, ['car_model', 'model']);
+}
+
+function bookingVehicleTitle(vehicle) {
+  return [bookingVehicleBrand(vehicle), bookingVehicleModel(vehicle)].filter((value) => value !== BOOKING_DASH).join(' ') || BOOKING_DASH;
+}
+
+function bookingVehiclesForDate(rows, date) {
+  return rows
+    .filter((vehicle) => bookingDateKey(vehicle) === date)
+    .sort((a, b) => bookingTimeText(a).localeCompare(bookingTimeText(b)));
+}
+
+function bookingInvoiceText(vehicle) {
+  return String(readBookingVehicle(vehicle, ['invoice_number'], '')).replace(/^#/, '') || BOOKING_DASH;
+}
+
+function bookingInvoiceLabel(vehicle) {
+  const invoice = bookingInvoiceText(vehicle);
+  return invoice === BOOKING_DASH ? BOOKING_DASH : `#${invoice}`;
+}
+
+function bookingModalFields(vehicle) {
+  return [
+    ['เวลา', bookingTimeText(vehicle)],
+    ['เลขใบงาน', readBookingVehicle(vehicle, ['invoice_number'])],
+    ['สถานะ', readBookingVehicle(vehicle, ['status'])],
+    ['ยี่ห้อ', bookingVehicleBrand(vehicle)],
+    ['รุ่น', bookingVehicleModel(vehicle)],
+    ['ทะเบียน', readBookingVehicle(vehicle, ['license_plate'])],
+    ['สี', readBookingVehicle(vehicle, ['color'])],
+    ['เจ้าของรถ', readBookingVehicle(vehicle, ['owner_name'])],
+    ['เบอร์โทร', readBookingVehicle(vehicle, ['phone'])],
+    ['เลขตัวถัง', readBookingVehicle(vehicle, ['vin'])],
+    ['เลขไมล์', readBookingVehicle(vehicle, ['mileage'])],
+    ['วันที่จอง/วันที่รับรถ', dateText(readBookingVehicle(vehicle, ['booking_date', 'entryDate'], ''))],
+    ['กำหนดเสร็จ', dateText(readBookingVehicle(vehicle, ['estimatedCompletion', 'estimated_completion_date'], ''))],
+    ['รายละเอียด/อาการ', readBookingVehicle(vehicle, ['status_detail'])],
+  ];
+}
+
 function BookingCalendar({ vehicles }) {
   const current = currentYearMonth();
   const [month, setMonth] = useState(current.month);
   const [year, setYear] = useState(current.year);
+  const [selectedDate, setSelectedDate] = useState(dateInputValue(new Date()));
+  const [detailVehicle, setDetailVehicle] = useState(null);
+  const detailPanelRef = useRef(null);
   const bookingRows = useMemo(() => vehicles.filter((vehicle) => vehicle.status === DEFAULT_STATUS), [vehicles]);
+  const selectedDayVehicles = useMemo(() => bookingVehiclesForDate(bookingRows, selectedDate), [bookingRows, selectedDate]);
   
   const gridCells = useMemo(() => {
     const calendarDaysStr = daysInMonth(year, month);
@@ -3876,7 +3927,7 @@ function BookingCalendar({ vehicles }) {
         empty: false,
         date,
         id: date,
-        vehicles: bookingRows.filter((vehicle) => String(vehicle.booking_date || '').slice(0, 10) === date),
+        vehicles: bookingVehiclesForDate(bookingRows, date),
       });
     });
     
@@ -3887,8 +3938,22 @@ function BookingCalendar({ vehicles }) {
     return cells;
   }, [year, month, bookingRows]);
 
-  const totalBookings = bookingRows.filter((v) => String(v.booking_date || '').startsWith(`${year}-${month}`)).length;
+  const totalBookings = bookingRows.filter((vehicle) => bookingDateKey(vehicle).startsWith(`${year}-${month}`)).length;
   const todayStr = dateInputValue(new Date());
+
+  useEffect(() => {
+    if (!detailVehicle) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setDetailVehicle(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [detailVehicle]);
+
+  const selectCalendarDate = (date) => {
+    setSelectedDate(date);
+    window.setTimeout(() => detailPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  };
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm w-full max-w-full min-w-0 overflow-hidden flex flex-col">
@@ -3898,10 +3963,18 @@ function BookingCalendar({ vehicles }) {
           <p className="text-sm sm:text-lg font-bold text-slate-500">เดือน {MONTHS_TH[parseInt(month, 10) - 1]} ปี {parseInt(year, 10) + 543} ({totalBookings} คิว)</p>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:gap-3 w-full lg:w-auto shrink-0">
-          <select value={month} onChange={(event) => setMonth(event.target.value)} className="min-h-[44px] sm:min-h-12 w-full rounded-lg border border-slate-300 bg-white px-2 sm:px-3 text-sm sm:text-lg">
+          <select value={month} onChange={(event) => {
+            const nextMonth = event.target.value;
+            setMonth(nextMonth);
+            setSelectedDate(`${year}-${nextMonth}-01`);
+          }} className="min-h-[44px] sm:min-h-12 w-full rounded-lg border border-slate-300 bg-white px-2 sm:px-3 text-sm sm:text-lg">
             {MONTHS_TH.map((item, index) => <option key={item} value={String(index + 1).padStart(2, '0')}>{item}</option>)}
           </select>
-          <select value={year} onChange={(event) => setYear(event.target.value)} className="min-h-[44px] sm:min-h-12 w-full rounded-lg border border-slate-300 bg-white px-2 sm:px-3 text-sm sm:text-lg">
+          <select value={year} onChange={(event) => {
+            const nextYear = event.target.value;
+            setYear(nextYear);
+            setSelectedDate(`${nextYear}-${month}-01`);
+          }} className="min-h-[44px] sm:min-h-12 w-full rounded-lg border border-slate-300 bg-white px-2 sm:px-3 text-sm sm:text-lg">
             {REPORT_YEARS.map((item) => <option key={item} value={String(item)}>{item + 543}</option>)}
           </select>
         </div>
@@ -3909,13 +3982,13 @@ function BookingCalendar({ vehicles }) {
       
       <div className="mt-4 flex-1 min-w-0">
         <div className="grid grid-cols-7 gap-1 sm:gap-2 text-center text-[10px] sm:text-sm font-extrabold text-slate-500 uppercase tracking-wide mb-1 sm:mb-2 shrink-0">
-          <div className="pb-1 sm:pb-2">จ.</div>
-          <div className="pb-1 sm:pb-2">อ.</div>
-          <div className="pb-1 sm:pb-2">พ.</div>
-          <div className="pb-1 sm:pb-2">พฤ.</div>
-          <div className="pb-1 sm:pb-2">ศ.</div>
-          <div className="pb-1 sm:pb-2 text-amber-600">ส.</div>
-          <div className="pb-1 sm:pb-2 text-rose-600">อา.</div>
+          <div className="pb-1 sm:pb-2">จันทร์</div>
+          <div className="pb-1 sm:pb-2">อังคาร</div>
+          <div className="pb-1 sm:pb-2">พุธ</div>
+          <div className="pb-1 sm:pb-2">พฤหัสบดี</div>
+          <div className="pb-1 sm:pb-2">ศุกร์</div>
+          <div className="pb-1 sm:pb-2 text-amber-600">เสาร์</div>
+          <div className="pb-1 sm:pb-2 text-rose-600">อาทิตย์</div>
         </div>
         <div className="grid grid-cols-7 gap-1 sm:gap-2 auto-rows-fr min-w-0">
           {gridCells.map((cell, index) => {
@@ -3924,16 +3997,23 @@ function BookingCalendar({ vehicles }) {
             }
             
             const hasBookings = cell.vehicles.length > 0;
+            const previewLimit = 1;
+            const mobilePreviewVehicles = cell.vehicles.slice(0, previewLimit);
+            const firstVehicle = mobilePreviewVehicles[0];
             const isToday = cell.date === todayStr;
             const isWeekend = index % 7 === 5 || index % 7 === 6;
+            const isSelected = cell.date === selectedDate;
             
             return (
-              <div 
+              <button
+                type="button"
                 key={cell.id} 
-                className={`flex flex-col rounded-lg border p-1 sm:p-2 min-h-[60px] sm:min-h-[100px] min-w-0 overflow-hidden transition-colors ${
+                onClick={() => selectCalendarDate(cell.date)}
+                className={`flex flex-col rounded-lg border p-1 sm:p-2 min-h-[72px] sm:min-h-[128px] min-w-0 overflow-hidden text-left transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                  isSelected ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' :
                   isToday ? 'border-blue-400 bg-blue-50/30 ring-1 ring-blue-400' : 
                   hasBookings ? 'border-indigo-200 bg-indigo-50/40' : 
-                  isWeekend ? 'border-slate-100 bg-slate-50' : 'border-slate-200 bg-white'
+                  isWeekend ? 'border-slate-100 bg-slate-50 hover:bg-slate-100' : 'border-slate-200 bg-white hover:bg-slate-50'
                 }`}
               >
                 <div className="flex items-center justify-between mb-0.5 sm:mb-1 shrink-0">
@@ -3950,18 +4030,11 @@ function BookingCalendar({ vehicles }) {
                 <div className="flex-1 flex flex-col gap-0.5 sm:gap-1 min-w-0 overflow-hidden">
                   {hasBookings ? (
                     <>
-                      <div className="rounded border border-indigo-200/60 bg-white px-1 sm:px-1.5 py-0.5 sm:py-1 truncate shrink-0" title={`${cell.vehicles[0].brand} ${cell.vehicles[0].model} ${cell.vehicles[0].license_plate}`}>
-                        <p className="text-[9px] sm:text-xs font-bold text-slate-800 truncate leading-tight">
-                          {cell.vehicles[0].invoice_number || `${cell.vehicles[0].brand || ''} ${cell.vehicles[0].model || ''}`.trim() || 'คิวซ่อม'}
-                        </p>
-                        <p className="text-[8px] sm:text-[10px] text-slate-500 truncate leading-tight hidden sm:block">
-                          {cell.vehicles[0].license_plate || '-'} {cell.vehicles[0].booking_date ? String(cell.vehicles[0].booking_date).slice(11, 16) : ''}
-                        </p>
+                      <div className="rounded border border-indigo-200/60 bg-white px-1 py-0.5 sm:px-1.5 sm:py-1 shrink-0 min-w-0" title={`${bookingTimeText(firstVehicle)} ${bookingVehicleBrand(firstVehicle)}`}>
+                        <p className="text-[9px] sm:text-xs font-bold text-slate-800 truncate leading-tight">{bookingTimeText(firstVehicle)} {bookingVehicleBrand(firstVehicle)}</p>
                       </div>
-                      {cell.vehicles.length > 1 && (
-                        <div className="text-[9px] sm:text-xs font-bold text-indigo-600 mt-auto truncate text-center">
-                          +{cell.vehicles.length - 1}
-                        </div>
+                      {cell.vehicles.length > previewLimit && (
+                        <div className="text-[9px] sm:text-xs font-bold text-indigo-600 mt-auto truncate text-center">+{cell.vehicles.length - previewLimit}</div>
                       )}
                     </>
                   ) : (
@@ -3970,11 +4043,80 @@ function BookingCalendar({ vehicles }) {
                     </div>
                   )}
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>
       </div>
+      <div ref={detailPanelRef} className="mt-5 rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:p-5 min-w-0">
+        <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div className="min-w-0">
+            <h3 className="text-lg sm:text-2xl font-extrabold text-slate-950 leading-tight">รายการจองคิว วันที่ {dateText(selectedDate)}</h3>
+            <p className="text-sm font-bold text-slate-500">{selectedDayVehicles.length} คัน</p>
+          </div>
+        </div>
+        {selectedDayVehicles.length > 0 ? (
+          <div className="grid gap-3 lg:grid-cols-2">
+            {selectedDayVehicles.map((vehicle) => (
+              <button
+                type="button"
+                key={vehicle.id || `${selectedDate}-${bookingInvoiceText(vehicle)}`}
+                className="min-w-0 rounded-lg border border-slate-200 bg-white p-3 text-left shadow-sm transition hover:border-blue-300 hover:bg-blue-50/40 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:p-4"
+                onClick={() => setDetailVehicle(vehicle)}
+              >
+                <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-base sm:text-lg font-extrabold text-slate-950 truncate">เวลา: {bookingTimeText(vehicle)}</p>
+                    <p className="mt-0.5 text-sm font-bold text-slate-500 truncate">ใบงาน: {bookingInvoiceLabel(vehicle)}</p>
+                  </div>
+                  <span className="text-sm font-extrabold text-blue-700 shrink-0">ดูรายละเอียด</span>
+                </div>
+                <dl className="grid gap-2 text-sm sm:grid-cols-2">
+                  {[
+                    ['รถ', bookingVehicleTitle(vehicle)],
+                    ['ทะเบียน', readBookingVehicle(vehicle, ['license_plate'])],
+                    ['เจ้าของ', readBookingVehicle(vehicle, ['owner_name'])],
+                    ['เบอร์โทร', readBookingVehicle(vehicle, ['phone'])],
+                    ['สถานะ', readBookingVehicle(vehicle, ['status'])],
+                  ].map(([label, value]) => (
+                    <div key={label} className="min-w-0">
+                      <dt className="font-bold text-slate-400">{label}</dt>
+                      <dd className="mt-0.5 font-extrabold text-slate-900 break-words">{value || BOOKING_DASH}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed border-slate-200 bg-white p-8 text-center text-sm sm:text-base font-bold text-slate-500">ไม่มีรายการจองคิวในวันนี้</div>
+        )}
+      </div>
+      {detailVehicle && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-3 sm:p-6" onClick={() => setDetailVehicle(null)}>
+          <div className="flex max-h-[92vh] w-full max-w-5xl flex-col rounded-xl bg-white shadow-2xl min-w-0" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3 border-b border-slate-200 p-4 sm:p-5 shrink-0">
+              <div className="min-w-0">
+                <h3 className="text-lg sm:text-2xl font-extrabold text-slate-950 leading-tight">รายละเอียดจองคิว วันที่ {dateText(selectedDate)}</h3>
+                <p className="text-sm sm:text-base font-bold text-slate-500">{bookingTimeText(detailVehicle)} {bookingVehicleTitle(detailVehicle)}</p>
+              </div>
+              <button type="button" className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50" onClick={() => setDetailVehicle(null)} aria-label="ปิด">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="overflow-y-auto p-4 sm:p-5">
+              <dl className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {bookingModalFields(detailVehicle).map(([label, value]) => (
+                  <div key={label} className="min-w-0 rounded-lg bg-slate-50 px-3 py-2">
+                    <dt className="text-xs font-bold text-slate-500">{label}</dt>
+                    <dd className="mt-0.5 text-sm font-extrabold text-slate-900 break-words">{value || BOOKING_DASH}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -4452,20 +4594,20 @@ function VehicleForm({ initial, onSave, onCancel }) {
 
   return (
     <form onSubmit={submit} className="max-w-full rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_8px_30px_rgb(0,0,0,0.02)] sm:p-6">
-      <div className="mb-4 flex flex-col gap-3 border-b border-slate-100 pb-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="mb-5 flex flex-col gap-4 border-b border-slate-100 pb-5 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-bold text-blue-700">
-            ลงทะเบียน / อัปเดตงานซ่อม
-          </span>
-          <h2 className="text-2xl font-extrabold text-slate-950 mt-1">เพิ่มหรือแก้ไขข้อมูลรถยนต์</h2>
+          <h2 className="text-2xl font-extrabold text-slate-950">เพิ่มหรือแก้ไขข้อมูลรถยนต์</h2>
+          <p className="mt-1.5 text-sm font-bold text-slate-500">กรอกข้อมูลคิวซ่อมและข้อมูลรถ</p>
         </div>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <StatusPill status={form.status} />
-          <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-700 hover:bg-slate-50 transition-colors" onClick={onCancel} type="button">
+        <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center w-full lg:w-auto">
+          <span className="inline-flex min-h-11 items-center justify-center rounded-xl bg-pink-50 px-4 text-sm font-extrabold text-pink-700 border border-pink-200">
+            จองคิว
+          </span>
+          <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-700 hover:bg-slate-50 transition-colors flex-1 sm:flex-none" onClick={onCancel} type="button">
             <X className="h-4 w-4" />
             ยกเลิก
           </button>
-          <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-blue-700 px-5 text-sm font-extrabold text-white shadow-sm hover:bg-blue-600 transition-all-300" type="submit">
+          <button className="hidden lg:inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-blue-700 px-5 text-sm font-extrabold text-white shadow-sm hover:bg-blue-600 transition-all-300" type="submit">
             <Save className="h-4 w-4" />
             {saving ? 'กำลังบันทึก...' : 'บันทึกข้อมูล'}
           </button>
@@ -4473,16 +4615,16 @@ function VehicleForm({ initial, onSave, onCancel }) {
       </div>
       
       {error && (
-        <div className="mb-4 flex gap-2.5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-800 text-sm font-bold">
+        <div className="mb-5 flex gap-2.5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-800 text-sm font-bold">
           <span>!</span>
           <p>{error}</p>
         </div>
       )}
 
-      <div className="grid max-w-full gap-5 xl:grid-cols-[1fr_280px]">
-        <div className="space-y-4">
+      <div className="grid max-w-full gap-6 lg:grid-cols-[1fr_320px]">
+        <div className="space-y-6">
           <FormSection title="ข้อมูลรถยนต์">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <Field label="ทะเบียนรถ" value={form.license_plate} onChange={(value) => update('license_plate', value)} />
               <BrandField form={form} update={update} mode={brandMode} setMode={setBrandMode} />
               <ModelField form={form} update={update} mode={modelMode} setMode={setModelMode} choices={modelChoices} />
@@ -4493,69 +4635,77 @@ function VehicleForm({ initial, onSave, onCancel }) {
           </FormSection>
 
           <FormSection title="ข้อมูลลูกค้า">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2">
               <Field label="ชื่อลูกค้า" value={form.owner_name} onChange={(value) => update('owner_name', value)} />
               <Field label="เบอร์โทรศัพท์" value={form.phone} onChange={(value) => update('phone', value)} />
             </div>
           </FormSection>
 
           <FormSection title="ข้อมูลการบริการและงานซ่อม">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <Field label="เลขใบแจ้งหนี้/ใบเสร็จ" value={form.invoice_number} onChange={(value) => update('invoice_number', value)} />
               <SelectField label="สถานะรถ" value={form.status} onChange={(value) => update('status', value)} options={STATUS_OPTIONS} />
               <Field label="ประเมินราคาค่าซ่อม" type="number" value={form.repair_cost} onChange={(value) => update('repair_cost', value)} />
-              <Field label="วันที่จองคิวซ่อม" type="date" value={form.booking_date} onChange={(value) => update('booking_date', value)} />
-              <Field label="วันที่กำหนดส่งคืน" type="date" value={form.estimated_completion_date} onChange={(value) => update('estimated_completion_date', value)} />
+              <Field label="วันที่จองคิวซ่อม" type="date" value={form.entryDate} onChange={(value) => update('entryDate', value)} />
+              <Field label="วันที่กำหนดส่งคืน" type="date" value={form.estimatedCompletion} onChange={(value) => update('estimatedCompletion', value)} />
             </div>
-            <div className="mt-3">
-              <TextArea label="รายละเอียดอาการและประวัติช่างซ่อม" value={form.status_detail} onChange={(value) => update('status_detail', value)} />
+            <div className="mt-4">
+              <TextArea label="รายละเอียดอาการและประวัติซ่อม" value={form.status_detail} onChange={(value) => update('status_detail', value)} />
             </div>
           </FormSection>
 
           <FormSection title="รูปภาพประกอบงานซ่อม/เอกสารใบเสร็จ">
-            <div className="grid gap-3 sm:grid-cols-[auto_1fr] items-start">
-              <label className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-xl bg-blue-50 hover:bg-blue-100 px-4 text-xs font-extrabold text-blue-700 border border-blue-200">
-                <ImagePlus className="h-4 w-4 stroke-[2]" />
+            <div className="grid gap-4 sm:grid-cols-[auto_1fr] items-start">
+              <label className="inline-flex min-h-[42px] cursor-pointer items-center justify-center gap-2 rounded-xl bg-blue-50 hover:bg-blue-100 px-5 text-sm font-extrabold text-blue-700 border border-blue-200 transition-colors">
+                <ImagePlus className="h-4 w-4 stroke-[2.5]" />
                 อัปโหลดรูปภาพ
                 <input className="hidden" type="file" accept="image/*" multiple onChange={uploadImage} />
               </label>
-              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/50 p-3">
+              <div className="w-full rounded-xl border border-dashed border-slate-300 bg-slate-50/50 p-4">
                 {vehicleImages(form).length > 0 ? (
-                  <div className="grid gap-2 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
+                  <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
                     {vehicleImages(form).map((image, index) => (
-                      <div key={`${image}-${index}`} className="rounded-lg border border-slate-200 bg-white p-1.5 relative group">
-                        <img className="h-20 w-full rounded-md bg-slate-50 object-contain" src={image} alt={`รูปประกอบรถ ${index + 1}`} loading="lazy" />
-                        <button className="mt-1.5 inline-flex min-h-7 w-full items-center justify-center rounded-md border border-rose-200 bg-rose-50/60 px-2 text-[10px] font-bold text-rose-700 hover:bg-rose-100" onClick={() => removeImage(image)} type="button">
+                      <div key={`${image}-${index}`} className="rounded-xl border border-slate-200 bg-white p-2 relative group shadow-sm">
+                        <img className="h-24 w-full rounded-lg bg-slate-50 object-contain" src={image} alt={`รูปประกอบรถ ${index + 1}`} loading="lazy" />
+                        <button className="mt-2 inline-flex min-h-8 w-full items-center justify-center rounded-lg border border-rose-200 bg-rose-50/80 px-3 text-[11px] font-bold text-rose-700 hover:bg-rose-100 transition-colors" onClick={() => removeImage(image)} type="button">
                           ลบรูปนี้
                         </button>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-xs font-bold text-slate-400">ยังไม่มีรูปภาพประกอบในเคสนี้</p>
+                  <p className="text-sm font-bold text-slate-400 text-center py-2">ยังไม่มีรูปภาพประกอบในเคสนี้</p>
                 )}
               </div>
             </div>
           </FormSection>
+          
+          <button className="lg:hidden mt-4 inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-5 text-base font-extrabold text-white shadow-md hover:bg-blue-600 transition-all-300" type="submit">
+            <Save className="h-5 w-5" />
+            {saving ? 'กำลังบันทึก...' : 'บันทึกข้อมูล'}
+          </button>
         </div>
 
-        <aside className="h-fit rounded-2xl border border-slate-200 bg-slate-50/50 p-4 shadow-sm xl:sticky xl:top-20 space-y-3">
-          <h3 className="text-base font-extrabold text-slate-900 border-b border-slate-200 pb-2">สรุปข้อมูลเคสซ่อม</h3>
-          <div className="space-y-2.5">
-            <FormSummaryRow label="เลขทะเบียนรถ" value={form.license_plate || '-'} />
-            <FormSummaryRow label="ชื่อเจ้าของเคส" value={form.owner_name || '-'} />
-            <FormSummaryRow label="ยี่ห้อ / รุ่นรถ" value={`${form.brand || '-'} ${form.model || ''}`} />
-            <div className="rounded-xl border border-slate-200 bg-white p-3">
-              <p className="text-xs font-bold text-slate-400">สถานะปัจจุบัน</p>
-              <div className="mt-1.5"><StatusPill status={form.status} /></div>
+        <aside className="h-fit rounded-2xl border border-slate-200 bg-slate-50/50 p-5 shadow-sm lg:sticky lg:top-20 space-y-4">
+          <h3 className="text-base font-extrabold text-slate-900 border-b border-slate-200 pb-3">สรุปข้อมูลเคสซ่อม</h3>
+          <div className="space-y-3">
+            <FormSummaryRow label="ทะเบียนรถ" value={form.license_plate || '-'} />
+            <FormSummaryRow label="ชื่อลูกค้า" value={form.owner_name || '-'} />
+            <FormSummaryRow label="ยี่ห้อ / รุ่นรถ" value={`${form.brand || '-'} ${form.model || ''}`.trim() || '-'} />
+            <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+              <p className="text-xs font-bold text-slate-500">สถานะปัจจุบัน</p>
+              <div className="mt-2"><StatusPill status={form.status} /></div>
             </div>
-            <FormSummaryRow label="ประเมินราคาค่าซ่อม" value={`฿${money(form.repair_cost)}`} />
+            <FormSummaryRow label="ประเมินราคาค่าซ่อม" value={form.repair_cost ? `฿${money(form.repair_cost)}` : '-'} />
+            <FormSummaryRow label="วันที่จองคิว" value={form.entryDate ? dateText(form.entryDate) : '-'} />
+            <FormSummaryRow label="วันที่กำหนดส่งคืน" value={form.estimatedCompletion ? dateText(form.estimatedCompletion) : '-'} />
           </div>
         </aside>
       </div>
     </form>
   );
 }
+
 
 function FormSection({ title, children }) {
   return (

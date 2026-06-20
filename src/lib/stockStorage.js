@@ -11,6 +11,19 @@ function cleanNullable(value, maxLength = 255) {
   return text || null;
 }
 
+function cleanImageUrl(value) {
+  const text = cleanString(value, 500);
+  if (!text) return null;
+  if (text.startsWith('data:')) return { error: 'Product image must be uploaded before saving' };
+  if (/^\/uploads\/stock\/[a-zA-Z0-9_.-]+\.(jpg|jpeg|png|webp)$/i.test(text)) return text;
+  try {
+    const url = new URL(text);
+    return url.protocol === 'https:' ? text : { error: 'Invalid product image URL' };
+  } catch {
+    return { error: 'Invalid product image URL' };
+  }
+}
+
 function normalizeBoolean(value, fallback = true) {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'number') return value > 0;
@@ -163,6 +176,7 @@ export function normalizeStockCategoryRow(row) {
 }
 
 export function normalizeStockProductInput(body = {}) {
+  const imageUrl = cleanImageUrl(body.image_url);
   return {
     id: cleanString(body.id, 64) || `stk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     productCode: cleanNullable(body.code || body.product_code, 100),
@@ -180,7 +194,7 @@ export function normalizeStockProductInput(body = {}) {
     reorderPoint: Math.max(0, Math.trunc(normalizeNumber(body.reorder_point, 0))),
     supplier: cleanNullable(body.supplier, 255),
     status: cleanNullable(body.status, 50),
-    imageUrl: cleanNullable(body.image_url, 1000000),
+    imageUrl,
     note: cleanNullable(body.note, 5000),
   };
 }

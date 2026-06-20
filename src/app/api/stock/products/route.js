@@ -65,8 +65,19 @@ export async function POST(request) {
   try {
     const admin = await getAuthorizedAdminFromRequest(request);
     if (!admin) return json({ error: 'Forbidden' }, { status: 403 });
-    const body = await request.json();
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
+    if (typeof body?.image_url === 'string' && body.image_url.startsWith('data:')) {
+      return json({ error: 'Product image must be uploaded before saving' }, { status: 400 });
+    }
     const product = normalizeStockProductInput(body);
+    if (product.imageUrl && typeof product.imageUrl === 'object' && product.imageUrl.error) {
+      return json({ error: product.imageUrl.error }, { status: 400 });
+    }
     if (!product.productName) return json({ error: 'Product name is required' }, { status: 400 });
 
     await ensureStockProductsTable();

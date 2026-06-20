@@ -62,6 +62,14 @@ function cleanDate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
 }
 
+function cleanTime(value) {
+  const text = cleanString(value, 8);
+  if (!text) return { value: null };
+  const matched = text.match(/^([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$/);
+  if (!matched) return { error: 'Invalid booking_time format' };
+  return { value: `${matched[1]}:${matched[2]}:${matched[3] || '00'}` };
+}
+
 function normalizeStatusText(value) {
   return cleanString(value, 64).normalize('NFC');
 }
@@ -90,6 +98,13 @@ function formatSqlDate(value) {
   if (!value) return null;
   if (value instanceof Date) return value.toISOString().slice(0, 10);
   return String(value).slice(0, 10);
+}
+
+function formatSqlTime(value) {
+  if (!value) return null;
+  const text = String(value);
+  const matched = text.match(/([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?/);
+  return matched ? `${matched[1]}:${matched[2]}` : null;
 }
 
 async function ensureColumn(sql) {
@@ -124,6 +139,7 @@ async function ensureVehiclesTable() {
       status VARCHAR(64) NULL DEFAULT 'จองคิว',
       repair_cost DECIMAL(12,2) NULL DEFAULT 0,
       booking_date DATE NULL,
+      booking_time TIME NULL,
       estimated_completion_date DATE NULL,
       status_detail TEXT NULL,
       receipt_image MEDIUMTEXT NULL,
@@ -146,6 +162,7 @@ async function ensureVehiclesTable() {
     "ALTER TABLE vehicles MODIFY COLUMN status VARCHAR(64) NULL DEFAULT 'จองคิว'",
     'ALTER TABLE vehicles ADD COLUMN repair_cost DECIMAL(12,2) NULL DEFAULT 0',
     'ALTER TABLE vehicles ADD COLUMN booking_date DATE NULL',
+    'ALTER TABLE vehicles ADD COLUMN booking_time TIME NULL',
     'ALTER TABLE vehicles ADD COLUMN estimated_completion_date DATE NULL',
     'ALTER TABLE vehicles ADD COLUMN status_detail TEXT NULL',
     'ALTER TABLE vehicles ADD COLUMN receipt_image MEDIUMTEXT NULL',
@@ -193,6 +210,7 @@ function normalizeRow(row) {
     status: normalizeStatus(row.status),
     repair_cost: normalizeMoney(row.repair_cost),
     booking_date: formatSqlDate(row.booking_date),
+    booking_time: formatSqlTime(row.booking_time),
     estimated_completion_date: formatSqlDate(row.estimated_completion_date),
     status_detail: row.status_detail || null,
     receipt_image: row.receipt_image || null,
@@ -244,6 +262,8 @@ function normalizeVehicleBody(body) {
   const receiptImage = cleanReceiptImage(body.receipt_image);
   const receiptImages = cleanReceiptImages(body.receipt_images);
   const mergedReceiptImages = Array.from(new Set([receiptImage, ...receiptImages].filter(Boolean)));
+  const bookingTime = cleanTime(body.booking_time ?? body.bookingTime);
+  if (bookingTime.error) return { error: bookingTime.error };
 
   return {
     vehicle: {
@@ -260,6 +280,7 @@ function normalizeVehicleBody(body) {
       status: normalizeStatus(body.status),
       repair_cost: normalizeMoney(body.repair_cost),
       booking_date: cleanDate(body.booking_date),
+      booking_time: bookingTime.value,
       estimated_completion_date: cleanDate(body.estimated_completion_date),
       status_detail: cleanNullable(body.status_detail, 2000),
       receipt_image: mergedReceiptImages[0] || null,
@@ -444,8 +465,8 @@ export async function POST(request) {
     await query(
       `INSERT INTO vehicles (
         id, invoice_number, license_plate, owner_name, phone, brand, model, color, vin, mileage,
-        status, repair_cost, booking_date, estimated_completion_date, status_detail, receipt_image, receipt_images
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        status, repair_cost, booking_date, booking_time, estimated_completion_date, status_detail, receipt_image, receipt_images
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
         invoice_number = VALUES(invoice_number),
         license_plate = VALUES(license_plate),
@@ -459,6 +480,7 @@ export async function POST(request) {
         status = VALUES(status),
         repair_cost = VALUES(repair_cost),
         booking_date = VALUES(booking_date),
+        booking_time = VALUES(booking_time),
         estimated_completion_date = VALUES(estimated_completion_date),
         status_detail = VALUES(status_detail),
         receipt_image = VALUES(receipt_image),
@@ -477,6 +499,7 @@ export async function POST(request) {
         vehicle.status,
         vehicle.repair_cost,
         vehicle.booking_date,
+        vehicle.booking_time,
         vehicle.estimated_completion_date,
         vehicle.status_detail,
         vehicle.receipt_image,

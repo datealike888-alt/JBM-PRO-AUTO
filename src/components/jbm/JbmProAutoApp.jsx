@@ -2308,7 +2308,7 @@ function StockProductPage({ products, categories, movements, onAdjustQuantity, o
         <StockCategoryManager categories={categories} products={products} onEdit={setEditingCategory} onDelete={setDeletingCategory} onToggle={onToggleCategory} onAdd={() => setEditingCategory({ ...emptyStockCategory })} />
       )}
 
-      {tab === 'movements' && <StockMovementHistory movements={movements} />}
+      {tab === 'movements' && <StockMovementHistory movements={movements} onRefresh={loadStockData} />}
 
       {editingProduct && (
         <StockProductModal product={editingProduct} categories={activeCategories} onClose={() => setEditingProduct(null)} onSave={async (product) => { await onSaveProduct(product); setEditingProduct(null); }} />
@@ -2393,49 +2393,178 @@ function StockCategoryManager({ categories, products, onEdit, onDelete, onToggle
   );
 }
 
-function StockMovementHistory({ movements }) {
-  const sortedMovements = useMemo(() => (
-    [...movements].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
-  ), [movements]);
+function StockMovementHistory({ movements, onRefresh }) {
+  const [periodFilter, setPeriodFilter] = useState('30d');
+  const [showClearTest, setShowClearTest] = useState(false);
+  const [testConfirmText, setTestConfirmText] = useState('');
+  const [clearing, setClearing] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  const filteredMovements = useMemo(() => {
+    let list = [...movements];
+    if (periodFilter === '7d' || periodFilter === '30d') {
+      const days = periodFilter === '7d' ? 7 : 30;
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - days);
+      list = list.filter(m => new Date(m.created_at) >= cutoff);
+    }
+    return list.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  }, [movements, periodFilter]);
+
+  const testCount = useMemo(() => {
+    return movements.filter(m => {
+      const code = String(m.code || m.product_code || '');
+      const name = String(m.name || m.product_name || '');
+      const note = String(m.note || '');
+      const by = String(m.created_by || '');
+      return code.startsWith('TEST-') || name.startsWith('TEST-') || note.includes('TEST') || by.startsWith('TEST-');
+    }).length;
+  }, [movements]);
+
+  const todayCount = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return movements.filter(m => String(m.created_at || '').startsWith(today)).length;
+  }, [movements]);
+
+  const handleClearTest = async () => {
+    if (testConfirmText !== 'TEST') return;
+    setClearing(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await fetch('/api/stock/movements/test-only', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmText: testConfirmText })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'ลบไม่สำเร็จ');
+      
+      setMessage(`ล้างประวัติ TEST แล้ว ${data.deleted || 0} รายการ`);
+      setShowClearTest(false);
+      setTestConfirmText('');
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setClearing(false);
+    }
+  };
+
   return (
-    <section className="max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-      <table className="w-full min-w-[860px] text-left text-base md:min-w-[1180px] md:text-lg">
-        <thead className="bg-slate-100 text-base font-extrabold text-slate-600">
-          <tr>
-            <th className="p-4">วันเวลา</th>
-            <th className="p-4">ID สินค้า</th>
-            <th className="p-4">รหัสอะไหล่</th>
-            <th className="p-4">ชื่ออะไหล่รถยนต์</th>
-            <th className="p-4 text-center">ประเภท</th>
-            <th className="p-4 text-center">เปลี่ยน</th>
-            <th className="p-4 text-center">ก่อนหน้า</th>
-            <th className="p-4 text-center">หลังปรับ</th>
-            <th className="p-4">ผู้ทำรายการ</th>
-            <th className="p-4">หมายเหตุ</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-200">
-          {sortedMovements.map((movement) => (
-            <tr key={movement.id} className="hover:bg-slate-50">
-              <td className="p-4 font-bold text-slate-600">{movement.created_at ? new Date(movement.created_at).toLocaleString('th-TH') : '-'}</td>
-              <td className="p-4 font-mono text-base font-bold text-slate-500">{movement.product_id}</td>
-              <td className="p-4 font-mono font-extrabold text-blue-800">{movement.code}</td>
-              <td className="p-4 font-bold text-slate-900">{movement.name}</td>
-              <td className="p-4 text-center"><span className="rounded-lg bg-blue-50 px-3 py-1 text-base font-extrabold text-blue-800">{movement.type}</span></td>
-              <td className={`p-4 text-center font-extrabold ${Number(movement.quantity_change || 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{Number(movement.quantity_change || 0) > 0 ? `+${movement.quantity_change}` : movement.quantity_change}</td>
-              <td className="p-4 text-center font-bold text-slate-500">{movement.quantity_before}</td>
-              <td className="p-4 text-center font-extrabold text-slate-900">{movement.quantity_after}</td>
-              <td className="p-4 font-bold text-slate-600">{movement.created_by || '-'}</td>
-              <td className="p-4 font-bold text-slate-500">{movement.note || '-'}</td>
+    <div className="space-y-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div>
+          <h2 className="text-2xl font-extrabold text-slate-950">ประวัติเข้า-ออกสต็อก</h2>
+          <p className="text-lg font-bold text-slate-500 mt-1">
+            {periodFilter === 'all' ? 'แสดงประวัติทั้งหมด' : `แสดงประวัติ ${periodFilter === '7d' ? '7' : '30'} วันล่าสุด`} จำนวน {filteredMovements.length} รายการ
+          </p>
+          <div className="mt-2 flex gap-3 text-sm font-bold">
+            <span className="rounded-md bg-blue-50 px-2 py-1 text-blue-700">วันนี้: {todayCount} รายการ</span>
+            {testCount > 0 && <span className="rounded-md bg-amber-50 px-2 py-1 text-amber-700">TEST: {testCount} รายการ</span>}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <select 
+            value={periodFilter} 
+            onChange={e => setPeriodFilter(e.target.value)}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-base font-bold text-slate-700 outline-none focus:border-blue-500"
+          >
+            <option value="7d">7 วันล่าสุด</option>
+            <option value="30d">30 วันล่าสุด</option>
+            <option value="all">ทั้งหมด</option>
+          </select>
+          <button 
+            type="button" 
+            onClick={() => { setShowClearTest(true); setError(''); setTestConfirmText(''); }}
+            className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-base font-extrabold text-amber-700 hover:bg-amber-100 transition-colors"
+          >
+            ล้างประวัติ TEST
+          </button>
+        </div>
+      </div>
+
+      {message && (
+        <div className="rounded-lg bg-emerald-50 p-4 text-emerald-800 font-bold border border-emerald-200">
+          ✓ {message}
+        </div>
+      )}
+
+      <section className="max-w-full overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+        <table className="w-full min-w-[860px] text-left text-base md:min-w-[1180px] md:text-lg">
+          <thead className="bg-slate-100 text-base font-extrabold text-slate-600">
+            <tr>
+              <th className="p-4">วันเวลา</th>
+              <th className="p-4">ID สินค้า</th>
+              <th className="p-4">รหัสอะไหล่</th>
+              <th className="p-4">ชื่ออะไหล่รถยนต์</th>
+              <th className="p-4 text-center">ประเภท</th>
+              <th className="p-4 text-center">เปลี่ยน</th>
+              <th className="p-4 text-center">ก่อนหน้า</th>
+              <th className="p-4 text-center">หลังปรับ</th>
+              <th className="p-4">ผู้ทำรายการ</th>
+              <th className="p-4">หมายเหตุ</th>
             </tr>
-          ))}
-          {sortedMovements.length === 0 && <tr><td className="p-8 text-center text-slate-500" colSpan={10}>ยังไม่มีประวัติเข้า-ออกสต็อก</td></tr>}
-        </tbody>
-      </table>
-    </section>
+          </thead>
+          <tbody className="divide-y divide-slate-200">
+            {filteredMovements.map((movement) => (
+              <tr key={movement.id} className="hover:bg-slate-50">
+                <td className="p-4 font-bold text-slate-600">{movement.created_at ? new Date(movement.created_at).toLocaleString('th-TH') : '-'}</td>
+                <td className="p-4 font-mono text-base font-bold text-slate-500">{movement.product_id}</td>
+                <td className="p-4 font-mono font-extrabold text-blue-800">{movement.code}</td>
+                <td className="p-4 font-bold text-slate-900">{movement.name}</td>
+                <td className="p-4 text-center"><span className="rounded-lg bg-blue-50 px-3 py-1 text-base font-extrabold text-blue-800">{movement.type}</span></td>
+                <td className={`p-4 text-center font-extrabold ${Number(movement.quantity_change || 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{Number(movement.quantity_change || 0) > 0 ? `+${movement.quantity_change}` : movement.quantity_change}</td>
+                <td className="p-4 text-center font-bold text-slate-500">{movement.quantity_before}</td>
+                <td className="p-4 text-center font-extrabold text-slate-900">{movement.quantity_after}</td>
+                <td className="p-4 font-bold text-slate-600">{movement.created_by || '-'}</td>
+                <td className="p-4 font-bold text-slate-500">{movement.note || '-'}</td>
+              </tr>
+            ))}
+            {filteredMovements.length === 0 && <tr><td className="p-8 text-center text-slate-500" colSpan={10}>ยังไม่มีประวัติเข้า-ออกสต็อกในช่วงเวลานี้</td></tr>}
+          </tbody>
+        </table>
+      </section>
+
+      {showClearTest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <h3 className="text-2xl font-extrabold text-amber-600">ล้างประวัติ TEST</h3>
+            <p className="mt-2 text-lg font-bold text-slate-600">
+              ลบเฉพาะรายการทดสอบ TEST เท่านั้น ไม่ลบประวัติจริง (กรุณาพิมพ์ <span className="text-slate-900 font-extrabold">TEST</span> เพื่อยืนยัน)
+            </p>
+            {error && <p className="mt-3 text-base font-bold text-rose-600">{error}</p>}
+            <input 
+              type="text" 
+              value={testConfirmText}
+              onChange={e => setTestConfirmText(e.target.value)}
+              placeholder="พิมพ์ TEST ที่นี่"
+              className="mt-4 w-full rounded-lg border border-slate-300 p-3 text-lg font-bold outline-none focus:border-amber-500"
+            />
+            <div className="mt-6 flex justify-end gap-3">
+              <button 
+                type="button" 
+                onClick={() => setShowClearTest(false)}
+                className="rounded-lg border border-slate-200 px-5 py-2.5 text-base font-bold text-slate-600 hover:bg-slate-50"
+              >
+                ยกเลิก
+              </button>
+              <button 
+                type="button" 
+                onClick={handleClearTest}
+                disabled={testConfirmText !== 'TEST' || clearing}
+                className="rounded-lg bg-amber-500 px-5 py-2.5 text-base font-bold text-white hover:bg-amber-600 disabled:opacity-50"
+              >
+                {clearing ? 'กำลังล้าง...' : 'ยืนยันล้าง TEST'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
-
 function StockProductImage({ product, className }) {
   if (product.image_url) {
     return (
@@ -4178,9 +4307,8 @@ function BookingCalendar({ vehicles }) {
             }
             
             const hasBookings = cell.vehicles.length > 0;
-            const previewLimit = 1;
+            const previewLimit = 3;
             const mobilePreviewVehicles = cell.vehicles.slice(0, previewLimit);
-            const firstVehicle = mobilePreviewVehicles[0];
             const isToday = cell.date === todayStr;
             const isWeekend = index % 7 === 5 || index % 7 === 6;
             const isSelected = cell.date === selectedDate;

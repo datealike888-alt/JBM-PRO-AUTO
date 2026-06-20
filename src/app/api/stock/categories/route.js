@@ -1,6 +1,7 @@
 import {
   cleanString,
   ensureStockCategoriesTable,
+  ensureStockProductsTable,
   isAuthorizedStockRequest,
   normalizeStockCategoryInput,
   normalizeStockCategoryRow,
@@ -35,6 +36,8 @@ export async function POST(request) {
     const category = normalizeStockCategoryInput(body);
     if (!category.name) return json({ error: 'Category name is required' }, { status: 400 });
     await ensureStockCategoriesTable();
+    const duplicateRows = await query('SELECT id FROM stock_categories WHERE name = ? AND id <> ? LIMIT 1', [category.name, category.id]);
+    if (duplicateRows.length > 0) return json({ error: 'Category name already exists' }, { status: 409 });
     await query(
       `INSERT INTO stock_categories (id, name, description, is_active)
        VALUES (?, ?, ?, ?)
@@ -57,7 +60,11 @@ export async function DELETE(request) {
     if (!(await isAuthorizedStockRequest(request))) return json({ error: 'Forbidden' }, { status: 403 });
     const id = cleanString(new URL(request.url).searchParams.get('id'), 64);
     if (!id) return json({ error: 'Missing id parameter' }, { status: 400 });
-    await ensureStockCategoriesTable();
+    await ensureStockProductsTable();
+    const productRows = await query('SELECT COUNT(*) AS total FROM stock_products WHERE category_id = ?', [id]);
+    if (Number(productRows[0]?.total || 0) > 0) {
+      return json({ error: 'Cannot delete category while products are using it' }, { status: 409 });
+    }
     await query('DELETE FROM stock_categories WHERE id = ?', [id]);
     return json({ success: true }, { status: 200 });
   } catch (error) {
@@ -65,4 +72,3 @@ export async function DELETE(request) {
     return json({ error: 'Unable to delete stock category' }, { status: 503 });
   }
 }
-

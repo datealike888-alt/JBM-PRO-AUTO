@@ -59,6 +59,7 @@ const STOCK_CATEGORIES_API_URL = '/api/stock/categories';
 const STOCK_PRODUCTS_API_URL = '/api/stock/products';
 const STOCK_MOVEMENTS_API_URL = '/api/stock/movements';
 const EMPLOYEES_API_URL = '/api/employees';
+const EMPLOYEE_PHOTO_UPLOAD_API_URL = '/api/employees/upload-photo';
 const EMPLOYEE_POSITIONS_API_URL = '/api/employee-positions';
 const EMPLOYEE_ATTENDANCE_API_URL = '/api/employee-attendance';
 const EMPLOYEE_LEAVES_API_URL = '/api/employee-leaves';
@@ -258,8 +259,9 @@ const emptyVehicle = {
   mileage: '',
   status: DEFAULT_STATUS,
   repair_cost: '',
-  booking_date: '',
-  estimated_completion_date: '',
+  entryDate: '',
+  estimatedCompletion: '',
+  bookingTime: '',
   status_detail: '',
   receipt_image: '',
   receipt_images: [],
@@ -401,6 +403,7 @@ function normalizeAttendanceSettings(settings = {}) {
 }
 
 function normalizeEmployee(employee = {}) {
+  const photoUrl = employee.photo_url || employee.photoUrl || '';
   return {
     id: employee.id || `emp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     code: String(employee.code || '').trim(),
@@ -409,6 +412,11 @@ function normalizeEmployee(employee = {}) {
     lastName: String(employee.lastName || '').trim(),
     nickname: String(employee.nickname || '').trim(),
     position: String(employee.position || DEFAULT_EMPLOYEE_POSITIONS[DEFAULT_EMPLOYEE_POSITIONS.length - 1]).trim(),
+    phone: String(employee.phone || '').trim(),
+    startDate: String(employee.startDate || '').slice(0, 10),
+    note: String(employee.note || ''),
+    photo_url: photoUrl,
+    photoUrl,
   };
 }
 
@@ -476,6 +484,37 @@ function addAuditLog(entry = {}) {
 
 function employeeFullName(employee = {}) {
   return `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || '-';
+}
+
+function employeeInitials(employee = {}) {
+  const first = String(employee.firstName || employee.nickname || employee.code || '').trim().charAt(0);
+  const last = String(employee.lastName || '').trim().charAt(0);
+  return `${first}${last}`.trim().toUpperCase() || 'JB';
+}
+
+function EmployeeAvatar({ employee, size = 'md', className = '' }) {
+  const sizes = {
+    sm: 'h-10 w-10 text-sm',
+    md: 'h-16 w-16 text-xl',
+    lg: 'h-24 w-24 text-3xl',
+  };
+  const sizeClass = sizes[size] || sizes.md;
+  const photoUrl = employee?.photo_url || employee?.photoUrl || '';
+  if (photoUrl) {
+    return (
+      <img
+        src={photoUrl}
+        alt={`รูปพนักงาน ${employeeFullName(employee)}`}
+        className={`${sizeClass} shrink-0 rounded-full border border-slate-200 bg-slate-100 object-cover ${className}`}
+        loading="lazy"
+      />
+    );
+  }
+  return (
+    <div className={`${sizeClass} flex shrink-0 items-center justify-center rounded-full border border-blue-100 bg-blue-50 font-extrabold text-blue-800 ${className}`}>
+      {employeeInitials(employee)}
+    </div>
+  );
 }
 
 function minutesFromTime(value) {
@@ -596,9 +635,16 @@ function financialDateKey(transaction) {
 }
 
 function normalizeVehicle(vehicle = {}) {
+  const entryDate = vehicle.entryDate || vehicle.booking_date || '';
+  const estimatedCompletion = vehicle.estimatedCompletion || vehicle.estimated_completion_date || '';
   return {
     ...emptyVehicle,
     ...vehicle,
+    entryDate: String(entryDate || '').slice(0, 10),
+    estimatedCompletion: String(estimatedCompletion || '').slice(0, 10),
+    booking_date: String(entryDate || '').slice(0, 10),
+    estimated_completion_date: String(estimatedCompletion || '').slice(0, 10),
+    bookingTime: vehicle.bookingTime || vehicle.booking_time || '',
     status: normalizeVehicleStatus(vehicle.status),
     repair_cost: vehicle.repair_cost ?? '',
     mileage: vehicle.mileage ?? '',
@@ -1563,10 +1609,16 @@ function AdminApp() {
   };
 
   const saveVehicle = async (vehicle) => {
+    const vehiclePayload = {
+      ...vehicle,
+      id: vehicle.id || `job-${Date.now()}`,
+      booking_date: vehicle.entryDate || vehicle.booking_date || null,
+      estimated_completion_date: vehicle.estimatedCompletion || vehicle.estimated_completion_date || null,
+    };
     const response = await fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...headers() },
-      body: JSON.stringify({ ...vehicle, id: vehicle.id || `job-${Date.now()}` }),
+      body: JSON.stringify(vehiclePayload),
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data?.error || 'บันทึกข้อมูลไม่สำเร็จ');
@@ -1676,7 +1728,18 @@ function AdminApp() {
       headers: { 'Content-Type': 'application/json', ...headers() },
       body: JSON.stringify(normalized),
     });
-    if (!response.ok) throw new Error('บันทึกหมวดหมู่ไม่สำเร็จ');
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data?.error || 'บันทึกหมวดหมู่ไม่สำเร็จ');
+    await loadStockData();
+  }, [headers, loadStockData]);
+
+  const deleteStockCategory = useCallback(async (category) => {
+    const response = await fetch(`${STOCK_CATEGORIES_API_URL}?id=${encodeURIComponent(category.id)}`, {
+      method: 'DELETE',
+      headers: headers(),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data?.error || 'ลบหมวดหมู่ไม่สำเร็จ');
     await loadStockData();
   }, [headers, loadStockData]);
 
@@ -2010,6 +2073,7 @@ function AdminApp() {
                 onSaveProduct={saveStockProduct}
                 onDeleteProduct={deleteStockProduct}
                 onSaveCategory={saveStockCategory}
+                onDeleteCategory={deleteStockCategory}
                 onToggleCategory={toggleStockCategory}
                 onClearSampleData={clearStockSampleData}
               />
@@ -2025,7 +2089,7 @@ function AdminApp() {
   );
 }
 
-function StockProductPage({ products, categories, movements, onAdjustQuantity, onSaveProduct, onDeleteProduct, onSaveCategory, onToggleCategory, onClearSampleData }) {
+function StockProductPage({ products, categories, movements, onAdjustQuantity, onSaveProduct, onDeleteProduct, onSaveCategory, onDeleteCategory, onToggleCategory, onClearSampleData }) {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [stockFilter, setStockFilter] = useState('all');
@@ -2034,6 +2098,7 @@ function StockProductPage({ products, categories, movements, onAdjustQuantity, o
   const [viewingProduct, setViewingProduct] = useState(null);
   const [deletingProduct, setDeletingProduct] = useState(null);
   const [editingCategory, setEditingCategory] = useState(null);
+  const [deletingCategory, setDeletingCategory] = useState(null);
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
 
   const filteredProducts = useMemo(() => {
@@ -2240,17 +2305,29 @@ function StockProductPage({ products, categories, movements, onAdjustQuantity, o
       )}
 
       {tab === 'categories' && (
-        <StockCategoryManager categories={categories} products={products} onEdit={setEditingCategory} onToggle={onToggleCategory} onAdd={() => setEditingCategory({ ...emptyStockCategory })} />
+        <StockCategoryManager categories={categories} products={products} onEdit={setEditingCategory} onDelete={setDeletingCategory} onToggle={onToggleCategory} onAdd={() => setEditingCategory({ ...emptyStockCategory })} />
       )}
 
       {tab === 'movements' && <StockMovementHistory movements={movements} />}
 
       {editingProduct && (
-        <StockProductModal product={editingProduct} categories={activeCategories} onClose={() => setEditingProduct(null)} onSave={(product) => { onSaveProduct(product); setEditingProduct(null); }} />
+        <StockProductModal product={editingProduct} categories={activeCategories} onClose={() => setEditingProduct(null)} onSave={async (product) => { await onSaveProduct(product); setEditingProduct(null); }} />
       )}
       {viewingProduct && <StockProductDetail product={viewingProduct} onClose={() => setViewingProduct(null)} />}
       {editingCategory && (
-        <StockCategoryModal category={editingCategory} onClose={() => setEditingCategory(null)} onSave={(category) => { onSaveCategory(category); setEditingCategory(null); }} />
+        <StockCategoryModal category={editingCategory} onClose={() => setEditingCategory(null)} onSave={async (category) => { await onSaveCategory(category); setEditingCategory(null); }} />
+      )}
+      {deletingCategory && (
+        <StockConfirmDialog
+          title="ลบหมวดหมู่"
+          message={`ต้องการลบหมวดหมู่ ${deletingCategory.name || 'นี้'} หรือไม่`}
+          confirmText="ลบหมวดหมู่"
+          onCancel={() => setDeletingCategory(null)}
+          onConfirm={async () => {
+            await onDeleteCategory(deletingCategory);
+            setDeletingCategory(null);
+          }}
+        />
       )}
       {deletingProduct && (
         <StockConfirmDialog
@@ -2280,7 +2357,7 @@ function StockProductPage({ products, categories, movements, onAdjustQuantity, o
   );
 }
 
-function StockCategoryManager({ categories, products, onEdit, onToggle, onAdd }) {
+function StockCategoryManager({ categories, products, onEdit, onDelete, onToggle, onAdd }) {
   return (
     <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -2306,6 +2383,7 @@ function StockCategoryManager({ categories, products, onEdit, onToggle, onAdd })
               <div className="mt-4 flex justify-end gap-2 border-t border-slate-100 pt-4">
                 <button className="rounded-lg border border-slate-200 px-4 py-2 text-lg font-extrabold text-blue-700 hover:bg-blue-50" onClick={() => onEdit(category)} type="button">แก้ไข</button>
                 <button className="rounded-lg border border-slate-200 px-4 py-2 text-lg font-extrabold text-slate-700 hover:bg-slate-50" onClick={() => onToggle(category.id)} type="button">{category.is_active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}</button>
+                <button className="rounded-lg border border-rose-200 px-4 py-2 text-lg font-extrabold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40" onClick={() => onDelete(category)} disabled={count > 0} type="button" title={count > 0 ? 'ลบไม่ได้เพราะมีสินค้าใช้งานหมวดหมู่นี้' : 'ลบหมวดหมู่'}>ลบ</button>
               </div>
             </div>
           );
@@ -2448,24 +2526,51 @@ function StockProductDetail({ product, onClose }) {
 
 function StockCategoryModal({ category, onClose, onSave }) {
   const [form, setForm] = useState(() => normalizeStockCategory(category));
-  const submit = (event) => {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const submit = async (event) => {
     event.preventDefault();
-    if (!form.name.trim()) return;
-    onSave(form);
+    if (!form.name.trim()) {
+      setError('กรุณากรอกชื่อหมวดหมู่');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      await onSave(form);
+    } catch (saveError) {
+      setError(saveError.message || 'บันทึกหมวดหมู่ไม่สำเร็จ');
+    } finally {
+      setSaving(false);
+    }
   };
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-slate-950/50 p-0 sm:items-center sm:p-4">
       <form onSubmit={submit} className="w-full max-w-[calc(100vw-1rem)] rounded-t-2xl bg-white p-4 shadow-2xl sm:max-w-xl sm:rounded-2xl sm:p-5">
         <StockModalHeader title={category.id ? 'แก้ไขหมวดหมู่' : 'เพิ่มหมวดหมู่'} onClose={onClose} />
+        {error && <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-base font-extrabold text-rose-800">{error}</div>}
         <StockInput label="ชื่อหมวดหมู่" value={form.name} onChange={(value) => setForm((current) => ({ ...current, name: value }))} />
         <label className="mt-4 flex items-center gap-3 text-xl font-extrabold text-slate-800"><input checked={form.is_active} onChange={(event) => setForm((current) => ({ ...current, is_active: event.target.checked }))} type="checkbox" className="h-5 w-5" />เปิดใช้งานหมวดหมู่</label>
-        <StockModalActions onClose={onClose} />
+        <StockModalActions onClose={onClose} saving={saving} />
       </form>
     </div>
   );
 }
 
 function StockConfirmDialog({ title, message, confirmText, onCancel, onConfirm }) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const confirm = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      await onConfirm();
+    } catch (confirmError) {
+      setError(confirmError.message || 'ดำเนินการไม่สำเร็จ');
+    } finally {
+      setSaving(false);
+    }
+  };
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-slate-950/50 p-0 sm:items-center sm:p-4">
       <div className="w-full max-w-[calc(100vw-1rem)] rounded-t-2xl bg-white p-4 shadow-2xl sm:max-w-xl sm:rounded-2xl sm:p-5" role="dialog" aria-modal="true">
@@ -2474,16 +2579,17 @@ function StockConfirmDialog({ title, message, confirmText, onCancel, onConfirm }
             <h2 className="text-3xl font-extrabold text-slate-950">{title}</h2>
             <p className="mt-2 text-lg font-bold text-slate-600">{message}</p>
           </div>
-          <button className="inline-flex h-12 w-12 items-center justify-center rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50" onClick={onCancel} type="button" aria-label="ปิด">
+          <button className="inline-flex h-12 w-12 items-center justify-center rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50" onClick={onCancel} disabled={saving} type="button" aria-label="ปิด">
             <X className="h-6 w-6" />
           </button>
         </div>
+        {error && <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-base font-extrabold text-rose-800">{error}</div>}
         <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
-          <button className="inline-flex min-h-14 items-center justify-center rounded-lg border border-slate-300 bg-white px-5 text-xl font-extrabold text-slate-700 hover:bg-slate-50" onClick={onCancel} type="button">
+          <button className="inline-flex min-h-14 items-center justify-center rounded-lg border border-slate-300 bg-white px-5 text-xl font-extrabold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50" onClick={onCancel} disabled={saving} type="button">
             ยกเลิก
           </button>
-          <button className="inline-flex min-h-14 items-center justify-center rounded-lg bg-rose-700 px-6 text-xl font-extrabold text-white hover:bg-rose-800" onClick={onConfirm} type="button">
-            {confirmText}
+          <button className="inline-flex min-h-14 items-center justify-center rounded-lg bg-rose-700 px-6 text-xl font-extrabold text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-slate-300" onClick={confirm} disabled={saving} type="button">
+            {saving ? 'กำลังดำเนินการ...' : confirmText}
           </button>
         </div>
       </div>
@@ -2509,11 +2615,11 @@ function StockInput({ label, value, onChange, type = 'text' }) {
   );
 }
 
-function StockModalActions({ onClose }) {
+function StockModalActions({ onClose, saving = false }) {
   return (
     <div className="mt-6 flex flex-col gap-3 border-t border-slate-200 pt-5 sm:flex-row sm:justify-end">
-      <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-5 text-xl font-extrabold text-slate-700 hover:bg-slate-50" onClick={onClose} type="button"><X className="h-6 w-6" />ยกเลิก</button>
-      <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg bg-blue-700 px-6 text-xl font-extrabold text-white shadow-sm hover:bg-blue-800" type="submit"><Save className="h-6 w-6" />บันทึก</button>
+      <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-5 text-xl font-extrabold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50" onClick={onClose} disabled={saving} type="button"><X className="h-6 w-6" />ยกเลิก</button>
+      <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg bg-blue-700 px-6 text-xl font-extrabold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300" disabled={saving} type="submit"><Save className="h-6 w-6" />{saving ? 'กำลังบันทึก...' : 'บันทึก'}</button>
     </div>
   );
 }
@@ -2521,7 +2627,7 @@ function StockModalActions({ onClose }) {
 function ShiftDutyPage() {
   const today = dateInputValue(new Date());
   const current = currentYearMonth();
-  const emptyEmployee = { id: '', code: '', status: EMPLOYEE_STATUSES[0], firstName: '', lastName: '', nickname: '', position: DEFAULT_EMPLOYEE_POSITIONS[4] };
+  const emptyEmployee = { id: '', code: '', status: EMPLOYEE_STATUSES[0], firstName: '', lastName: '', nickname: '', position: DEFAULT_EMPLOYEE_POSITIONS[4], photo_url: '', photoUrl: '' };
   const emptyLeave = { employeeId: '', type: LEAVE_TYPES[0], startDate: today, endDate: today, approver: '', reason: '' };
   const [attendanceSettings, setAttendanceSettings] = useState(DEFAULT_ATTENDANCE_SETTINGS);
   const emptyAttendance = {
@@ -2540,6 +2646,8 @@ function ShiftDutyPage() {
   const [employeeForm, setEmployeeForm] = useState(emptyEmployee);
   const [customPosition, setCustomPosition] = useState('');
   const [detailEmployee, setDetailEmployee] = useState(null);
+  const [employeePhotoUploading, setEmployeePhotoUploading] = useState(false);
+  const [employeePhotoError, setEmployeePhotoError] = useState('');
   const [attendanceForm, setAttendanceForm] = useState(emptyAttendance);
   const [editingAttendanceId, setEditingAttendanceId] = useState('');
   const [historyFilters, setHistoryFilters] = useState({ day: 'all', month: current.month, year: current.year, employeeId: 'all', position: 'all', status: 'all' });
@@ -2769,6 +2877,29 @@ function ShiftDutyPage() {
   const editingAttendance = editingAttendanceId ? attendanceLogs.find((log) => log.id === editingAttendanceId) : null;
   const editingLeave = editingLeaveId ? leaveLogs.find((log) => log.id === editingLeaveId) : null;
 
+  const uploadEmployeePhoto = async (file) => {
+    if (!file) return;
+    setEmployeePhotoUploading(true);
+    setEmployeePhotoError('');
+    try {
+      const formData = new FormData();
+      formData.append('photo', file);
+      formData.append('employeeId', employeeForm.id || employeeForm.code || 'employee');
+      const response = await fetch(EMPLOYEE_PHOTO_UPLOAD_API_URL, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: formData,
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || 'อัปโหลดรูปพนักงานไม่สำเร็จ');
+      setEmployeeForm((form) => ({ ...form, photo_url: data.url, photoUrl: data.url }));
+    } catch (error) {
+      setEmployeePhotoError(error.message || 'อัปโหลดรูปพนักงานไม่สำเร็จ');
+    } finally {
+      setEmployeePhotoUploading(false);
+    }
+  };
+
   const saveEmployee = async (event) => {
     event.preventDefault();
     const normalized = normalizeEmployee(employeeForm);
@@ -2837,11 +2968,13 @@ function ShiftDutyPage() {
   const editEmployee = (employee) => {
     setEmployeeForm(normalizeEmployee(employee));
     setCustomPosition('');
+    setEmployeePhotoError('');
   };
 
   const cancelEmployeeEdit = () => {
     setEmployeeForm(emptyEmployee);
     setCustomPosition('');
+    setEmployeePhotoError('');
   };
 
   const deleteEmployee = async (employee) => {
@@ -3222,6 +3355,42 @@ function ShiftDutyPage() {
         <form onSubmit={saveEmployee} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="text-2xl font-extrabold text-slate-950">{isEditingEmployee ? 'แก้ไขข้อมูลพนักงาน' : 'เพิ่มพนักงานใหม่'}</h2>
           <div className="mt-4 grid gap-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-lg font-extrabold text-slate-800">รูปพนักงาน</p>
+              <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+                <EmployeeAvatar employee={employeeForm} size="lg" />
+                <div className="grid flex-1 gap-2">
+                  <label className="inline-flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 text-base font-extrabold text-white hover:bg-blue-800">
+                    <Upload className="h-5 w-5" />
+                    {employeePhotoUploading ? 'กำลังอัปโหลด...' : (employeeForm.photo_url ? 'เปลี่ยนรูปพนักงาน' : 'อัปโหลดรูปพนักงาน')}
+                    <input
+                      className="sr-only"
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      disabled={employeePhotoUploading}
+                      onChange={(event) => {
+                        uploadEmployeePhoto(event.target.files?.[0]);
+                        event.target.value = '';
+                      }}
+                    />
+                  </label>
+                  {employeeForm.photo_url && (
+                    <button
+                      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-white px-4 text-base font-extrabold text-rose-700 hover:bg-rose-50"
+                      onClick={() => {
+                        setEmployeeForm((form) => ({ ...form, photo_url: '', photoUrl: '' }));
+                        setEmployeePhotoError('');
+                      }}
+                      type="button"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      ลบรูป
+                    </button>
+                  )}
+                  {employeePhotoError && <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-extrabold text-rose-800">{employeePhotoError}</p>}
+                </div>
+              </div>
+            </div>
             <EmployeeInput label="รหัสพนักงาน" value={employeeForm.code} onChange={(value) => setEmployeeForm({ ...employeeForm, code: value })} />
             <label className="block">
               <span className="text-lg font-extrabold text-slate-800">สถานะพนักงาน</span>
@@ -3275,7 +3444,7 @@ function ShiftDutyPage() {
                 <tr>
                   <th className="p-3">รหัสพนักงาน</th>
                   <th className="p-3">สถานะพนักงาน</th>
-                  <th className="p-3">ชื่อจริง</th>
+                  <th className="p-3">ชื่อพนักงาน</th>
                   <th className="p-3">นามสกุล</th>
                   <th className="p-3">ชื่อเล่น</th>
                   <th className="p-3">ตำแหน่งงาน</th>
@@ -3287,7 +3456,12 @@ function ShiftDutyPage() {
                   <tr key={employee.id} className="hover:bg-slate-50">
                     <td className="p-3 font-mono font-extrabold text-slate-800">{employee.code}</td>
                     <td className="p-3"><EmployeeStatusBadge status={employee.status} /></td>
-                    <td className="p-3 font-bold text-slate-900">{employee.firstName}</td>
+                    <td className="p-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <EmployeeAvatar employee={employee} size="sm" />
+                        <span className="font-bold text-slate-900">{employee.firstName}</span>
+                      </div>
+                    </td>
                     <td className="p-3 font-bold text-slate-900">{employee.lastName}</td>
                     <td className="p-3 font-bold text-slate-700">{employee.nickname || '-'}</td>
                     <td className="p-3 font-bold text-slate-700">{employee.position}</td>
@@ -3472,6 +3646,13 @@ function ShiftDutyPage() {
           <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl">
             <StockModalHeader title="รายละเอียดพนักงาน" onClose={() => setDetailEmployee(null)} />
             <div className="grid gap-3 text-lg">
+              <div className="flex items-center gap-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <EmployeeAvatar employee={detailEmployee} size="lg" />
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-slate-500">พนักงาน</p>
+                  <p className="break-words text-xl font-extrabold text-slate-950">{employeeFullName(detailEmployee)}</p>
+                </div>
+              </div>
               <Info label="รหัสพนักงาน" value={detailEmployee.code} />
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <p className="text-sm font-bold text-slate-500">สถานะพนักงาน</p>
@@ -3843,13 +4024,13 @@ function readBookingVehicle(vehicle, keys, fallback = BOOKING_DASH) {
 }
 
 function bookingDateKey(vehicle) {
-  return String(readBookingVehicle(vehicle, ['booking_date', 'entryDate'], '')).slice(0, 10);
+  return String(readBookingVehicle(vehicle, ['entryDate', 'booking_date'], '')).slice(0, 10);
 }
 
 function bookingTimeText(vehicle) {
   const explicit = readBookingVehicle(vehicle, ['bookingTime', 'booking_time', 'time'], '');
   if (explicit) return String(explicit).slice(0, 5);
-  const rawDate = String(readBookingVehicle(vehicle, ['booking_date', 'entryDate'], ''));
+  const rawDate = String(readBookingVehicle(vehicle, ['entryDate', 'booking_date'], ''));
   const timePart = rawDate.includes('T') ? rawDate.split('T')[1] : rawDate.slice(11);
   return timePart ? timePart.slice(0, 5) : BOOKING_DASH;
 }
@@ -3894,7 +4075,7 @@ function bookingModalFields(vehicle) {
     ['เบอร์โทร', readBookingVehicle(vehicle, ['phone'])],
     ['เลขตัวถัง', readBookingVehicle(vehicle, ['vin'])],
     ['เลขไมล์', readBookingVehicle(vehicle, ['mileage'])],
-    ['วันที่จอง/วันที่รับรถ', dateText(readBookingVehicle(vehicle, ['booking_date', 'entryDate'], ''))],
+    ['วันที่จอง/วันที่รับรถ', dateText(readBookingVehicle(vehicle, ['entryDate', 'booking_date'], ''))],
     ['กำหนดเสร็จ', dateText(readBookingVehicle(vehicle, ['estimatedCompletion', 'estimated_completion_date'], ''))],
     ['รายละเอียด/อาการ', readBookingVehicle(vehicle, ['status_detail'])],
   ];

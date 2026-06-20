@@ -59,7 +59,7 @@ export async function GET(request) {
 
     const where = buildWhere(new URL(request.url));
     const rows = await query(
-      `SELECT id, COALESCE(employee_code, code) AS employee_code, status, first_name, last_name, nickname, position, phone, start_date, note, created_at, updated_at
+      `SELECT id, COALESCE(employee_code, code) AS employee_code, status, first_name, last_name, nickname, position, phone, photo_url, start_date, note, created_at, updated_at
        FROM employees
        ${where.clause}
        ORDER BY created_at DESC
@@ -102,7 +102,7 @@ export async function POST(request) {
     }
 
     const beforeRows = await query(
-      `SELECT id, COALESCE(employee_code, code) AS employee_code, status, first_name, last_name, nickname, position, phone, start_date, note, created_at, updated_at
+      `SELECT id, COALESCE(employee_code, code) AS employee_code, status, first_name, last_name, nickname, position, phone, photo_url, start_date, note, created_at, updated_at
        FROM employees
        WHERE id = ?
        LIMIT 1`,
@@ -111,8 +111,8 @@ export async function POST(request) {
     const previousEmployee = Array.isArray(beforeRows) && beforeRows.length ? normalizeEmployeeRow(beforeRows[0]) : null;
     await query(
       `INSERT INTO employees (
-        id, employee_code, code, name, role, active, status, first_name, last_name, nickname, position, phone, start_date, note, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+        id, employee_code, code, name, role, active, status, first_name, last_name, nickname, position, phone, photo_url, start_date, note, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
       ON DUPLICATE KEY UPDATE
         employee_code = VALUES(employee_code),
         code = VALUES(code),
@@ -125,6 +125,7 @@ export async function POST(request) {
         nickname = VALUES(nickname),
         position = VALUES(position),
         phone = VALUES(phone),
+        photo_url = VALUES(photo_url),
         start_date = VALUES(start_date),
         note = VALUES(note)`,
       [
@@ -140,6 +141,7 @@ export async function POST(request) {
         employee.nickname,
         employee.position,
         employee.phone,
+        employee.photoUrl,
         employee.startDate,
         employee.note,
         employee.createdAt,
@@ -147,7 +149,7 @@ export async function POST(request) {
     );
 
     const rows = await query(
-      `SELECT id, COALESCE(employee_code, code) AS employee_code, status, first_name, last_name, nickname, position, phone, start_date, note, created_at, updated_at
+      `SELECT id, COALESCE(employee_code, code) AS employee_code, status, first_name, last_name, nickname, position, phone, photo_url, start_date, note, created_at, updated_at
        FROM employees
        WHERE employee_code = ?
        LIMIT 1`,
@@ -184,7 +186,7 @@ export async function DELETE(request) {
 
     await ensureEmployeesTable();
     const rows = await query(
-      `SELECT id, COALESCE(employee_code, code) AS employee_code, status, first_name, last_name, nickname, position, phone, start_date, note, created_at, updated_at
+      `SELECT id, COALESCE(employee_code, code) AS employee_code, status, first_name, last_name, nickname, position, phone, photo_url, start_date, note, created_at, updated_at
        FROM employees
        WHERE id = ?
        LIMIT 1`,

@@ -48,6 +48,18 @@ function cleanDateTime(value) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 19).replace('T', ' ');
 }
 
+function cleanPhotoUrl(value) {
+  const text = cleanString(value, 500);
+  if (!text || text.startsWith('data:')) return null;
+  if (/^\/uploads\/employees\/[a-zA-Z0-9_.-]+\.(jpg|jpeg|png|webp)$/i.test(text)) return text;
+  try {
+    const url = new URL(text);
+    return url.protocol === 'https:' ? text : null;
+  } catch {
+    return null;
+  }
+}
+
 function normalizeBoolean(value, fallback = true) {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'number') return value > 0;
@@ -98,6 +110,7 @@ export async function ensureEmployeesTable() {
       nickname VARCHAR(100) NULL,
       position VARCHAR(100) NULL,
       phone VARCHAR(50) NULL,
+      photo_url VARCHAR(500) NULL,
       status VARCHAR(50) DEFAULT 'ทำงานอยู่',
       start_date DATE NULL,
       note TEXT NULL,
@@ -119,6 +132,7 @@ export async function ensureEmployeesTable() {
   await ensureColumn('ALTER TABLE employees ADD COLUMN nickname VARCHAR(100) NULL');
   await ensureColumn('ALTER TABLE employees ADD COLUMN position VARCHAR(100) NULL');
   await ensureColumn('ALTER TABLE employees ADD COLUMN phone VARCHAR(50) NULL');
+  await ensureColumn('ALTER TABLE employees ADD COLUMN photo_url VARCHAR(500) NULL');
   await ensureColumn("ALTER TABLE employees ADD COLUMN status VARCHAR(50) DEFAULT 'ทำงานอยู่'");
   await ensureColumn('ALTER TABLE employees ADD COLUMN start_date DATE NULL');
   await ensureColumn('ALTER TABLE employees ADD COLUMN note TEXT NULL');
@@ -291,6 +305,8 @@ export function normalizeEmployeeRow(row) {
     nickname: row.nickname || '',
     position: row.position || '',
     phone: row.phone || '',
+    photo_url: row.photo_url || '',
+    photoUrl: row.photo_url || '',
     startDate: formatSqlDate(row.start_date),
     note: row.note || '',
     active: row.status !== 'ลาออก',
@@ -312,6 +328,7 @@ export function normalizeEmployeeInput(body = {}) {
     nickname: cleanString(body.nickname, 100),
     position: cleanString(body.position, 100),
     phone: cleanNullable(body.phone, 50),
+    photoUrl: cleanPhotoUrl(body.photo_url || body.photoUrl),
     status,
     startDate: cleanDate(body.startDate),
     note: cleanNullable(body.note, 5000),

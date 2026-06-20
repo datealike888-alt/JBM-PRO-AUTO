@@ -4153,15 +4153,19 @@ function readBookingVehicle(vehicle, keys, fallback = BOOKING_DASH) {
 }
 
 function bookingDateKey(vehicle) {
-  return String(readBookingVehicle(vehicle, ['entryDate', 'booking_date'], '')).slice(0, 10);
+  if (!vehicle) return '';
+  const dateStr = String(readBookingVehicle(vehicle, ['entryDate', 'booking_date'], '')).slice(0, 10);
+  return dateStr === BOOKING_DASH ? '' : dateStr;
 }
 
 function bookingTimeText(vehicle) {
+  if (!vehicle) return BOOKING_DASH;
   const explicit = readBookingVehicle(vehicle, ['bookingTime', 'booking_time', 'time'], '');
-  if (explicit) return String(explicit).slice(0, 5);
+  if (explicit && explicit !== BOOKING_DASH) return String(explicit).slice(0, 5);
   const rawDate = String(readBookingVehicle(vehicle, ['entryDate', 'booking_date'], ''));
+  if (rawDate === BOOKING_DASH) return BOOKING_DASH;
   const timePart = rawDate.includes('T') ? rawDate.split('T')[1] : rawDate.slice(11);
-  return timePart ? timePart.slice(0, 5) : BOOKING_DASH;
+  return timePart && timePart.trim() !== '' ? timePart.slice(0, 5) : BOOKING_DASH;
 }
 
 function bookingVehicleBrand(vehicle) {
@@ -4173,13 +4177,35 @@ function bookingVehicleModel(vehicle) {
 }
 
 function bookingVehicleTitle(vehicle) {
+  if (!vehicle) return BOOKING_DASH;
   return [bookingVehicleBrand(vehicle), bookingVehicleModel(vehicle)].filter((value) => value !== BOOKING_DASH).join(' ') || BOOKING_DASH;
 }
 
+function bookingLicensePlateText(vehicle) {
+  const text = readBookingVehicle(vehicle, ['license_plate', 'licensePlate'], '');
+  return text && text !== BOOKING_DASH ? text : 'ไม่ระบุทะเบียน';
+}
+
+function bookingVehicleListText(vehicle) {
+  if (!vehicle) return BOOKING_DASH;
+  const time = bookingTimeText(vehicle);
+  const plate = bookingLicensePlateText(vehicle);
+  if (time === BOOKING_DASH) return plate;
+  return `${time} - ${plate}`;
+}
+
 function bookingVehiclesForDate(rows, date) {
+  if (!Array.isArray(rows) || !date) return [];
   return rows
-    .filter((vehicle) => bookingDateKey(vehicle) === date)
-    .sort((a, b) => bookingTimeText(a).localeCompare(bookingTimeText(b)));
+    .filter((vehicle) => vehicle && bookingDateKey(vehicle) === date)
+    .sort((a, b) => {
+      const timeA = bookingTimeText(a);
+      const timeB = bookingTimeText(b);
+      if (timeA === BOOKING_DASH && timeB === BOOKING_DASH) return 0;
+      if (timeA === BOOKING_DASH) return 1;
+      if (timeB === BOOKING_DASH) return -1;
+      return timeA.localeCompare(timeB);
+    });
 }
 
 function bookingInvoiceText(vehicle) {
@@ -4217,7 +4243,10 @@ function BookingCalendar({ vehicles }) {
   const [selectedDate, setSelectedDate] = useState(dateInputValue(new Date()));
   const [detailVehicle, setDetailVehicle] = useState(null);
   const detailPanelRef = useRef(null);
-  const bookingRows = useMemo(() => vehicles.filter((vehicle) => vehicle.status === DEFAULT_STATUS), [vehicles]);
+  const bookingRows = useMemo(() => {
+    if (!Array.isArray(vehicles)) return [];
+    return vehicles.filter((vehicle) => vehicle && vehicle.status === DEFAULT_STATUS);
+  }, [vehicles]);
   const selectedDayVehicles = useMemo(() => bookingVehiclesForDate(bookingRows, selectedDate), [bookingRows, selectedDate]);
   
   const gridCells = useMemo(() => {
@@ -4339,9 +4368,11 @@ function BookingCalendar({ vehicles }) {
                 <div className="flex-1 flex flex-col gap-0.5 sm:gap-1 min-w-0 overflow-hidden">
                   {hasBookings ? (
                     <>
-                      <div className="rounded border border-indigo-200/60 bg-white px-1 py-0.5 sm:px-1.5 sm:py-1 shrink-0 min-w-0" title={`${bookingTimeText(firstVehicle)} ${bookingVehicleBrand(firstVehicle)}`}>
-                        <p className="text-[9px] sm:text-xs font-bold text-slate-800 truncate leading-tight">{bookingTimeText(firstVehicle)} {bookingVehicleBrand(firstVehicle)}</p>
-                      </div>
+                      {mobilePreviewVehicles.map((v, i) => (
+                        <div key={v?.id || i} className="rounded border border-indigo-200/60 bg-white px-1 py-0.5 sm:px-1.5 sm:py-1 shrink-0 min-w-0" title={bookingVehicleListText(v)}>
+                          <p className="text-[9px] sm:text-xs font-bold text-slate-800 truncate leading-tight">{bookingVehicleListText(v)}</p>
+                        </div>
+                      ))}
                       {cell.vehicles.length > previewLimit && (
                         <div className="text-[9px] sm:text-xs font-bold text-indigo-600 mt-auto truncate text-center">+{cell.vehicles.length - previewLimit}</div>
                       )}

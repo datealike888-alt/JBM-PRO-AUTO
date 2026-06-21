@@ -308,10 +308,14 @@ export async function isAuthorizedToken(request) {
 }
 
 export function normalizeEmployeeRow(row) {
+  let status = row.status || 'ทำงานอยู่';
+  if (['ลา', 'สาย', 'ขาดงาน', 'ลาป่วย', 'ลากิจ', 'ลาพักร้อน', 'มาทำงาน', 'สายเช้า', 'สายบ่าย', 'สายเช้า+บ่าย'].includes(status)) {
+    status = 'ทำงานอยู่';
+  }
   return {
     id: row.id,
     code: row.employee_code || '',
-    status: row.status || 'ทำงานอยู่',
+    status: status,
     firstName: row.first_name || '',
     lastName: row.last_name || '',
     nickname: row.nickname || '',
@@ -328,7 +332,10 @@ export function normalizeEmployeeRow(row) {
 }
 
 export function normalizeEmployeeInput(body = {}) {
-  const status = cleanString(body.status, 50) || 'ทำงานอยู่';
+  let status = cleanString(body.status, 50) || 'ทำงานอยู่';
+  if (['ลา', 'สาย', 'ขาดงาน', 'ลาป่วย', 'ลากิจ', 'ลาพักร้อน', 'มาทำงาน', 'สายเช้า', 'สายบ่าย', 'สายเช้า+บ่าย'].includes(status)) {
+    status = 'ทำงานอยู่';
+  }
   const firstName = cleanString(body.firstName, 255);
   const lastName = cleanString(body.lastName, 255);
 

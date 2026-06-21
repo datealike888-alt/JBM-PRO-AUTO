@@ -98,22 +98,28 @@ export async function POST(request) {
     const previousProduct = Array.isArray(beforeRows) && beforeRows.length ? normalizeStockProductRow(beforeRows[0]) : null;
     await query(
       `INSERT INTO stock_products (
-        id, product_code, product_name, product_number, category_id, product_brand, car_brand, car_model,
-        engine_number, price, storage_location, quantity, reorder_point, supplier, status, image_url, note
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, code, product_code, name, product_name, part_no, category_id, category, brand, car_models, compatible_models,
+        engine_number, engine_code, price, sale_price, location, quantity, reorder_point, min_stock, supplier, status, image_url, note
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
+        code = VALUES(code),
         product_code = VALUES(product_code),
+        name = VALUES(name),
         product_name = VALUES(product_name),
-        product_number = VALUES(product_number),
+        part_no = VALUES(part_no),
         category_id = VALUES(category_id),
-        product_brand = VALUES(product_brand),
-        car_brand = VALUES(car_brand),
-        car_model = VALUES(car_model),
+        category = VALUES(category),
+        brand = VALUES(brand),
+        car_models = VALUES(car_models),
+        compatible_models = VALUES(compatible_models),
         engine_number = VALUES(engine_number),
+        engine_code = VALUES(engine_code),
         price = VALUES(price),
-        storage_location = VALUES(storage_location),
+        sale_price = VALUES(sale_price),
+        location = VALUES(location),
         quantity = VALUES(quantity),
         reorder_point = VALUES(reorder_point),
+        min_stock = VALUES(min_stock),
         supplier = VALUES(supplier),
         status = VALUES(status),
         image_url = VALUES(image_url),
@@ -121,16 +127,22 @@ export async function POST(request) {
       [
         product.id,
         product.productCode,
+        product.productCode,
+        product.productName,
         product.productName,
         product.productNumber,
         categoryId,
+        product.categoryName,
         product.productBrand,
-        product.carBrand,
-        product.carModel,
+        [product.carBrand, product.carModel].filter(Boolean).join(' '),
+        [product.carBrand, product.carModel].filter(Boolean).join(' '),
         product.engineNumber,
+        product.engineNumber,
+        product.price,
         product.price,
         product.storageLocation,
         product.quantity,
+        product.reorderPoint,
         product.reorderPoint,
         product.supplier,
         product.status,
@@ -162,7 +174,14 @@ export async function POST(request) {
     return json({ success: true, product: savedProduct }, { status: 200 });
   } catch (error) {
     console.error('[stock/products] POST failed', error);
-    return json({ error: 'Unable to save stock product' }, { status: 503 });
+    if (Number(error?.errno || 0) === 1062) {
+      return json({ error: 'มีรหัสสินค้านี้อยู่แล้ว กรุณาใช้รหัสอื่น' }, { status: 409 });
+    }
+    const msg = error?.message || '';
+    if (msg.includes('Unknown column')) {
+      return json({ error: 'Schema mismatch: ' + msg }, { status: 500 });
+    }
+    return json({ error: 'Unable to save stock product: ' + msg }, { status: 500 });
   }
 }
 

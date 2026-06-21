@@ -80,21 +80,29 @@ export async function ensureStockProductsTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS stock_products (
       id VARCHAR(64) PRIMARY KEY,
+      code VARCHAR(100) NULL,
+      name VARCHAR(255) NULL,
       product_code VARCHAR(100) NULL,
-      product_name VARCHAR(255) NOT NULL,
-      product_number VARCHAR(100) NULL,
+      product_name VARCHAR(255) NULL,
+      part_no VARCHAR(100) NULL,
       category_id VARCHAR(64) NULL,
-      product_brand VARCHAR(100) NULL,
-      car_brand VARCHAR(100) NULL,
-      car_model VARCHAR(100) NULL,
+      category VARCHAR(255) NULL,
+      brand VARCHAR(100) NULL,
+      car_models VARCHAR(255) NULL,
+      compatible_models VARCHAR(255) NULL,
       engine_number VARCHAR(100) NULL,
+      engine_code VARCHAR(100) NULL,
       price DECIMAL(12,2) DEFAULT 0,
-      storage_location VARCHAR(255) NULL,
+      sale_price DECIMAL(12,2) DEFAULT 0,
+      cost_price DECIMAL(12,2) DEFAULT 0,
+      location VARCHAR(255) NULL,
       quantity INT DEFAULT 0,
       reorder_point INT DEFAULT 0,
+      min_stock INT DEFAULT 0,
       supplier VARCHAR(255) NULL,
       status VARCHAR(50) NULL,
       image_url TEXT NULL,
+      unit VARCHAR(50) NULL,
       note TEXT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -106,6 +114,31 @@ export async function ensureStockProductsTable() {
         ON UPDATE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
+
+  await ensureColumn('ALTER TABLE stock_products ADD COLUMN code VARCHAR(100) NULL');
+  await ensureColumn('ALTER TABLE stock_products ADD COLUMN name VARCHAR(255) NULL');
+  await ensureColumn('ALTER TABLE stock_products ADD COLUMN product_code VARCHAR(100) NULL');
+  await ensureColumn('ALTER TABLE stock_products ADD COLUMN product_name VARCHAR(255) NULL');
+  await ensureColumn('ALTER TABLE stock_products ADD COLUMN part_no VARCHAR(100) NULL');
+  await ensureColumn('ALTER TABLE stock_products ADD COLUMN category_id VARCHAR(64) NULL');
+  await ensureColumn('ALTER TABLE stock_products ADD COLUMN category VARCHAR(255) NULL');
+  await ensureColumn('ALTER TABLE stock_products ADD COLUMN brand VARCHAR(100) NULL');
+  await ensureColumn('ALTER TABLE stock_products ADD COLUMN car_models VARCHAR(255) NULL');
+  await ensureColumn('ALTER TABLE stock_products ADD COLUMN compatible_models VARCHAR(255) NULL');
+  await ensureColumn('ALTER TABLE stock_products ADD COLUMN engine_number VARCHAR(100) NULL');
+  await ensureColumn('ALTER TABLE stock_products ADD COLUMN engine_code VARCHAR(100) NULL');
+  await ensureColumn('ALTER TABLE stock_products ADD COLUMN price DECIMAL(12,2) DEFAULT 0');
+  await ensureColumn('ALTER TABLE stock_products ADD COLUMN sale_price DECIMAL(12,2) DEFAULT 0');
+  await ensureColumn('ALTER TABLE stock_products ADD COLUMN cost_price DECIMAL(12,2) DEFAULT 0');
+  await ensureColumn('ALTER TABLE stock_products ADD COLUMN location VARCHAR(255) NULL');
+  await ensureColumn('ALTER TABLE stock_products ADD COLUMN quantity INT DEFAULT 0');
+  await ensureColumn('ALTER TABLE stock_products ADD COLUMN reorder_point INT DEFAULT 0');
+  await ensureColumn('ALTER TABLE stock_products ADD COLUMN min_stock INT DEFAULT 0');
+  await ensureColumn('ALTER TABLE stock_products ADD COLUMN supplier VARCHAR(255) NULL');
+  await ensureColumn('ALTER TABLE stock_products ADD COLUMN status VARCHAR(50) NULL');
+  await ensureColumn('ALTER TABLE stock_products ADD COLUMN image_url TEXT NULL');
+  await ensureColumn('ALTER TABLE stock_products ADD COLUMN unit VARCHAR(50) NULL');
+  await ensureColumn('ALTER TABLE stock_products ADD COLUMN note TEXT NULL');
 }
 
 export async function ensureStockMovementsTable() {

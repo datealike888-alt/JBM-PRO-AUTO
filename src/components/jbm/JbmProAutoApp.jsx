@@ -2577,20 +2577,75 @@ function StockProductImage({ product, className }) {
 
 function StockProductModal({ product, categories, onClose, onSave }) {
   const [form, setForm] = useState(() => normalizeStockProduct(product));
-  const update = (field, value) => setForm((current) => ({ ...current, [field]: value }));
-  const uploadProductImage = async (files) => {
-    const [image] = await readFilesAsDataUrls(files);
-    if (image) update('image_url', image);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const update = (field, value) => {
+    setForm((current) => ({ ...current, [field]: value }));
+    if (field === 'image_url' && value === '') setSelectedFile(null);
   };
-  const submit = (event) => {
+
+  const uploadProductImage = (files) => {
+    const file = files[0];
+    if (file) {
+      setSelectedFile(file);
+      update('image_url', URL.createObjectURL(file));
+    }
+  };
+
+  const submit = async (event) => {
     event.preventDefault();
-    if (!form.code.trim() || !form.name.trim()) return;
-    onSave({ ...form, quantity: Math.max(0, Number(form.quantity || 0)), reorder_point: Math.max(0, Number(form.reorder_point || 0)), price: Math.max(0, Number(form.price || 0)) });
+    if (!form.code.trim() || !form.name.trim()) {
+      setError('กรุณากรอกรหัสสินค้าและชื่อสินค้า');
+      return;
+    }
+    
+    setSaving(true);
+    setError('');
+    
+    try {
+      let finalImageUrl = form.image_url;
+      if (selectedFile) {
+        const formData = new FormData();
+        formData.append('image', selectedFile);
+        if (form.id && !form.id.startsWith('stk-')) formData.append('productId', form.id);
+        else formData.append('code', form.code);
+
+        const res = await fetch('/api/stock/products/upload-image', {
+          method: 'POST',
+          body: formData
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || 'อัปโหลดรูปไม่สำเร็จ');
+        finalImageUrl = data.url;
+      } else if (form.image_url && form.image_url.startsWith('data:')) {
+        throw new Error('รูปแบบรูปภาพไม่ถูกต้อง กรุณาอัปโหลดใหม่');
+      }
+
+      await onSave({ 
+        ...form, 
+        image_url: finalImageUrl, 
+        quantity: Math.max(0, Number(form.quantity || 0)), 
+        reorder_point: Math.max(0, Number(form.reorder_point || 0)), 
+        price: Math.max(0, Number(form.price || 0)) 
+      });
+    } catch (err) {
+      setError(err.message || 'บันทึกไม่สำเร็จ');
+    } finally {
+      setSaving(false);
+    }
   };
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-slate-950/50 p-0 sm:items-center sm:p-4">
       <form onSubmit={submit} className="max-h-[92vh] w-full max-w-[calc(100vw-1rem)] overflow-y-auto rounded-t-2xl bg-white p-4 shadow-2xl sm:max-w-5xl sm:rounded-2xl sm:p-5">
-        <StockModalHeader title={product.id ? 'แก้ไขสินค้า' : 'เพิ่มสินค้า'} onClose={onClose} />
+        <StockModalHeader title={product.id && !product.id.startsWith('stk-') ? 'แก้ไขสินค้า' : 'เพิ่มสินค้า'} onClose={onClose} />
+        {error && (
+          <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-base font-extrabold text-rose-800">
+            {error}
+          </div>
+        )}
         <div className="mb-5 flex flex-col gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center">
           <StockProductImage product={form} className="h-28 w-28" />
           <div className="flex-1">
@@ -2624,7 +2679,7 @@ function StockProductModal({ product, categories, onClose, onSave }) {
           <StockInput label="Engine" value={form.engine_number} onChange={(value) => update('engine_number', value)} />
           <label className="block xl:col-span-3"><span className="text-xl font-extrabold text-slate-800">หมายเหตุ</span><textarea value={form.note || ''} onChange={(event) => update('note', event.target.value)} className="mt-2 min-h-28 w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-xl text-slate-950" /></label>
         </div>
-        <StockModalActions onClose={onClose} />
+        <StockModalActions onClose={onClose} saving={saving} />
       </form>
     </div>
   );

@@ -29,7 +29,9 @@ function normalizeBoolean(value, fallback = true) {
   if (typeof value === 'number') return value > 0;
   const text = cleanString(value, 16).toLowerCase();
   if (!text) return fallback;
-  return ['1', 'true', 'yes', 'active', 'enabled'].includes(text);
+  if (['0', 'false', 'no', 'inactive', 'disabled', 'ปิด', 'ปิดใช้งาน'].includes(text)) return false;
+  if (['1', 'true', 'yes', 'active', 'enabled', 'ใช้งาน', 'เปิด', 'เปิดใช้งาน'].includes(text)) return true;
+  return fallback;
 }
 
 function normalizeNumber(value, fallback = 0) {
@@ -166,16 +168,16 @@ export function normalizeStockCategoryInput(body = {}) {
     id: cleanString(body.id, 64) || `stock-cat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     name: cleanString(body.name || body.category_name || body.categoryName, 255),
     description: cleanNullable(body.description, 5000),
-    isActive: normalizeBoolean(body.is_active ?? body.isActive, true),
+    isActive: normalizeBoolean(body.is_active ?? body.isActive ?? body.active ?? body.status, true),
   };
 }
 
 export function normalizeStockCategoryRow(row) {
   return {
-    id: row.id,
-    name: row.name || '',
+    id: row.id || row.category_id || row.categoryId,
+    name: row.name || row.category_name || row.categoryName || '',
     description: row.description || '',
-    is_active: Boolean(row.is_active),
+    is_active: normalizeBoolean(row.is_active ?? row.isActive ?? row.active ?? row.status, true),
     created_at: row.created_at || null,
     updated_at: row.updated_at || null,
   };

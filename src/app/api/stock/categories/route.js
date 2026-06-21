@@ -37,7 +37,7 @@ export async function POST(request) {
     if (!category.name) return json({ error: 'Category name is required' }, { status: 400 });
     await ensureStockCategoriesTable();
     const duplicateRows = await query('SELECT id FROM stock_categories WHERE name = ? AND id <> ? LIMIT 1', [category.name, category.id]);
-    if (duplicateRows.length > 0) return json({ error: 'Category name already exists' }, { status: 409 });
+    if (duplicateRows.length > 0) return json({ error: 'มีหมวดหมู่นี้อยู่แล้ว กรุณาใช้ชื่ออื่น' }, { status: 409 });
     await query(
       `INSERT INTO stock_categories (id, name, description, is_active)
        VALUES (?, ?, ?, ?)
@@ -52,7 +52,7 @@ export async function POST(request) {
   } catch (error) {
     console.error('[stock/categories] POST failed', error);
     if (Number(error?.errno || 0) === 1062) {
-      return json({ error: 'Category name already exists' }, { status: 409 });
+      return json({ error: 'มีหมวดหมู่นี้อยู่แล้ว กรุณาใช้ชื่ออื่น' }, { status: 409 });
     }
     return json({ error: 'Unable to save stock category' }, { status: 503 });
   }

@@ -1590,38 +1590,52 @@ function AdminApp() {
   const loadStockData = useCallback(async () => {
     if (!token) return;
     try {
-      const [categoriesResponse, productsResponse, movementsResponse] = await Promise.all([
-        fetch(STOCK_CATEGORIES_API_URL, { headers: headers() }),
-        fetch(STOCK_PRODUCTS_API_URL, { headers: headers() }),
-        fetch(STOCK_MOVEMENTS_API_URL, { headers: headers() }),
+      const results = await Promise.allSettled([
+        fetch(STOCK_CATEGORIES_API_URL, { headers: headers() }).then(async r => {
+          if (!r.ok) throw new Error('categories failed');
+          return r.json();
+        }),
+        fetch(STOCK_PRODUCTS_API_URL, { headers: headers() }).then(async r => {
+          if (!r.ok) throw new Error('products failed');
+          return r.json();
+        }),
+        fetch(STOCK_MOVEMENTS_API_URL, { headers: headers() }).then(async r => {
+          if (!r.ok) throw new Error(r.status === 403 ? 'กรุณาเข้าสู่ระบบใหม่' : 'โหลดประวัติสต๊อกไม่สำเร็จ');
+          return r.json();
+        }),
       ]);
-      const [categoriesData, productsData, movementsData] = await Promise.all([
-        categoriesResponse.json().catch(() => ({})),
-        productsResponse.json().catch(() => ({})),
-        movementsResponse.json().catch(() => ({})),
-      ]);
-      if (movementsResponse.status === 403) setStockMovementError('กรุณาเข้าสู่ระบบใหม่');
-      else if (!movementsResponse.ok) setStockMovementError('โหลดประวัติสต๊อกไม่สำเร็จ');
-      else setStockMovementError('');
-      if (!categoriesResponse.ok || !productsResponse.ok || !movementsResponse.ok) throw new Error('load stock failed');
-      const nextCategories = (categoriesData.categories || []).map(normalizeStockCategory).filter((category) => category.name);
-      const nextProducts = (productsData.products || []).map(normalizeStockProduct);
-      const nextMovements = stockMovementRows(movementsData)
-        .map(normalizeStockMovement)
-        .sort((a, b) => (validDateValue(b.created_at)?.getTime() || 0) - (validDateValue(a.created_at)?.getTime() || 0));
-      setStockCategories(nextCategories);
-      setStockProducts(nextProducts);
-      setStockMovements(nextMovements);
-      writeStorageArray(STOCK_CATEGORIES_STORAGE_KEY, nextCategories);
-      writeStorageArray(STOCK_PRODUCTS_STORAGE_KEY, nextProducts);
-      writeStorageArray(STOCK_MOVEMENTS_STORAGE_KEY, nextMovements);
+
+      const [catResult, prodResult, moveResult] = results;
+
+      if (catResult.status === 'fulfilled') {
+        const nextCategories = (catResult.value.categories || []).map(normalizeStockCategory).filter((category) => category.name);
+        setStockCategories(nextCategories);
+        writeStorageArray(STOCK_CATEGORIES_STORAGE_KEY, nextCategories);
+      } else {
+        console.error('[admin] load stock categories failed', catResult.reason);
+      }
+
+      if (prodResult.status === 'fulfilled') {
+        const nextProducts = (prodResult.value.products || []).map(normalizeStockProduct);
+        setStockProducts(nextProducts);
+        writeStorageArray(STOCK_PRODUCTS_STORAGE_KEY, nextProducts);
+      } else {
+        console.error('[admin] load stock products failed', prodResult.reason);
+      }
+
+      if (moveResult.status === 'fulfilled') {
+        setStockMovementError('');
+        const nextMovements = stockMovementRows(moveResult.value)
+          .map(normalizeStockMovement)
+          .sort((a, b) => (validDateValue(b.created_at)?.getTime() || 0) - (validDateValue(a.created_at)?.getTime() || 0));
+        setStockMovements(nextMovements);
+        writeStorageArray(STOCK_MOVEMENTS_STORAGE_KEY, nextMovements);
+      } else {
+        console.error('[admin] load stock movements failed', moveResult.reason);
+        setStockMovementError(moveResult.reason?.message || 'โหลดประวัติสต๊อกไม่สำเร็จ');
+      }
     } catch (error) {
-      console.error('[admin] load stock failed', error);
-      setStockCategories(readStorageArray(STOCK_CATEGORIES_STORAGE_KEY, []).map(normalizeStockCategory).filter((category) => category.name));
-      setStockProducts(readStorageArray(STOCK_PRODUCTS_STORAGE_KEY, []).map(normalizeStockProduct));
-      setStockMovements(readStorageArray(STOCK_MOVEMENTS_STORAGE_KEY, [])
-        .map(normalizeStockMovement)
-        .sort((a, b) => (validDateValue(b.created_at)?.getTime() || 0) - (validDateValue(a.created_at)?.getTime() || 0)));
+      console.error('[admin] load stock data failed', error);
     }
   }, [headers, token]);
 

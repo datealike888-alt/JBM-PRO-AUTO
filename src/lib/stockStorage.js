@@ -133,18 +133,22 @@ export async function ensureStockMovementsTable() {
   `);
   await ensureColumn('ALTER TABLE stock_movements ADD COLUMN product_code VARCHAR(100) NULL');
   await ensureColumn('ALTER TABLE stock_movements ADD COLUMN product_name VARCHAR(255) NULL');
-  await query(`
-    UPDATE stock_movements sm
-    LEFT JOIN stock_products sp ON sp.id = sm.product_id
-    SET
-      sm.product_code = COALESCE(NULLIF(sm.product_code, ''), sp.product_code),
-      sm.product_name = COALESCE(NULLIF(sm.product_name, ''), sp.product_name)
-    WHERE sm.product_id IS NOT NULL
-      AND (
-        sm.product_code IS NULL OR sm.product_code = ''
-        OR sm.product_name IS NULL OR sm.product_name = ''
-      )
-  `);
+  try {
+    await query(`
+      UPDATE stock_movements sm
+      LEFT JOIN stock_products sp ON sp.id = sm.product_id
+      SET
+        sm.product_code = COALESCE(NULLIF(sm.product_code, ''), sp.product_code),
+        sm.product_name = COALESCE(NULLIF(sm.product_name, ''), sp.product_name)
+      WHERE sm.product_id IS NOT NULL
+        AND (
+          sm.product_code IS NULL OR sm.product_code = ''
+          OR sm.product_name IS NULL OR sm.product_name = ''
+        )
+    `);
+  } catch (e) {
+    console.warn('[stockStorage] Migration update for stock_movements skipped due to schema mismatch', e.message);
+  }
   await ensureColumn('ALTER TABLE stock_movements DROP FOREIGN KEY fk_stock_movements_product_id');
   await ensureColumn('ALTER TABLE stock_movements MODIFY product_id VARCHAR(64) NULL');
   await ensureColumn(`ALTER TABLE stock_movements ADD CONSTRAINT fk_stock_movements_product_id

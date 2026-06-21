@@ -24,13 +24,10 @@ export async function GET(request) {
     await ensureStockMovementsTable();
     const productId = cleanString(new URL(request.url).searchParams.get('productId'), 64);
     const rows = await query(
-      `SELECT sm.id, sm.product_id, sm.movement_type, sm.quantity, sm.quantity_before, sm.quantity_after, sm.note, sm.created_by, sm.created_at,
-              COALESCE(sm.product_code, sp.product_code) AS product_code,
-              COALESCE(sm.product_name, sp.product_name) AS product_name
-       FROM stock_movements sm
-       LEFT JOIN stock_products sp ON sp.id = sm.product_id
-       ${productId ? 'WHERE sm.product_id = ?' : ''}
-       ORDER BY sm.created_at DESC LIMIT 5000`,
+      `SELECT *
+       FROM stock_movements
+       ${productId ? 'WHERE product_id = ?' : ''}
+       ORDER BY created_at DESC LIMIT 5000`,
       productId ? [productId] : []
     );
     return json({ success: true, movements: rows.map(normalizeStockMovementRow) }, { status: 200, headers: { 'Cache-Control': 'no-store' } });
@@ -66,12 +63,9 @@ export async function POST(request) {
       ]
     );
     const rows = await query(
-      `SELECT sm.id, sm.product_id, sm.movement_type, sm.quantity, sm.quantity_before, sm.quantity_after, sm.note, sm.created_by, sm.created_at,
-              COALESCE(sm.product_code, sp.product_code) AS product_code,
-              COALESCE(sm.product_name, sp.product_name) AS product_name
-       FROM stock_movements sm
-       LEFT JOIN stock_products sp ON sp.id = sm.product_id
-       WHERE sm.id = ?
+      `SELECT *
+       FROM stock_movements
+       WHERE id = ?
        LIMIT 1`,
       [movement.id]
     );
@@ -103,12 +97,9 @@ export async function DELETE(request) {
     if (!id) return json({ error: 'Missing id parameter' }, { status: 400 });
     await ensureStockMovementsTable();
     const rows = await query(
-      `SELECT sm.id, sm.product_id, sm.movement_type, sm.quantity, sm.quantity_before, sm.quantity_after, sm.note, sm.created_by, sm.created_at,
-              COALESCE(sm.product_code, sp.product_code) AS product_code,
-              COALESCE(sm.product_name, sp.product_name) AS product_name
-       FROM stock_movements sm
-       LEFT JOIN stock_products sp ON sp.id = sm.product_id
-       WHERE sm.id = ?
+      `SELECT *
+       FROM stock_movements
+       WHERE id = ?
        LIMIT 1`,
       [id]
     );

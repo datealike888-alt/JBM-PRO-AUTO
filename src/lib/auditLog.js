@@ -10,6 +10,23 @@ function cleanNullable(value, maxLength = 5000) {
   return text || null;
 }
 
+function truncateUtf8(value, maxBytes = 60000) {
+  const text = String(value || '');
+  if (Buffer.byteLength(text, 'utf8') <= maxBytes) return text;
+
+  let low = 0;
+  let high = text.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (Buffer.byteLength(text.slice(0, mid), 'utf8') <= maxBytes) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return text.slice(0, low);
+}
+
 export async function ensureAuditLogsTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS audit_logs (
@@ -29,9 +46,10 @@ export async function ensureAuditLogsTable() {
 }
 
 export function normalizeAuditLogInput(body = {}) {
-  const detail = body?.detail && typeof body.detail === 'object'
+  const rawDetail = body?.detail && typeof body.detail === 'object'
     ? JSON.stringify(body.detail)
     : cleanNullable(body?.detail, 20000);
+  const detail = rawDetail ? truncateUtf8(rawDetail) : null;
 
   return {
     id: cleanString(body.id, 64) || `audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

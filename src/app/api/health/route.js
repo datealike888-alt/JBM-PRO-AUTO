@@ -1,7 +1,7 @@
 import { getDbConfig, query, testConnection } from '../../../lib/db';
 import { ensureAdminSessionsTable, ensureAdminUsersTable } from '../../../lib/adminAuth';
 import { ensureAuditLogsTable } from '../../../lib/auditLog';
-import { ensureAttendanceLogsTable, ensureAttendanceSettingsTable, ensureEmployeePositionsTable, ensureEmployeesTable, ensureLeaveLogsTable } from '../../../lib/employeeStorage';
+import { ensureEmployeeStorageTables } from '../../../lib/employeeStorage';
 import { ensureStockCategoriesTable, ensureStockMovementsTable, ensureStockProductsTable } from '../../../lib/stockStorage';
 
 async function ensureVehiclesTable() {
@@ -113,11 +113,7 @@ export async function GET() {
     await ensureVehiclesTable();
     await ensureVehicleReceiptsTable();
     await ensureFinancialTransactionsTable();
-    await ensureEmployeesTable();
-    await ensureEmployeePositionsTable();
-    await ensureAttendanceLogsTable();
-    await ensureLeaveLogsTable();
-    await ensureAttendanceSettingsTable();
+    await ensureEmployeeStorageTables();
     await ensureStockCategoriesTable();
     await ensureStockProductsTable();
     await ensureStockMovementsTable();

@@ -73,6 +73,12 @@ function normalizeNumber(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function wait(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 function normalizeAttendanceStatus(value) {
   const status = cleanString(value, 100);
   const lowerStatus = status.toLowerCase();
@@ -104,15 +110,62 @@ async function ensureIndex(sql) {
   }
 }
 
+function parseAddColumnSql(sql) {
+  const match = String(sql).match(/^\s*ALTER\s+TABLE\s+`?([a-zA-Z0-9_]+)`?\s+ADD\s+COLUMN\s+`?([a-zA-Z0-9_]+)`?/i);
+  if (!match) return null;
+  return { tableName: match[1], columnName: match[2] };
+}
+
+async function columnExists(tableName, columnName) {
+  const rows = await query(
+    `SELECT COLUMN_NAME
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?
+       AND COLUMN_NAME = ?
+     LIMIT 1`,
+    [tableName, columnName]
+  );
+  return Array.isArray(rows) && rows.length > 0;
+}
+
 async function ensureColumn(sql) {
+  const addColumn = parseAddColumnSql(sql);
+  if (addColumn && await columnExists(addColumn.tableName, addColumn.columnName)) return;
+
   try {
     await query(sql);
   } catch (error) {
-    if (Number(error?.errno || 0) !== 1060) throw error;
+    const errno = Number(error?.errno || 0);
+    if (errno === 1060) return;
+
+    if ([1205, 1213].includes(errno) && addColumn) {
+      await wait(150);
+      if (await columnExists(addColumn.tableName, addColumn.columnName)) return;
+      try {
+        await query(sql);
+        return;
+      } catch (retryError) {
+        const retryErrno = Number(retryError?.errno || 0);
+        if (retryErrno === 1060) return;
+        if ([1205, 1213].includes(retryErrno) && await columnExists(addColumn.tableName, addColumn.columnName)) return;
+        throw retryError;
+      }
+    }
+
+    throw error;
   }
 }
 
-export async function ensureEmployeesTable() {
+let employeeSchemaEnsurePromise = Promise.resolve();
+
+function withEmployeeSchemaEnsureLock(task) {
+  const run = employeeSchemaEnsurePromise.catch(() => {}).then(task);
+  employeeSchemaEnsurePromise = run.catch(() => {});
+  return run;
+}
+
+async function ensureEmployeesTableInternal() {
   await query(`
     CREATE TABLE IF NOT EXISTS employees (
       id VARCHAR(64) PRIMARY KEY,
@@ -167,7 +220,7 @@ export async function ensureEmployeesTable() {
   `).catch(() => {});
 }
 
-export async function ensureEmployeePositionsTable() {
+async function ensureEmployeePositionsTableInternal() {
   await query(`
     CREATE TABLE IF NOT EXISTS employee_positions (
       id VARCHAR(64) PRIMARY KEY,
@@ -200,7 +253,8 @@ export async function ensureEmployeePositionsTable() {
   }
 }
 
-export async function ensureAttendanceLogsTable() {
+async function ensureAttendanceLogsTableInternal() {
+  await ensureEmployeesTableInternal();
   await query(`
     CREATE TABLE IF NOT EXISTS employee_attendance (
       id VARCHAR(64) PRIMARY KEY,
@@ -230,7 +284,8 @@ export async function ensureAttendanceLogsTable() {
   await ensureColumn('ALTER TABLE employee_attendance ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
 }
 
-export async function ensureLeaveLogsTable() {
+async function ensureLeaveLogsTableInternal() {
+  await ensureEmployeesTableInternal();
   await query(`
     CREATE TABLE IF NOT EXISTS employee_leaves (
       id VARCHAR(64) PRIMARY KEY,
@@ -258,7 +313,7 @@ export async function ensureLeaveLogsTable() {
   await ensureColumn('ALTER TABLE employee_leaves ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
 }
 
-export async function ensureAttendanceSettingsTable() {
+async function ensureAttendanceSettingsTableInternal() {
   await query(`
     CREATE TABLE IF NOT EXISTS attendance_settings (
       id VARCHAR(64) PRIMARY KEY,
@@ -295,12 +350,34 @@ export async function ensureAttendanceSettingsTable() {
   );
 }
 
+export async function ensureEmployeesTable() {
+  return withEmployeeSchemaEnsureLock(ensureEmployeesTableInternal);
+}
+
+export async function ensureEmployeePositionsTable() {
+  return withEmployeeSchemaEnsureLock(ensureEmployeePositionsTableInternal);
+}
+
+export async function ensureAttendanceLogsTable() {
+  return withEmployeeSchemaEnsureLock(ensureAttendanceLogsTableInternal);
+}
+
+export async function ensureLeaveLogsTable() {
+  return withEmployeeSchemaEnsureLock(ensureLeaveLogsTableInternal);
+}
+
+export async function ensureAttendanceSettingsTable() {
+  return withEmployeeSchemaEnsureLock(ensureAttendanceSettingsTableInternal);
+}
+
 export async function ensureEmployeeStorageTables() {
-  await ensureEmployeesTable();
-  await ensureEmployeePositionsTable();
-  await ensureAttendanceLogsTable();
-  await ensureLeaveLogsTable();
-  await ensureAttendanceSettingsTable();
+  return withEmployeeSchemaEnsureLock(async () => {
+    await ensureEmployeesTableInternal();
+    await ensureEmployeePositionsTableInternal();
+    await ensureAttendanceLogsTableInternal();
+    await ensureLeaveLogsTableInternal();
+    await ensureAttendanceSettingsTableInternal();
+  });
 }
 
 export async function isAuthorizedToken(request) {

@@ -15,7 +15,7 @@ const commonSecurityHeaders = [
       "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com data:",
-      "img-src 'self' data: https:",
+      "img-src 'self' data: blob: https:",
       "connect-src 'self'",
       "frame-src 'self' https://www.google.com https://www.youtube.com",
     ].join('; '),
@@ -48,7 +48,7 @@ const nextConfig: NextConfig = {
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Permissions-Policy', value: 'camera=*, microphone=*, gyroscope=*, accelerometer=*' },
-          { key: 'Content-Security-Policy', value: "base-uri 'self'; frame-ancestors *; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.youtube.com https://s.ytimg.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; frame-src 'self' https: blob:" },
+          { key: 'Content-Security-Policy', value: "base-uri 'self'; frame-ancestors *; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.youtube.com https://s.ytimg.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; frame-src 'self' https: blob:" },
         ],
       },
       {
@@ -57,7 +57,7 @@ const nextConfig: NextConfig = {
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Permissions-Policy', value: 'camera=*, microphone=*, gyroscope=*, accelerometer=*' },
-          { key: 'Content-Security-Policy', value: "base-uri 'self'; frame-ancestors 'self'; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; frame-src 'self' https: blob:" },
+          { key: 'Content-Security-Policy', value: "base-uri 'self'; frame-ancestors 'self'; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; frame-src 'self' https: blob:" },
         ],
       },
       {

@@ -225,6 +225,7 @@ export async function ensureStockMovementsTable() {
   await ensureColumn('ALTER TABLE stock_movements ADD COLUMN product_code VARCHAR(100) NULL');
   await ensureColumn('ALTER TABLE stock_movements ADD COLUMN product_name VARCHAR(255) NULL');
   await ensureColumn('ALTER TABLE stock_movements ADD COLUMN movement_type VARCHAR(50) NULL');
+  await ensureColumn('ALTER TABLE stock_movements ADD COLUMN created_by VARCHAR(100) NULL');
   await ensureStockMovementQuantityChangeColumn();
   try {
     await query(`

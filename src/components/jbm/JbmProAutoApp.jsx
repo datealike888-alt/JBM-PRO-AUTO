@@ -644,6 +644,7 @@ function normalizeVehicle(vehicle = {}) {
     estimatedCompletion: String(estimatedCompletion || '').slice(0, 10),
     booking_date: String(entryDate || '').slice(0, 10),
     estimated_completion_date: String(estimatedCompletion || '').slice(0, 10),
+    booking_time: vehicle.booking_time || vehicle.bookingTime || '',
     bookingTime: vehicle.bookingTime || vehicle.booking_time || '',
     status: normalizeVehicleStatus(vehicle.status),
     repair_cost: vehicle.repair_cost ?? '',
@@ -716,6 +717,37 @@ function makeStockMovement(product, type, change, before, after, note = '') {
     created_by: actor.actorName,
     note,
   };
+}
+
+function normalizeStockMovement(movement = {}) {
+  const quantityChange = movement.quantity_change ?? movement.quantity ?? 0;
+  return {
+    ...movement,
+    id: movement.id || `stock-move-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    product_id: movement.product_id || movement.productId || '',
+    code: movement.code || movement.product_code || '',
+    name: movement.name || movement.product_name || '',
+    type: movement.type || movement.movement_type || '',
+    quantity_change: Number(quantityChange || 0),
+    quantity_before: Number(movement.quantity_before || 0),
+    quantity_after: Number(movement.quantity_after || 0),
+    created_at: movement.created_at || '',
+    created_by: movement.created_by || movement.createdBy || '',
+    note: movement.note || '',
+  };
+}
+
+function stockMovementRows(data) {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.movements)) return data.movements;
+  if (Array.isArray(data?.data)) return data.data;
+  return [];
+}
+
+function validDateValue(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function vehicleImages(vehicle = {}) {
@@ -1466,6 +1498,7 @@ function AdminApp() {
   const [stockProducts, setStockProducts] = useState(INITIAL_STOCK_PRODUCTS);
   const [stockCategories, setStockCategories] = useState(INITIAL_STOCK_CATEGORIES);
   const [stockMovements, setStockMovements] = useState(INITIAL_STOCK_MOVEMENTS);
+  const [stockMovementError, setStockMovementError] = useState('');
   const activeTab = active;
 
   const headers = useCallback(() => ({}), []);
@@ -1551,10 +1584,15 @@ function AdminApp() {
         productsResponse.json().catch(() => ({})),
         movementsResponse.json().catch(() => ({})),
       ]);
+      if (movementsResponse.status === 403) setStockMovementError('กรุณาเข้าสู่ระบบใหม่');
+      else if (!movementsResponse.ok) setStockMovementError('โหลดประวัติสต๊อกไม่สำเร็จ');
+      else setStockMovementError('');
       if (!categoriesResponse.ok || !productsResponse.ok || !movementsResponse.ok) throw new Error('load stock failed');
       const nextCategories = (categoriesData.categories || []).map(normalizeStockCategory).filter((category) => category.name);
       const nextProducts = (productsData.products || []).map(normalizeStockProduct);
-      const nextMovements = (movementsData.movements || []).sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+      const nextMovements = stockMovementRows(movementsData)
+        .map(normalizeStockMovement)
+        .sort((a, b) => (validDateValue(b.created_at)?.getTime() || 0) - (validDateValue(a.created_at)?.getTime() || 0));
       setStockCategories(nextCategories);
       setStockProducts(nextProducts);
       setStockMovements(nextMovements);
@@ -1565,7 +1603,9 @@ function AdminApp() {
       console.error('[admin] load stock failed', error);
       setStockCategories(readStorageArray(STOCK_CATEGORIES_STORAGE_KEY, []).map(normalizeStockCategory).filter((category) => category.name));
       setStockProducts(readStorageArray(STOCK_PRODUCTS_STORAGE_KEY, []).map(normalizeStockProduct));
-      setStockMovements(readStorageArray(STOCK_MOVEMENTS_STORAGE_KEY, []).sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)));
+      setStockMovements(readStorageArray(STOCK_MOVEMENTS_STORAGE_KEY, [])
+        .map(normalizeStockMovement)
+        .sort((a, b) => (validDateValue(b.created_at)?.getTime() || 0) - (validDateValue(a.created_at)?.getTime() || 0)));
     }
   }, [headers, token]);
 
@@ -2069,6 +2109,7 @@ function AdminApp() {
                 products={stockProducts}
                 categories={stockCategories}
                 movements={stockMovements}
+                movementError={stockMovementError}
                 onAdjustQuantity={adjustStockQuantity}
                 onSaveProduct={saveStockProduct}
                 onDeleteProduct={deleteStockProduct}
@@ -2089,7 +2130,7 @@ function AdminApp() {
   );
 }
 
-function StockProductPage({ products, categories, movements, onAdjustQuantity, onSaveProduct, onDeleteProduct, onSaveCategory, onDeleteCategory, onToggleCategory, onClearSampleData }) {
+function StockProductPage({ products, categories, movements, movementError, onAdjustQuantity, onSaveProduct, onDeleteProduct, onSaveCategory, onDeleteCategory, onToggleCategory, onClearSampleData }) {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [stockFilter, setStockFilter] = useState('all');
@@ -2308,7 +2349,7 @@ function StockProductPage({ products, categories, movements, onAdjustQuantity, o
         <StockCategoryManager categories={categories} products={products} onEdit={setEditingCategory} onDelete={setDeletingCategory} onToggle={onToggleCategory} onAdd={() => setEditingCategory({ ...emptyStockCategory })} />
       )}
 
-      {tab === 'movements' && <StockMovementHistory movements={movements} onRefresh={loadStockData} />}
+      {tab === 'movements' && <StockMovementHistory movements={movements} errorMessage={movementError} />}
 
       {editingProduct && (
         <StockProductModal product={editingProduct} categories={activeCategories} onClose={() => setEditingProduct(null)} onSave={async (product) => { await onSaveProduct(product); setEditingProduct(null); }} />
@@ -2393,63 +2434,42 @@ function StockCategoryManager({ categories, products, onEdit, onDelete, onToggle
   );
 }
 
-function StockMovementHistory({ movements, onRefresh }) {
+function StockMovementHistory({ movements, errorMessage }) {
   const [periodFilter, setPeriodFilter] = useState('30d');
-  const [showClearTest, setShowClearTest] = useState(false);
-  const [testConfirmText, setTestConfirmText] = useState('');
-  const [clearing, setClearing] = useState(false);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
 
   const filteredMovements = useMemo(() => {
-    let list = [...movements];
+    let list = stockMovementRows(movements).map(normalizeStockMovement);
     if (periodFilter === '7d' || periodFilter === '30d') {
       const days = periodFilter === '7d' ? 7 : 30;
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - days);
-      list = list.filter(m => new Date(m.created_at) >= cutoff);
+      list = list.filter(m => {
+        const date = validDateValue(m.created_at);
+        return date && date >= cutoff;
+      });
     }
-    return list.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+    return list.sort((a, b) => {
+      const dateA = validDateValue(a.created_at)?.getTime() || 0;
+      const dateB = validDateValue(b.created_at)?.getTime() || 0;
+      return dateB - dateA;
+    });
   }, [movements, periodFilter]);
-
-  const testCount = useMemo(() => {
-    return movements.filter(m => {
-      const code = String(m.code || m.product_code || '');
-      const name = String(m.name || m.product_name || '');
-      const note = String(m.note || '');
-      const by = String(m.created_by || '');
-      return code.startsWith('TEST-') || name.startsWith('TEST-') || note.includes('TEST') || by.startsWith('TEST-');
-    }).length;
-  }, [movements]);
 
   const todayCount = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
-    return movements.filter(m => String(m.created_at || '').startsWith(today)).length;
+    return stockMovementRows(movements)
+      .map(normalizeStockMovement)
+      .filter(m => String(m.created_at || '').startsWith(today)).length;
   }, [movements]);
 
-  const handleClearTest = async () => {
-    if (testConfirmText !== 'TEST') return;
-    setClearing(true);
-    setError('');
-    setMessage('');
-    try {
-      const response = await fetch('/api/stock/movements/test-only', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirmText: testConfirmText })
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error || 'ลบไม่สำเร็จ');
-      
-      setMessage(`ล้างประวัติ TEST แล้ว ${data.deleted || 0} รายการ`);
-      setShowClearTest(false);
-      setTestConfirmText('');
-      if (onRefresh) onRefresh();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setClearing(false);
-    }
+  const movementDateText = (value) => {
+    const date = validDateValue(value);
+    return date ? date.toLocaleString('th-TH') : '-';
+  };
+
+  const quantityText = (value) => {
+    const quantity = Number(value ?? 0);
+    return quantity > 0 ? `+${quantity}` : quantity;
   };
 
   return (
@@ -2462,7 +2482,6 @@ function StockMovementHistory({ movements, onRefresh }) {
           </p>
           <div className="mt-2 flex gap-3 text-sm font-bold">
             <span className="rounded-md bg-blue-50 px-2 py-1 text-blue-700">วันนี้: {todayCount} รายการ</span>
-            {testCount > 0 && <span className="rounded-md bg-amber-50 px-2 py-1 text-amber-700">TEST: {testCount} รายการ</span>}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -2475,19 +2494,12 @@ function StockMovementHistory({ movements, onRefresh }) {
             <option value="30d">30 วันล่าสุด</option>
             <option value="all">ทั้งหมด</option>
           </select>
-          <button 
-            type="button" 
-            onClick={() => { setShowClearTest(true); setError(''); setTestConfirmText(''); }}
-            className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-base font-extrabold text-amber-700 hover:bg-amber-100 transition-colors"
-          >
-            ล้างประวัติ TEST
-          </button>
         </div>
       </div>
 
-      {message && (
-        <div className="rounded-lg bg-emerald-50 p-4 text-emerald-800 font-bold border border-emerald-200">
-          ✓ {message}
+      {errorMessage && (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 font-bold text-rose-800">
+          {errorMessage}
         </div>
       )}
 
@@ -2510,14 +2522,14 @@ function StockMovementHistory({ movements, onRefresh }) {
           <tbody className="divide-y divide-slate-200">
             {filteredMovements.map((movement) => (
               <tr key={movement.id} className="hover:bg-slate-50">
-                <td className="p-4 font-bold text-slate-600">{movement.created_at ? new Date(movement.created_at).toLocaleString('th-TH') : '-'}</td>
-                <td className="p-4 font-mono text-base font-bold text-slate-500">{movement.product_id}</td>
-                <td className="p-4 font-mono font-extrabold text-blue-800">{movement.code}</td>
-                <td className="p-4 font-bold text-slate-900">{movement.name}</td>
-                <td className="p-4 text-center"><span className="rounded-lg bg-blue-50 px-3 py-1 text-base font-extrabold text-blue-800">{movement.type}</span></td>
-                <td className={`p-4 text-center font-extrabold ${Number(movement.quantity_change || 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{Number(movement.quantity_change || 0) > 0 ? `+${movement.quantity_change}` : movement.quantity_change}</td>
-                <td className="p-4 text-center font-bold text-slate-500">{movement.quantity_before}</td>
-                <td className="p-4 text-center font-extrabold text-slate-900">{movement.quantity_after}</td>
+                <td className="p-4 font-bold text-slate-600">{movementDateText(movement.created_at)}</td>
+                <td className="p-4 font-mono text-base font-bold text-slate-500">{movement.product_id || '-'}</td>
+                <td className="p-4 font-mono font-extrabold text-blue-800">{movement.code || '-'}</td>
+                <td className="p-4 font-bold text-slate-900">{movement.name || '-'}</td>
+                <td className="p-4 text-center"><span className="rounded-lg bg-blue-50 px-3 py-1 text-base font-extrabold text-blue-800">{movement.type || '-'}</span></td>
+                <td className={`p-4 text-center font-extrabold ${Number(movement.quantity_change ?? 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{quantityText(movement.quantity_change)}</td>
+                <td className="p-4 text-center font-bold text-slate-500">{movement.quantity_before || 0}</td>
+                <td className="p-4 text-center font-extrabold text-slate-900">{movement.quantity_after || 0}</td>
                 <td className="p-4 font-bold text-slate-600">{movement.created_by || '-'}</td>
                 <td className="p-4 font-bold text-slate-500">{movement.note || '-'}</td>
               </tr>
@@ -2526,42 +2538,6 @@ function StockMovementHistory({ movements, onRefresh }) {
           </tbody>
         </table>
       </section>
-
-      {showClearTest && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
-            <h3 className="text-2xl font-extrabold text-amber-600">ล้างประวัติ TEST</h3>
-            <p className="mt-2 text-lg font-bold text-slate-600">
-              ลบเฉพาะรายการทดสอบ TEST เท่านั้น ไม่ลบประวัติจริง (กรุณาพิมพ์ <span className="text-slate-900 font-extrabold">TEST</span> เพื่อยืนยัน)
-            </p>
-            {error && <p className="mt-3 text-base font-bold text-rose-600">{error}</p>}
-            <input 
-              type="text" 
-              value={testConfirmText}
-              onChange={e => setTestConfirmText(e.target.value)}
-              placeholder="พิมพ์ TEST ที่นี่"
-              className="mt-4 w-full rounded-lg border border-slate-300 p-3 text-lg font-bold outline-none focus:border-amber-500"
-            />
-            <div className="mt-6 flex justify-end gap-3">
-              <button 
-                type="button" 
-                onClick={() => setShowClearTest(false)}
-                className="rounded-lg border border-slate-200 px-5 py-2.5 text-base font-bold text-slate-600 hover:bg-slate-50"
-              >
-                ยกเลิก
-              </button>
-              <button 
-                type="button" 
-                onClick={handleClearTest}
-                disabled={testConfirmText !== 'TEST' || clearing}
-                className="rounded-lg bg-amber-500 px-5 py-2.5 text-base font-bold text-white hover:bg-amber-600 disabled:opacity-50"
-              >
-                {clearing ? 'กำลังล้าง...' : 'ยืนยันล้าง TEST'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -4940,9 +4916,6 @@ function VehicleForm({ initial, onSave, onCancel }) {
           <p className="mt-1.5 text-sm font-bold text-slate-500">กรอกข้อมูลคิวซ่อมและข้อมูลรถ</p>
         </div>
         <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center w-full lg:w-auto">
-          <span className="inline-flex min-h-11 items-center justify-center rounded-xl bg-pink-50 px-4 text-sm font-extrabold text-pink-700 border border-pink-200">
-            จองคิว
-          </span>
           <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-700 hover:bg-slate-50 transition-colors flex-1 sm:flex-none" onClick={onCancel} type="button">
             <X className="h-4 w-4" />
             ยกเลิก
@@ -4986,8 +4959,9 @@ function VehicleForm({ initial, onSave, onCancel }) {
               <Field label="เลขใบแจ้งหนี้/ใบเสร็จ" value={form.invoice_number} onChange={(value) => update('invoice_number', value)} />
               <SelectField label="สถานะรถ" value={form.status} onChange={(value) => update('status', value)} options={STATUS_OPTIONS} />
               <Field label="ประเมินราคาค่าซ่อม" type="number" value={form.repair_cost} onChange={(value) => update('repair_cost', value)} />
-              <Field label="วันที่จองคิวซ่อม" type="date" value={form.entryDate} onChange={(value) => update('entryDate', value)} />
-              <Field label="วันที่กำหนดส่งคืน" type="date" value={form.estimatedCompletion} onChange={(value) => update('estimatedCompletion', value)} />
+              <Field label="วันที่จองคิวซ่อม" type="date" value={form.entryDate} onChange={(value) => { update('entryDate', value); update('booking_date', value); }} />
+              <Field label="เวลาจองคิว" type="time" value={form.booking_time || form.bookingTime || ''} onChange={(value) => { update('booking_time', value); update('bookingTime', value); }} />
+              <Field label="วันที่กำหนดส่งคืน" type="date" value={form.estimatedCompletion} onChange={(value) => { update('estimatedCompletion', value); update('estimated_completion_date', value); }} />
             </div>
             <div className="mt-4">
               <TextArea label="รายละเอียดอาการและประวัติซ่อม" value={form.status_detail} onChange={(value) => update('status_detail', value)} />

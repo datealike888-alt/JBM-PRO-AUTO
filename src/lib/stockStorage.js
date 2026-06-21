@@ -166,6 +166,7 @@ export async function ensureStockMovementsTable() {
   `);
   await ensureColumn('ALTER TABLE stock_movements ADD COLUMN product_code VARCHAR(100) NULL');
   await ensureColumn('ALTER TABLE stock_movements ADD COLUMN product_name VARCHAR(255) NULL');
+  await ensureColumn('ALTER TABLE stock_movements CHANGE COLUMN quantity quantity_change INT NOT NULL');
   try {
     await query(`
       UPDATE stock_movements sm

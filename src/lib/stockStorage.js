@@ -39,6 +39,20 @@ function normalizeNumber(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function wait(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function fallbackStockMovementType(quantityChange, body = {}) {
+  const deleteHint = cleanString(body.action || body.intent || body.note, 100).toLowerCase();
+  if (deleteHint.includes('delete') || deleteHint.includes('remove') || deleteHint.includes('ลบสินค้า')) return 'ลบสินค้า';
+  if (quantityChange > 0) return 'รับเข้า';
+  if (quantityChange < 0) return 'เบิกออก';
+  return 'ปรับปรุง';
+}
+
 async function ensureIndex(sql) {
   try {
     await query(sql);
@@ -51,6 +65,16 @@ async function ensureColumn(sql) {
   try {
     await query(sql);
   } catch (error) {
+    if ([1205, 1213].includes(Number(error?.errno || 0))) {
+      await wait(150);
+      try {
+        await query(sql);
+        return;
+      } catch (retryError) {
+        if (![1005, 1060, 1061, 1062, 1091, 1205, 1213, 1215, 1826].includes(Number(retryError?.errno || 0))) throw retryError;
+        return;
+      }
+    }
     if (![1005, 1060, 1061, 1062, 1091, 1215, 1826].includes(Number(error?.errno || 0))) throw error;
   }
 }
@@ -175,6 +199,9 @@ export async function ensureStockMovementsTable() {
     CREATE TABLE IF NOT EXISTS stock_movements (
       id VARCHAR(64) PRIMARY KEY,
       product_id VARCHAR(64) NULL,
+      code VARCHAR(100) NULL,
+      name VARCHAR(255) NULL,
+      type VARCHAR(50) NOT NULL,
       product_code VARCHAR(100) NULL,
       product_name VARCHAR(255) NULL,
       movement_type VARCHAR(50) NOT NULL,
@@ -192,22 +219,34 @@ export async function ensureStockMovementsTable() {
         ON DELETE SET NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
+  await ensureColumn('ALTER TABLE stock_movements ADD COLUMN code VARCHAR(100) NULL');
+  await ensureColumn('ALTER TABLE stock_movements ADD COLUMN name VARCHAR(255) NULL');
+  await ensureColumn('ALTER TABLE stock_movements ADD COLUMN type VARCHAR(50) NULL');
   await ensureColumn('ALTER TABLE stock_movements ADD COLUMN product_code VARCHAR(100) NULL');
   await ensureColumn('ALTER TABLE stock_movements ADD COLUMN product_name VARCHAR(255) NULL');
+  await ensureColumn('ALTER TABLE stock_movements ADD COLUMN movement_type VARCHAR(50) NULL');
   await ensureStockMovementQuantityChangeColumn();
   try {
     await query(`
       UPDATE stock_movements sm
       LEFT JOIN stock_products sp ON sp.id = sm.product_id
       SET
+        sm.code = COALESCE(NULLIF(sm.code, ''), NULLIF(sm.product_code, ''), sp.code, sp.product_code),
+        sm.name = COALESCE(NULLIF(sm.name, ''), NULLIF(sm.product_name, ''), sp.name, sp.product_name),
         sm.product_code = COALESCE(NULLIF(sm.product_code, ''), sp.product_code),
-        sm.product_name = COALESCE(NULLIF(sm.product_name, ''), sp.product_name)
+        sm.product_name = COALESCE(NULLIF(sm.product_name, ''), sp.product_name),
+        sm.type = COALESCE(NULLIF(sm.type, ''), NULLIF(sm.movement_type, ''), ?),
+        sm.movement_type = COALESCE(NULLIF(sm.movement_type, ''), NULLIF(sm.type, ''), ?)
       WHERE sm.product_id IS NOT NULL
         AND (
-          sm.product_code IS NULL OR sm.product_code = ''
+          sm.code IS NULL OR sm.code = ''
+          OR sm.name IS NULL OR sm.name = ''
+          OR sm.product_code IS NULL OR sm.product_code = ''
           OR sm.product_name IS NULL OR sm.product_name = ''
+          OR sm.type IS NULL OR sm.type = ''
+          OR sm.movement_type IS NULL OR sm.movement_type = ''
         )
-    `);
+    `, ['ปรับปรุง', 'ปรับปรุง']);
   } catch (e) {
     console.warn('[stockStorage] Migration update for stock_movements skipped due to schema mismatch', e.message);
   }
@@ -319,15 +358,26 @@ export function normalizeStockProductRow(row) {
 }
 
 export function normalizeStockMovementInput(body = {}) {
+  const quantityChange = Math.trunc(normalizeNumber(body.quantity_change ?? body.quantity ?? body.quantityChange, 0));
+  const fallbackType = fallbackStockMovementType(quantityChange, body);
+  const movementType = cleanString(
+    body.type || body.movement_type || body.movementType || fallbackType,
+    50
+  ) || fallbackType;
+  const code = cleanNullable(body.code || body.product_code || body.productCode, 100);
+  const name = cleanNullable(body.name || body.product_name || body.productName, 255);
   const productCode = cleanNullable(body.code || body.product_code || body.productCode, 100);
   const productName = cleanNullable(body.name || body.product_name || body.productName, 255);
   return {
     id: cleanString(body.id, 64) || `stock-move-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     productId: cleanString(body.product_id || body.productId, 64),
+    code,
+    name,
+    type: movementType,
     productCode,
     productName,
-    movementType: cleanString(body.type || body.movement_type || body.movementType, 50) || 'ADJUST',
-    quantityChange: Math.trunc(normalizeNumber(body.quantity_change ?? body.quantity ?? body.quantityChange, 0)),
+    movementType,
+    quantityChange,
     quantityBefore: Math.trunc(normalizeNumber(body.quantity_before || body.quantityBefore, 0)),
     quantityAfter: Math.trunc(normalizeNumber(body.quantity_after || body.quantityAfter, 0)),
     note: cleanNullable(body.note, 5000),
@@ -336,19 +386,21 @@ export function normalizeStockMovementInput(body = {}) {
 }
 
 export function normalizeStockMovementRow(row) {
+  const movementType = row.type || row.movement_type || '';
+  const quantityChange = Number(row.quantity_change ?? 0);
   return {
     id: row.id,
-    type: row.movement_type || '',
-    quantity_change: Number(row.quantity_change ?? row.quantity ?? 0),
+    type: movementType,
+    quantity_change: quantityChange,
     product_id: row.product_id,
-    movement_type: row.movement_type || '',
-    quantity: Number(row.quantity_change ?? row.quantity ?? 0),
+    movement_type: movementType,
+    quantity: quantityChange,
     quantity_before: Number(row.quantity_before || 0),
     quantity_after: Number(row.quantity_after || 0),
-    code: row.product_code || '',
-    name: row.product_name || '',
-    product_code: row.product_code || '',
-    product_name: row.product_name || '',
+    code: row.code || row.product_code || '',
+    name: row.name || row.product_name || '',
+    product_code: row.product_code || row.code || '',
+    product_name: row.product_name || row.name || '',
     note: row.note || '',
     created_by: row.created_by || '',
     created_at: row.created_at || null,

@@ -41,19 +41,43 @@ export async function POST(request) {
   try {
     const admin = await getAuthorizedAdminFromRequest(request);
     if (!admin) return json({ error: 'Forbidden' }, { status: 403 });
-    const body = await request.json();
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
     const movement = normalizeStockMovementInput(body);
     if (!movement.productId) return json({ error: 'productId is required' }, { status: 400 });
     await ensureStockMovementsTable();
+
+    const productRows = await query(
+      `SELECT id, code, name, product_code, product_name
+       FROM stock_products
+       WHERE id = ?
+       LIMIT 1`,
+      [movement.productId]
+    );
+    const product = Array.isArray(productRows) && productRows.length ? productRows[0] : {};
+    if (!product.id) return json({ error: 'productId not found' }, { status: 400 });
+    const code = movement.code || product.code || product.product_code || '';
+    const name = movement.name || product.name || product.product_name || '';
+    const productCode = movement.productCode || code;
+    const productName = movement.productName || name;
+
     await query(
       `INSERT INTO stock_movements (
-        id, product_id, product_code, product_name, movement_type, quantity_change, quantity_before, quantity_after, note, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        id, product_id, code, name, type, product_code, product_name, movement_type,
+        quantity_change, quantity_before, quantity_after, note, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         movement.id,
         movement.productId,
-        movement.productCode,
-        movement.productName,
+        code,
+        name,
+        movement.type,
+        productCode,
+        productName,
         movement.movementType,
         movement.quantityChange,
         movement.quantityBefore,

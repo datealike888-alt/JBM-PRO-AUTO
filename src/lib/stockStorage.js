@@ -65,6 +65,12 @@ export async function ensureStockCategoriesTable() {
       UNIQUE KEY idx_stock_categories_name (name)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
+
+  await ensureColumn('ALTER TABLE stock_categories ADD COLUMN description TEXT NULL');
+  await ensureColumn('ALTER TABLE stock_categories ADD COLUMN is_active TINYINT(1) DEFAULT 1');
+  await ensureColumn('ALTER TABLE stock_categories ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP');
+  await ensureColumn('ALTER TABLE stock_categories ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
+  await ensureIndex('ALTER TABLE stock_categories ADD UNIQUE KEY idx_stock_categories_name (name)');
 }
 
 export async function ensureStockProductsTable() {
@@ -158,7 +164,7 @@ export async function isAuthorizedStockRequest(request) {
 export function normalizeStockCategoryInput(body = {}) {
   return {
     id: cleanString(body.id, 64) || `stock-cat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    name: cleanString(body.name, 255),
+    name: cleanString(body.name || body.category_name || body.categoryName, 255),
     description: cleanNullable(body.description, 5000),
     isActive: normalizeBoolean(body.is_active ?? body.isActive, true),
   };

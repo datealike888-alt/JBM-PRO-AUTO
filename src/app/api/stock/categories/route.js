@@ -51,6 +51,9 @@ export async function POST(request) {
     return json({ success: true, category: normalizeStockCategoryRow(rows[0] || category) }, { status: 200 });
   } catch (error) {
     console.error('[stock/categories] POST failed', error);
+    if (Number(error?.errno || 0) === 1062) {
+      return json({ error: 'Category name already exists' }, { status: 409 });
+    }
     return json({ error: 'Unable to save stock category' }, { status: 503 });
   }
 }

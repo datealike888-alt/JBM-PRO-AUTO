@@ -73,6 +73,18 @@ function normalizeNumber(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function normalizeAttendanceStatus(value) {
+  const status = cleanString(value, 100);
+  const lowerStatus = status.toLowerCase();
+  const mappedStatus = {
+    present: 'มาทำงาน',
+    late: 'สาย',
+    leave: 'ลา',
+    absent: 'ขาดงาน',
+  }[lowerStatus];
+  return mappedStatus || status || null;
+}
+
 function formatSqlDate(value) {
   if (!value) return null;
   if (value instanceof Date) return value.toISOString().slice(0, 10);
@@ -388,7 +400,7 @@ export function normalizeAttendanceLogInput(body = {}) {
     afternoonIn: cleanTime(body.afternoonIn),
     eveningOut: cleanTime(body.eveningOut),
     method: cleanString(body.method, 100) || 'auto',
-    status: cleanNullable(body.status, 100),
+    status: normalizeAttendanceStatus(body.status),
     hours: Math.max(0, normalizeNumber(body.hours, 0)),
     otHours: Math.max(0, normalizeNumber(body.otHours, 0)),
     note: cleanNullable(body.note, 5000),

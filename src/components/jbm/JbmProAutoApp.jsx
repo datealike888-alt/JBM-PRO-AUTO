@@ -2146,7 +2146,6 @@ function AdminApp() {
                 onSaveCategory={saveStockCategory}
                 onDeleteCategory={deleteStockCategory}
                 onToggleCategory={toggleStockCategory}
-                onClearSampleData={clearStockSampleData}
               />
             )}
             {activeTab === 'in-shop' && <InShop vehicles={inShopVehicles} query={inShopQuery} setQuery={setInShopQuery} />}
@@ -2160,7 +2159,7 @@ function AdminApp() {
   );
 }
 
-function StockProductPage({ products, categories, movements, movementError, onAdjustQuantity, onSaveProduct, onDeleteProduct, onSaveCategory, onDeleteCategory, onToggleCategory, onClearSampleData }) {
+function StockProductPage({ products, categories, movements, movementError, onAdjustQuantity, onSaveProduct, onDeleteProduct, onSaveCategory, onDeleteCategory, onToggleCategory }) {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [stockFilter, setStockFilter] = useState('all');
@@ -2170,7 +2169,6 @@ function StockProductPage({ products, categories, movements, movementError, onAd
   const [deletingProduct, setDeletingProduct] = useState(null);
   const [editingCategory, setEditingCategory] = useState(null);
   const [deletingCategory, setDeletingCategory] = useState(null);
-  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
 
   const filteredProducts = useMemo(() => {
     const text = search.trim().toLowerCase();
@@ -2239,9 +2237,6 @@ function StockProductPage({ products, categories, movements, movementError, onAd
             </div>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-white px-5 text-lg font-extrabold text-rose-700 hover:bg-rose-50" onClick={() => setConfirmClearOpen(true)} type="button">
-              ล้างข้อมูลสต็อกเดิม
-            </button>
             <button
               className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 text-lg font-extrabold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
               onClick={() => setEditingProduct({ ...emptyStockProduct, category: activeCategories[0]?.name || '' })}
@@ -2412,19 +2407,7 @@ function StockProductPage({ products, categories, movements, movementError, onAd
           }}
         />
       )}
-      {confirmClearOpen && (
-        <StockConfirmDialog
-          title="ล้างข้อมูลสต็อกเดิม"
-          message="ระบบจะลบข้อมูลสินค้า หมวดหมู่ และประวัติเข้า-ออกสต็อกที่เคยบันทึกไว้ในเครื่องนี้ แล้วกลับไปเป็นค่าว่างทั้งหมด"
-          confirmText="ล้างข้อมูลสต็อกเดิม"
-          onCancel={() => setConfirmClearOpen(false)}
-          onConfirm={() => {
-            onClearSampleData();
-            setConfirmClearOpen(false);
-          }}
-        />
-      )}
-    </section>
+      </section>
   );
 }
 

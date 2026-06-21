@@ -47,7 +47,7 @@ export async function POST(request) {
     await ensureStockMovementsTable();
     await query(
       `INSERT INTO stock_movements (
-        id, product_id, product_code, product_name, movement_type, quantity, quantity_before, quantity_after, note, created_by
+        id, product_id, product_code, product_name, movement_type, quantity_change, quantity_before, quantity_after, note, created_by
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         movement.id,
@@ -55,7 +55,7 @@ export async function POST(request) {
         movement.productCode,
         movement.productName,
         movement.movementType,
-        movement.quantity,
+        movement.quantityChange,
         movement.quantityBefore,
         movement.quantityAfter,
         movement.note,

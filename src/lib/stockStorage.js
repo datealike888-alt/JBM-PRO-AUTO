@@ -150,7 +150,7 @@ export async function ensureStockMovementsTable() {
       product_code VARCHAR(100) NULL,
       product_name VARCHAR(255) NULL,
       movement_type VARCHAR(50) NOT NULL,
-      quantity INT NOT NULL,
+      quantity_change INT NOT NULL,
       quantity_before INT DEFAULT 0,
       quantity_after INT DEFAULT 0,
       note TEXT NULL,
@@ -182,7 +182,20 @@ export async function ensureStockMovementsTable() {
   } catch (e) {
     console.warn('[stockStorage] Migration update for stock_movements skipped due to schema mismatch', e.message);
   }
-  await ensureColumn('ALTER TABLE stock_movements DROP FOREIGN KEY fk_stock_movements_product_id');
+  try {
+    const checkFk = await query(`
+      SELECT CONSTRAINT_NAME
+      FROM information_schema.KEY_COLUMN_USAGE
+      WHERE TABLE_NAME = 'stock_movements'
+        AND CONSTRAINT_NAME = 'fk_stock_movements_product_id'
+        AND TABLE_SCHEMA = DATABASE()
+    `);
+    if (checkFk.length > 0) {
+      await ensureColumn('ALTER TABLE stock_movements DROP FOREIGN KEY fk_stock_movements_product_id');
+    }
+  } catch (e) {
+    console.warn('[stockStorage] Failed to check/drop FK', e.message);
+  }
   await ensureColumn('ALTER TABLE stock_movements MODIFY product_id VARCHAR(64) NULL');
   await ensureColumn(`ALTER TABLE stock_movements ADD CONSTRAINT fk_stock_movements_product_id
     FOREIGN KEY (product_id) REFERENCES stock_products(id)
@@ -284,10 +297,10 @@ export function normalizeStockMovementInput(body = {}) {
     productId: cleanString(body.product_id || body.productId, 64),
     productCode,
     productName,
-    movementType: cleanString(body.type || body.movement_type, 50) || 'ADJUST',
-    quantity: Math.trunc(normalizeNumber(body.quantity ?? body.quantity_change, 0)),
-    quantityBefore: Math.trunc(normalizeNumber(body.quantity_before, 0)),
-    quantityAfter: Math.trunc(normalizeNumber(body.quantity_after, 0)),
+    movementType: cleanString(body.type || body.movement_type || body.movementType, 50) || 'ADJUST',
+    quantityChange: Math.trunc(normalizeNumber(body.quantity_change ?? body.quantity ?? body.quantityChange, 0)),
+    quantityBefore: Math.trunc(normalizeNumber(body.quantity_before || body.quantityBefore, 0)),
+    quantityAfter: Math.trunc(normalizeNumber(body.quantity_after || body.quantityAfter, 0)),
     note: cleanNullable(body.note, 5000),
     createdBy: cleanNullable(body.created_by || body.createdBy, 100),
   };
@@ -297,10 +310,10 @@ export function normalizeStockMovementRow(row) {
   return {
     id: row.id,
     type: row.movement_type || '',
-    quantity_change: Number(row.quantity || 0),
+    quantity_change: Number(row.quantity_change ?? row.quantity ?? 0),
     product_id: row.product_id,
     movement_type: row.movement_type || '',
-    quantity: Number(row.quantity || 0),
+    quantity: Number(row.quantity_change ?? row.quantity ?? 0),
     quantity_before: Number(row.quantity_before || 0),
     quantity_after: Number(row.quantity_after || 0),
     code: row.product_code || '',

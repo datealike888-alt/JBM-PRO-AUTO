@@ -55,6 +55,34 @@ async function ensureColumn(sql) {
   }
 }
 
+async function ensureStockMovementQuantityChangeColumn() {
+  const columns = await query(`
+    SELECT COLUMN_NAME
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'stock_movements'
+  `);
+  const columnNames = new Set(columns.map((column) => column.COLUMN_NAME));
+  const hasQuantity = columnNames.has('quantity');
+  const hasQuantityChange = columnNames.has('quantity_change');
+
+  if (hasQuantity && !hasQuantityChange) {
+    try {
+      await query('ALTER TABLE stock_movements CHANGE COLUMN quantity quantity_change INT NOT NULL');
+    } catch (error) {
+      if (!['ER_BAD_FIELD_ERROR', 'ER_DUP_FIELDNAME'].includes(error?.code)) {
+        throw error;
+      }
+      console.warn('[stockStorage] Rename quantity to quantity_change skipped because schema is already migrated', error.message);
+    }
+    return;
+  }
+
+  if (!hasQuantity && !hasQuantityChange) {
+    await ensureColumn('ALTER TABLE stock_movements ADD COLUMN quantity_change INT NOT NULL DEFAULT 0');
+  }
+}
+
 export async function ensureStockCategoriesTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS stock_categories (
@@ -166,7 +194,7 @@ export async function ensureStockMovementsTable() {
   `);
   await ensureColumn('ALTER TABLE stock_movements ADD COLUMN product_code VARCHAR(100) NULL');
   await ensureColumn('ALTER TABLE stock_movements ADD COLUMN product_name VARCHAR(255) NULL');
-  await ensureColumn('ALTER TABLE stock_movements CHANGE COLUMN quantity quantity_change INT NOT NULL');
+  await ensureStockMovementQuantityChangeColumn();
   try {
     await query(`
       UPDATE stock_movements sm

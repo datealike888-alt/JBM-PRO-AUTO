@@ -32,8 +32,22 @@ function cleanTime(value) {
 }
 
 function normalizeAmount(value) {
-  const amount = Number.parseFloat(String(value ?? '').replace(/[^0-9.]/g, ''));
+  const amount = Number.parseFloat(String(value ?? '').replace(/,/g, '').replace(/[^0-9.-]/g, ''));
   return Number.isFinite(amount) ? amount : null;
+}
+
+function cleanReceiptUrl(value) {
+  const text = cleanString(value, 500);
+  if (!text) return null;
+  if (text.startsWith('data:')) return { error: 'Receipt image must be uploaded before saving' };
+  if (/^\/api\/receipts\/[a-zA-Z0-9_.-]+\.(jpg|jpeg|png|webp|gif)$/i.test(text)) return text;
+  if (/^\/uploads\/receipts\/[a-zA-Z0-9_.-]+\.(jpg|jpeg|png|webp|gif)$/i.test(text)) return text;
+  try {
+    const url = new URL(text);
+    return url.protocol === 'https:' ? text : { error: 'Invalid receipt image URL' };
+  } catch {
+    return { error: 'Invalid receipt image URL' };
+  }
 }
 
 function normalizeYear(value) {
@@ -86,6 +100,7 @@ async function ensureFinancialTransactionsTable() {
       description TEXT NULL,
       amount DECIMAL(12,2) DEFAULT 0,
       payment_method VARCHAR(100) NULL,
+      receipt_image_url TEXT NULL,
       related_vehicle_id VARCHAR(64) NULL,
       note TEXT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -102,6 +117,7 @@ async function ensureFinancialTransactionsTable() {
   await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN payment_method VARCHAR(100) NULL');
   await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN description TEXT NULL');
   await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN amount DECIMAL(12,2) DEFAULT 0');
+  await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN receipt_image_url TEXT NULL');
 
   await query(`
     UPDATE financial_transactions
@@ -123,6 +139,7 @@ function normalizeRow(row) {
     payment_method: row.payment_method || '',
     description: row.description || '',
     amount: Number(row.amount || 0),
+    receipt_image_url: row.receipt_image_url || '',
     category: row.category || '',
     note: row.note || '',
     related_vehicle_id: row.related_vehicle_id || '',
@@ -150,6 +167,8 @@ function normalizeBody(body) {
   if (amount === null || amount < 0) return { error: 'จำนวนเงินต้องเป็นตัวเลขไม่ติดลบ' };
 
   const id = cleanString(body.id, 64) || `fin-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const receiptImageUrl = cleanReceiptUrl(body.receipt_image_url || body.receiptUrl || body.receipt_url);
+  if (receiptImageUrl && typeof receiptImageUrl === 'object' && receiptImageUrl.error) return { error: receiptImageUrl.error };
 
   return {
     transaction: {
@@ -161,6 +180,7 @@ function normalizeBody(body) {
       payment_method: paymentMethod,
       description,
       amount,
+      receipt_image_url: receiptImageUrl,
       related_vehicle_id: cleanString(body.related_vehicle_id || body.relatedVehicleId, 64) || null,
       note: cleanString(body.note, 5000) || null,
     },
@@ -252,8 +272,8 @@ export async function POST(request) {
     const beforeTransaction = Array.isArray(beforeRows) && beforeRows.length ? normalizeRow(beforeRows[0]) : null;
     await query(
       `INSERT INTO financial_transactions (
-        id, date, time, transaction_date, type, category, description, amount, payment_method, related_vehicle_id, note
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, date, time, transaction_date, type, category, description, amount, payment_method, receipt_image_url, related_vehicle_id, note
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
         date = VALUES(date),
         time = VALUES(time),
@@ -263,6 +283,7 @@ export async function POST(request) {
         description = VALUES(description),
         amount = VALUES(amount),
         payment_method = VALUES(payment_method),
+        receipt_image_url = VALUES(receipt_image_url),
         related_vehicle_id = VALUES(related_vehicle_id),
         note = VALUES(note)`,
       [
@@ -275,6 +296,7 @@ export async function POST(request) {
         transaction.description,
         transaction.amount,
         transaction.payment_method,
+        transaction.receipt_image_url,
         transaction.related_vehicle_id,
         transaction.note,
       ]

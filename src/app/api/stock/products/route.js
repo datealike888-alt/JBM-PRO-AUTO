@@ -26,14 +26,20 @@ function buildWhere(url) {
     const like = `%${search}%`;
     where.push(`(
       LOWER(COALESCE(product_code, '')) LIKE ?
+      OR LOWER(COALESCE(code, '')) LIKE ?
       OR LOWER(COALESCE(product_name, '')) LIKE ?
+      OR LOWER(COALESCE(name, '')) LIKE ?
       OR LOWER(COALESCE(product_number, '')) LIKE ?
+      OR LOWER(COALESCE(part_no, '')) LIKE ?
       OR LOWER(COALESCE(product_brand, '')) LIKE ?
+      OR LOWER(COALESCE(brand, '')) LIKE ?
       OR LOWER(COALESCE(car_model, '')) LIKE ?
+      OR LOWER(COALESCE(car_models, '')) LIKE ?
+      OR LOWER(COALESCE(location, '')) LIKE ?
       OR LOWER(COALESCE(engine_number, '')) LIKE ?
       OR LOWER(COALESCE(supplier, '')) LIKE ?
     )`);
-    params.push(like, like, like, like, like, like, like);
+    params.push(like, like, like, like, like, like, like, like, like, like, like, like, like);
   }
   return {
     clause: where.length ? `WHERE ${where.join(' AND ')}` : '',

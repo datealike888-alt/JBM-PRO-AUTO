@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS financial_transactions (
   description TEXT NULL,
   amount DECIMAL(12,2) DEFAULT 0,
   payment_method VARCHAR(100) NULL,
+  receipt_image_url TEXT NULL,
   related_vehicle_id VARCHAR(64) NULL,
   note TEXT NULL,
   date DATE NULL,
@@ -101,6 +102,44 @@ CREATE TABLE IF NOT EXISTS financial_transactions (
   INDEX idx_financial_transactions_related_vehicle_id (related_vehicle_id),
   CONSTRAINT fk_financial_transactions_related_vehicle_id
     FOREIGN KEY (related_vehicle_id) REFERENCES vehicles(id)
+    ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS payment_debts (
+  id VARCHAR(64) PRIMARY KEY,
+  customer_name VARCHAR(255) NOT NULL,
+  phone VARCHAR(64) NULL,
+  case_reference VARCHAR(255) NULL,
+  total_amount DECIMAL(12,2) DEFAULT 0,
+  paid_amount DECIMAL(12,2) DEFAULT 0,
+  balance_amount DECIMAL(12,2) DEFAULT 0,
+  status VARCHAR(64) NULL,
+  due_date DATE NULL,
+  payment_method VARCHAR(100) NULL,
+  description TEXT NULL,
+  note TEXT NULL,
+  receipt_image_url TEXT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_payment_debts_status (status),
+  INDEX idx_payment_debts_due_date (due_date),
+  INDEX idx_payment_debts_customer_name (customer_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS payment_debt_payments (
+  id VARCHAR(64) PRIMARY KEY,
+  debt_id VARCHAR(64) NOT NULL,
+  payment_date DATE NOT NULL,
+  payment_time TIME NULL,
+  amount DECIMAL(12,2) DEFAULT 0,
+  payment_method VARCHAR(100) NULL,
+  note TEXT NULL,
+  receipt_image_url TEXT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_payment_debt_payments_debt_id (debt_id),
+  INDEX idx_payment_debt_payments_date (payment_date),
+  CONSTRAINT fk_payment_debt_payments_debt_id
+    FOREIGN KEY (debt_id) REFERENCES payment_debts(id)
     ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

@@ -34,6 +34,8 @@ Expected tables after import:
 - `stock_categories`
 - `stock_products`
 - `stock_movements`
+- `payment_debts`
+- `payment_debt_payments`
 - `system_settings`
 - `audit_logs`
 

@@ -3,6 +3,7 @@ import { ensureAdminSessionsTable, ensureAdminUsersTable } from '../../../lib/ad
 import { ensureAuditLogsTable } from '../../../lib/auditLog';
 import { ensureEmployeeStorageTables } from '../../../lib/employeeStorage';
 import { ensureStockCategoriesTable, ensureStockMovementsTable, ensureStockProductsTable } from '../../../lib/stockStorage';
+import { ensurePaymentDebtTables } from '../../../lib/paymentDebtStorage';
 
 async function ensureVehiclesTable() {
   await query(`
@@ -49,6 +50,7 @@ async function ensureFinancialTransactionsTable() {
       description TEXT NULL,
       amount DECIMAL(12,2) DEFAULT 0,
       payment_method VARCHAR(100) NULL,
+      receipt_image_url TEXT NULL,
       related_vehicle_id VARCHAR(64) NULL,
       note TEXT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -99,6 +101,8 @@ export async function GET() {
     stock_categories: false,
     stock_products: false,
     stock_movements: false,
+    payment_debts: false,
+    payment_debt_payments: false,
     audit_logs: false,
     system_settings: false,
   };
@@ -117,6 +121,7 @@ export async function GET() {
     await ensureStockCategoriesTable();
     await ensureStockProductsTable();
     await ensureStockMovementsTable();
+    await ensurePaymentDebtTables();
     await ensureAuditLogsTable();
     await ensureSystemSettingsTable();
 
@@ -127,7 +132,7 @@ export async function GET() {
       SELECT TABLE_NAME, TABLE_COLLATION
       FROM information_schema.tables
       WHERE TABLE_SCHEMA = ?
-        AND TABLE_NAME IN ('admin_users', 'admin_sessions', 'vehicles', 'vehicle_receipts', 'financial_transactions', 'employees', 'employee_positions', 'employee_attendance', 'employee_leaves', 'attendance_settings', 'stock_categories', 'stock_products', 'stock_movements', 'audit_logs', 'system_settings')
+        AND TABLE_NAME IN ('admin_users', 'admin_sessions', 'vehicles', 'vehicle_receipts', 'financial_transactions', 'employees', 'employee_positions', 'employee_attendance', 'employee_leaves', 'attendance_settings', 'stock_categories', 'stock_products', 'stock_movements', 'payment_debts', 'payment_debt_payments', 'audit_logs', 'system_settings')
     `, [getDbConfig().database]);
 
     for (const row of rows) {

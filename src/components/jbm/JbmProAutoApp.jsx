@@ -55,6 +55,7 @@ import {
 
 const API_URL = '/api/vehicles';
 const FINANCIAL_API_URL = '/api/financial-transactions';
+const PAYMENT_DEBTS_API_URL = '/api/payment-debts';
 const STOCK_CATEGORIES_API_URL = '/api/stock/categories';
 const STOCK_PRODUCTS_API_URL = '/api/stock/products';
 const STOCK_MOVEMENTS_API_URL = '/api/stock/movements';
@@ -287,6 +288,21 @@ const emptyFinancialTransaction = {
   amount: '',
 };
 
+const emptyPaymentDebt = {
+  id: '',
+  customer_name: '',
+  customer_phone: '',
+  vehicle_info: '',
+  total_amount: '',
+  paid_amount: '0',
+  balance_amount: '',
+  due_date: '',
+  status: 'ค้างจ่าย',
+  payment_method: 'เงินสด',
+  note: '',
+  receipt_image_url: '',
+};
+
 const LEGACY_STOCK_PRODUCTS_STORAGE_KEY = 'jbm-stock-products-v1';
 const LEGACY_STOCK_CATEGORIES_STORAGE_KEY = 'jbm-stock-categories-v1';
 const LEGACY_STOCK_MOVEMENTS_STORAGE_KEY = 'jbm-stock-movements-v1';
@@ -336,7 +352,10 @@ function isLegacyMockStockProducts(products) {
 }
 
 function money(value) {
-  return Number(value || 0).toLocaleString('th-TH', { maximumFractionDigits: 0 });
+  return Number(value || 0).toLocaleString('th-TH', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 function dateText(value) {
@@ -648,6 +667,29 @@ function normalizeFinancialTransaction(transaction = {}) {
 
 function financialDateKey(transaction) {
   return String(transaction.date || '').slice(0, 10);
+}
+
+function normalizePaymentDebt(debt = {}) {
+  return {
+    ...emptyPaymentDebt,
+    ...debt,
+    id: debt.id || '',
+    customer_name: debt.customer_name || '',
+    customer_phone: debt.customer_phone || '',
+    vehicle_info: debt.vehicle_info || '',
+    total_amount: debt.total_amount ?? '',
+    paid_amount: debt.paid_amount ?? '0',
+    balance_amount: debt.balance_amount ?? '',
+    due_date: String(debt.due_date || '').slice(0, 10),
+    status: debt.status || 'ค้างจ่าย',
+    payment_method: debt.payment_method || 'เงินสด',
+    note: debt.note || '',
+    receipt_image_url: debt.receipt_image_url || '',
+  };
+}
+
+function paymentDebtDateKey(debt) {
+  return String(debt.due_date || '').slice(0, 10);
 }
 
 function normalizeVehicle(vehicle = {}) {
@@ -1480,6 +1522,7 @@ function AdminApp() {
   const [passwordInput, setPasswordInput] = useState('');
   const [loginError, setLoginError] = useState('');
   const [vehicles, setVehicles] = useState([]);
+  const [paymentDebts, setPaymentDebts] = useState([]);
   const [active, setActive] = useState('dashboard');
   const [mobileMenu, setMobileMenu] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -1586,6 +1629,23 @@ function AdminApp() {
   useEffect(() => {
     loadVehicles();
   }, [loadVehicles]);
+
+  const loadPaymentDebts = useCallback(async () => {
+    if (!token) return;
+    try {
+      const response = await fetch(PAYMENT_DEBTS_API_URL, { headers: headers() });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'load failed');
+      setPaymentDebts((Array.isArray(data.debts) ? data.debts : []).map(normalizePaymentDebt));
+    } catch (error) {
+      console.error('[admin] load payment debts failed', error);
+      setPaymentDebts([]);
+    }
+  }, [headers, token]);
+
+  useEffect(() => {
+    loadPaymentDebts();
+  }, [loadPaymentDebts]);
 
   const loadStockData = useCallback(async () => {
     if (!token) return;
@@ -1944,6 +2004,7 @@ function AdminApp() {
       items: [
         ['productStock', 'สต็อกสินค้า', Package],
         ['finance', 'การเงิน', Coins],
+        ['paymentDebts', 'ค้างชำระ', ClipboardList],
         ['charts', 'รายงาน / กราฟ', ClipboardList],
       ]
     },
@@ -2109,7 +2170,7 @@ function AdminApp() {
 
           {/* Content Wrapper */}
           <div className="flex-1 space-y-6 p-4 sm:p-6 bg-slate-50">
-            {activeTab === 'dashboard' && <Dashboard stats={stats} vehicles={vehicles} stockProducts={stockProducts} statusFilter={dashboardStatusFilter} setStatusFilter={setDashboardStatusFilter} />}
+            {activeTab === 'dashboard' && <Dashboard stats={stats} vehicles={vehicles} stockProducts={stockProducts} paymentDebts={paymentDebts} statusFilter={dashboardStatusFilter} setStatusFilter={setDashboardStatusFilter} />}
             {activeTab === 'form' && <VehicleForm initial={editing || emptyVehicle} onSave={saveVehicle} onCancel={() => setActiveTab('dashboard')} />}
             {activeTab === 'shift-duty' && <ShiftDutyPage />}
             {activeTab === 'all' && (
@@ -2149,7 +2210,8 @@ function AdminApp() {
               />
             )}
             {activeTab === 'in-shop' && <InShop vehicles={inShopVehicles} query={inShopQuery} setQuery={setInShopQuery} />}
-            {activeTab === 'finance' && <FinancialAdmin headers={headers} />}
+            {activeTab === 'finance' && <FinancialAdmin headers={headers} onOpenPaymentDebts={() => setActiveTab('paymentDebts')} />}
+            {activeTab === 'paymentDebts' && <PaymentDebtAdmin headers={headers} onBack={() => setActiveTab('finance')} />}
             {activeTab === 'charts' && <ManagementDashboard vehicles={vehicles} stockProducts={stockProducts} />}
           </div>
         </main>
@@ -2216,7 +2278,7 @@ function StockProductPage({ products, categories, movements, movementError, onAd
       ],
       filteredProducts.map((product) => ({
         ...product,
-        price: Number(product.price || 0),
+        price: money(product.price),
         quantity: Number(product.quantity || 0),
         status: stockStatus(product),
       })),
@@ -2668,7 +2730,7 @@ function StockProductModal({ product, categories, onClose, onSave }) {
           <label className="block"><span className="text-xl font-extrabold text-slate-800">หมวดหมู่</span><select value={form.category} onChange={(event) => update('category', event.target.value)} className="mt-2 min-h-14 w-full rounded-lg border border-slate-300 bg-white px-4 text-xl text-slate-950"><option value="">เลือกหมวดหมู่</option>{categories.map((category) => <option key={category.id} value={category.name}>{category.name}</option>)}</select></label>
           <StockInput label="Brand" value={form.brand} onChange={(value) => update('brand', value)} />
           <StockInput label="รถที่รองรับ" value={form.car_models} onChange={(value) => update('car_models', value)} />
-          <StockInput label="ราคาสินค้า" value={form.price} onChange={(value) => update('price', value)} type="number" />
+          <StockInput label="ราคาสินค้า" value={form.price} onChange={(value) => update('price', value)} type="number" step="0.01" inputMode="decimal" />
           <StockInput label="ชั้นวางของ" value={form.location} onChange={(value) => update('location', value)} />
           <StockInput label="คงเหลือ" value={form.quantity} onChange={(value) => update('quantity', value)} type="number" />
           <StockInput label="จุดเตือนขั้นต่ำ" value={form.reorder_point} onChange={(value) => update('reorder_point', value)} type="number" />
@@ -2780,11 +2842,11 @@ function StockModalHeader({ title, onClose }) {
   );
 }
 
-function StockInput({ label, value, onChange, type = 'text' }) {
+function StockInput({ label, value, onChange, type = 'text', step, inputMode }) {
   return (
     <label className="block">
       <span className="text-xl font-extrabold text-slate-800">{label}</span>
-      <input value={value ?? ''} onChange={(event) => onChange(event.target.value)} type={type} min={type === 'number' ? '0' : undefined} className="mt-2 min-h-14 w-full rounded-lg border border-slate-300 bg-white px-4 text-xl text-slate-950" />
+      <input value={value ?? ''} onChange={(event) => onChange(event.target.value)} type={type} step={step} inputMode={inputMode} min={type === 'number' ? '0' : undefined} className="mt-2 min-h-14 w-full rounded-lg border border-slate-300 bg-white px-4 text-xl text-slate-950" />
     </label>
   );
 }
@@ -3967,10 +4029,12 @@ function StockSummaryCard({ title, value, className }) {
   );
 }
 
-function Dashboard({ stats, vehicles, stockProducts, statusFilter, setStatusFilter }) {
+function Dashboard({ stats, vehicles, stockProducts, paymentDebts = [], statusFilter, setStatusFilter }) {
   const today = dateInputValue(new Date());
   const monthRange = chartRange('month');
   const monthVehicles = vehicles.filter((vehicle) => inChartRange(dateKey(vehicle), monthRange));
+  const unpaidDebts = paymentDebts.filter(d => Number(d.balance_amount || 0) > 0 || d.status === 'ค้างจ่าย');
+  const totalUnpaidAmount = unpaidDebts.reduce((sum, d) => sum + Number(d.balance_amount || d.total_amount || 0), 0);
   const monthRevenue = monthVehicles.reduce((sum, vehicle) => sum + chartVehicleRevenue(vehicle), 0);
   const monthProfit = monthVehicles.reduce((sum, vehicle) => sum + chartVehicleRevenue(vehicle) - chartVehiclePartsCost(vehicle), 0);
   const stockSummary = stockChartSummary(stockProducts);
@@ -4004,6 +4068,7 @@ function Dashboard({ stats, vehicles, stockProducts, statusFilter, setStatusFilt
     { level: 'yellow', title: 'รถรออะไหล่ในร้าน', value: `${waitingPartsVehicles.length} คัน` },
     { level: 'red', title: 'สินค้าในสต็อกหมดคลัง', value: `${outOfStockProducts.length} รายการ` },
     { level: 'yellow', title: 'สินค้าในสต็อกใกล้หมด', value: `${lowStockProducts.length} รายการ` },
+    { level: 'red', title: 'ลูกค้าค้างชำระ', value: `${unpaidDebts.length} คน (ยอด ฿${money(totalUnpaidAmount)})` },
   ];
 
   return (
@@ -5030,7 +5095,7 @@ function VehicleForm({ initial, onSave, onCancel }) {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <Field label="เลขใบแจ้งหนี้/ใบเสร็จ" value={form.invoice_number} onChange={(value) => update('invoice_number', value)} />
               <SelectField label="สถานะรถ" value={form.status} onChange={(value) => update('status', value)} options={STATUS_OPTIONS} />
-              <Field label="ประเมินราคาค่าซ่อม" type="number" value={form.repair_cost} onChange={(value) => update('repair_cost', value)} />
+              <Field label="ประเมินราคาค่าซ่อม" type="number" step="0.01" inputMode="decimal" value={form.repair_cost} onChange={(value) => update('repair_cost', value)} />
               <Field label="วันที่จองคิวซ่อม" type="date" value={form.entryDate} onChange={(value) => { update('entryDate', value); update('booking_date', value); }} />
               <Field label="เวลาจองคิว" type="time" value={form.booking_time || form.bookingTime || ''} onChange={(value) => { update('booking_time', value); update('bookingTime', value); }} />
               <Field label="วันที่กำหนดส่งคืน" type="date" value={form.estimatedCompletion} onChange={(value) => { update('estimatedCompletion', value); update('estimated_completion_date', value); }} />
@@ -5176,11 +5241,11 @@ function ModelField({ form, update, mode, setMode, choices }) {
   );
 }
 
-function Field({ label, value, onChange, type = 'text' }) {
+function Field({ label, value, onChange, type = 'text', step, inputMode }) {
   return (
     <label className="block">
       <span className="text-xs font-extrabold text-slate-600">{label}</span>
-      <input type={type} value={value || ''} onChange={(event) => onChange(event.target.value)} className="mt-1 min-h-[42px] w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-bold text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
+      <input type={type} step={step} inputMode={inputMode} value={value || ''} onChange={(event) => onChange(event.target.value)} className="mt-1 min-h-[42px] w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-bold text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
     </label>
   );
 }
@@ -5457,7 +5522,7 @@ function InShop({ vehicles, query, setQuery }) {
   );
 }
 
-function FinancialAdmin({ headers }) {
+function FinancialAdmin({ headers, onOpenPaymentDebts }) {
   const current = currentYearMonth();
   const [transactions, setTransactions] = useState([]);
   const [summaryTransactions, setSummaryTransactions] = useState([]);
@@ -5588,7 +5653,7 @@ function FinancialAdmin({ headers }) {
         type: transaction.type === 'income' ? 'รายรับ' : 'รายจ่าย',
         payment_method: transaction.payment_method || '-',
         description: transaction.description || '-',
-        amount: Number(transaction.amount || 0),
+        amount: money(transaction.amount),
       })),
     );
   };
@@ -5645,6 +5710,10 @@ function FinancialAdmin({ headers }) {
             <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 text-xl font-extrabold text-white hover:bg-blue-800" onClick={() => setEditing({ ...emptyFinancialTransaction })} type="button">
               <Plus className="h-6 w-6" />
               เพิ่มรายการธุรกรรม
+            </button>
+            <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg bg-rose-600 px-5 text-xl font-extrabold text-white hover:bg-rose-700 shadow-sm" onClick={onOpenPaymentDebts} type="button">
+              <ClipboardList className="h-6 w-6" />
+              ค้างชำระ
             </button>
           </div>
         </div>
@@ -5861,7 +5930,7 @@ function FinancialFormModal({ initial, saving, onClose, onSave }) {
             <span className="text-xl font-extrabold text-slate-800">รายละเอียด</span>
             <textarea value={form.description || ''} onChange={(event) => update('description', event.target.value)} className="mt-2 min-h-32 w-full rounded-lg border border-slate-300 bg-white px-5 py-4 text-xl text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
           </label>
-          <Field label="จำนวนเงิน" type="number" value={form.amount} onChange={(value) => update('amount', value)} />
+          <Field label="จำนวนเงิน" type="number" step="0.01" inputMode="decimal" value={form.amount} onChange={(value) => update('amount', value)} />
         </div>
         <div className="mt-6 flex flex-col gap-3 border-t border-slate-200 pt-5 sm:flex-row sm:justify-end">
           <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-5 text-xl font-extrabold text-slate-700 hover:bg-slate-50" onClick={onClose} type="button"><X className="h-6 w-6" />ยกเลิก</button>
@@ -5950,9 +6019,422 @@ function VehicleDetailModal({ vehicle, onClose }) {
   );
 }
 
+function PaymentDebtAdmin({ headers, onBack }) {
+  const [debts, setDebts] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [editing, setEditing] = useState(null);
+  const [recordingPayment, setRecordingPayment] = useState(null);
+  const [filters, setFilters] = useState({ search: '', status: 'all' });
+
+  const loadDebts = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const response = await fetch(`${PAYMENT_DEBTS_API_URL}`, { headers: headers() });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'โหลดข้อมูลค้างชำระไม่สำเร็จ');
+      setDebts((Array.isArray(data.debts) ? data.debts : []).map(normalizePaymentDebt));
+    } catch (err) {
+      setError(err.message || 'โหลดข้อมูลค้างชำระไม่สำเร็จ');
+      setDebts([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [headers]);
+
+  useEffect(() => {
+    loadDebts();
+  }, [loadDebts]);
+
+  const saveDebt = async (debt) => {
+    setError('');
+    try {
+      const response = await fetch(PAYMENT_DEBTS_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers() },
+        body: JSON.stringify(debt),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'บันทึกรายการค้างชำระไม่สำเร็จ');
+      setEditing(null);
+      await loadDebts();
+    } catch (err) {
+      setError(err.message || 'บันทึกรายการค้างชำระไม่สำเร็จ');
+      throw err;
+    }
+  };
+
+  const deleteDebt = async (id) => {
+    if (!window.confirm('ยืนยันการลบรายการค้างชำระนี้? หากลบแล้วจะไม่สามารถกู้คืนได้')) return;
+    setError('');
+    try {
+      const response = await fetch(`${PAYMENT_DEBTS_API_URL}?id=${encodeURIComponent(id)}`, { method: 'DELETE', headers: headers() });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || 'ลบรายการไม่สำเร็จ');
+      await loadDebts();
+    } catch (err) {
+      setError(err.message || 'ลบรายการไม่สำเร็จ');
+    }
+  };
+
+  const recordPayment = async (debtId, paymentData) => {
+    setError('');
+    try {
+      const response = await fetch(`${PAYMENT_DEBTS_API_URL}/${encodeURIComponent(debtId)}/payments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers() },
+        body: JSON.stringify(paymentData),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'บันทึกการรับชำระไม่สำเร็จ');
+      setRecordingPayment(null);
+      await loadDebts();
+    } catch (err) {
+      setError(err.message || 'บันทึกการรับชำระไม่สำเร็จ');
+      throw err;
+    }
+  };
+
+  const exportDebts = () => {
+    downloadCsv(
+      `payment-debts-${dateInputValue(new Date())}.csv`,
+      [
+        { key: 'created_at', label: 'วันที่' },
+        { key: 'customer_name', label: 'ชื่อลูกค้า' },
+        { key: 'customer_phone', label: 'เบอร์โทร' },
+        { key: 'vehicle_info', label: 'ทะเบียนรถ' },
+        { key: 'total_amount', label: 'ยอดรวม' },
+        { key: 'paid_amount', label: 'ชำระแล้ว' },
+        { key: 'balance_amount', label: 'ค้างชำระ' },
+        { key: 'due_date', label: 'วันที่ครบกำหนด' },
+        { key: 'status', label: 'สถานะ' },
+        { key: 'note', label: 'หมายเหตุ' },
+      ],
+      debts.map((debt) => ({
+        created_at: String(debt.created_at || '').slice(0, 10),
+        customer_name: debt.customer_name || '-',
+        customer_phone: debt.customer_phone || '-',
+        vehicle_info: debt.vehicle_info || '-',
+        total_amount: money(debt.total_amount),
+        paid_amount: money(debt.paid_amount),
+        balance_amount: money(debt.balance_amount),
+        due_date: debt.due_date || '-',
+        status: debt.status || '-',
+        note: debt.note || '-',
+      }))
+    );
+  };
+
+  const filteredDebts = debts.filter(d => {
+    const s = filters.search.toLowerCase();
+    const matchSearch = s === '' || (d.customer_name || '').toLowerCase().includes(s) || (d.customer_phone || '').includes(s) || (d.vehicle_info || '').toLowerCase().includes(s);
+    const matchStatus = filters.status === 'all' || d.status === filters.status;
+    return matchSearch && matchStatus;
+  });
+
+  const totalSum = filteredDebts.reduce((sum, d) => sum + Number(d.total_amount || 0), 0);
+  const paidSum = filteredDebts.reduce((sum, d) => sum + Number(d.paid_amount || 0), 0);
+  const balanceSum = filteredDebts.reduce((sum, d) => sum + Number(d.balance_amount || 0), 0);
+
+  return (
+    <section className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <button className="inline-flex min-h-12 items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 font-bold text-slate-700 hover:bg-slate-50" onClick={onBack} type="button">
+          <X className="h-5 w-5" /> ย้อนกลับ
+        </button>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 font-extrabold text-emerald-800 hover:bg-emerald-100" onClick={exportDebts} type="button">
+            <Download className="h-5 w-5" /> Export CSV
+          </button>
+          <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 font-extrabold text-white hover:bg-blue-800" onClick={() => setEditing({ ...emptyPaymentDebt })} type="button">
+            <Plus className="h-5 w-5" /> เพิ่มรายการค้างชำระ
+          </button>
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <FinancialAmountCard title="ยอดรวมค้างชำระ" value={totalSum} className="border-slate-200 bg-slate-50 text-slate-800" icon={<ClipboardList />} />
+        <FinancialAmountCard title="ชำระแล้ว" value={paidSum} className="border-emerald-200 bg-emerald-50 text-emerald-800" icon={<Banknote />} />
+        <FinancialAmountCard title="ค้างชำระสุทธิ" value={balanceSum} className="border-rose-200 bg-rose-50 text-rose-800" icon={<Wallet />} />
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+          <input value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} className="min-h-12 rounded-lg border border-slate-300 px-3 text-lg" placeholder="ค้นหาชื่อ เบอร์โทร ทะเบียน" />
+          <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })} className="min-h-12 rounded-lg border border-slate-300 px-3 text-lg">
+            <option value="all">ทุกสถานะ</option>
+            <option value="ค้างจ่าย">ค้างจ่าย</option>
+            <option value="ชำระแล้วบางส่วน">ชำระแล้วบางส่วน</option>
+            <option value="ชำระครบแล้ว">ชำระครบแล้ว</option>
+          </select>
+        </div>
+
+        {error && <p className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-lg font-bold text-rose-700">{error}</p>}
+
+        <div className="max-w-full overflow-x-auto rounded-lg border border-slate-200">
+          <table className="w-full min-w-[1200px] text-left text-base">
+            <thead className="bg-slate-100 text-base font-extrabold text-slate-600">
+              <tr>
+                <th className="p-3">วันที่</th>
+                <th className="p-3">ชื่อลูกค้า / เบอร์โทร</th>
+                <th className="p-3">ทะเบียนรถ</th>
+                <th className="p-3 text-right">ยอดรวม</th>
+                <th className="p-3 text-right">ชำระแล้ว</th>
+                <th className="p-3 text-right">ค้างชำระ</th>
+                <th className="p-3 text-center">วันครบกำหนด</th>
+                <th className="p-3 text-center">สถานะ</th>
+                <th className="p-3">บิล</th>
+                <th className="p-3 text-right">จัดการ</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {filteredDebts.map((debt) => (
+                <tr key={debt.id} className="hover:bg-slate-50">
+                  <td className="p-3 font-bold text-slate-700">{dateText(debt.created_at)}</td>
+                  <td className="p-3">
+                    <p className="font-extrabold text-slate-900">{debt.customer_name || '-'}</p>
+                    <p className="text-sm text-slate-500">{debt.customer_phone || '-'}</p>
+                  </td>
+                  <td className="p-3 font-bold text-slate-800">{debt.vehicle_info || '-'}</td>
+                  <td className="p-3 text-right font-bold text-slate-700">฿{money(debt.total_amount)}</td>
+                  <td className="p-3 text-right font-bold text-emerald-700">฿{money(debt.paid_amount)}</td>
+                  <td className="p-3 text-right font-extrabold text-rose-700">฿{money(debt.balance_amount)}</td>
+                  <td className="p-3 text-center text-slate-700">{debt.due_date ? dateText(debt.due_date) : '-'}</td>
+                  <td className="p-3 text-center">
+                    <span className={`inline-flex rounded-lg px-2.5 py-1 text-sm font-extrabold ${debt.status === 'ชำระครบแล้ว' ? 'bg-emerald-100 text-emerald-800' : debt.status === 'ชำระแล้วบางส่วน' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'}`}>
+                      {debt.status}
+                    </span>
+                  </td>
+                  <td className="p-3 text-center">
+                    {debt.receipt_image_url ? (
+                      <a href={debt.receipt_image_url} target="_blank" rel="noopener noreferrer" className="inline-flex text-blue-600 hover:text-blue-800" title="ดูรูปบิล">
+                        <Eye className="h-5 w-5" />
+                      </a>
+                    ) : '-'}
+                  </td>
+                  <td className="p-3">
+                    <div className="flex justify-end gap-2">
+                      {debt.status !== 'ชำระครบแล้ว' && (
+                        <button className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-emerald-700 hover:bg-emerald-50" onClick={() => setRecordingPayment(debt)} type="button" title="รับชำระ">
+                          <Banknote className="h-4 w-4" />
+                        </button>
+                      )}
+                      <button className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-blue-700 hover:bg-blue-50" onClick={() => setEditing(debt)} type="button" title="แก้ไข">
+                        <Edit3 className="h-4 w-4" />
+                      </button>
+                      <button className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-rose-700 hover:bg-rose-50" onClick={() => deleteDebt(debt.id)} type="button" title="ลบ">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {filteredDebts.length === 0 && <tr><td className="p-8 text-center text-slate-500" colSpan={10}>{loading ? 'กำลังโหลด...' : 'ไม่มีข้อมูลค้างชำระ'}</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {editing && (
+        <PaymentDebtFormModal
+          initial={editing}
+          onClose={() => setEditing(null)}
+          onSave={saveDebt}
+        />
+      )}
+      {recordingPayment && (
+        <PaymentDebtPaymentModal
+          debt={recordingPayment}
+          onClose={() => setRecordingPayment(null)}
+          onSave={(data) => recordPayment(recordingPayment.id, data)}
+        />
+      )}
+    </section>
+  );
+}
+
+function PaymentDebtFormModal({ initial, onClose, onSave }) {
+  const [form, setForm] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [paymentMode, setPaymentMode] = useState(FINANCIAL_PAYMENT_METHODS.includes(initial.payment_method) ? 'select' : 'custom');
+
+  const update = (k, v) => setForm(c => ({ ...c, [k]: v }));
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError('');
+    if (!form.customer_name) { setError('กรุณากรอกชื่อลูกค้า'); return; }
+    if (!form.total_amount || Number(form.total_amount) <= 0) { setError('กรุณากรอกยอดรวมค้างชำระที่ถูกต้อง'); return; }
+    setSaving(true);
+    try {
+      await onSave(form);
+    } catch (err) {
+      setError(err.message);
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-2xl">
+        <form onSubmit={submit}>
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white/95 backdrop-blur px-6 py-4">
+            <h2 className="text-2xl font-extrabold text-slate-950">{form.id ? 'แก้ไขค้างชำระ' : 'เพิ่มรายการค้างชำระ'}</h2>
+            <button className="rounded-xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50" onClick={onClose} type="button"><X className="h-6 w-6" /></button>
+          </div>
+          <div className="space-y-5 p-6">
+            {error && <p className="rounded-lg bg-rose-50 px-4 py-3 font-bold text-rose-700">{error}</p>}
+            
+            <div className="grid gap-5 md:grid-cols-2">
+              <div>
+                <label className="mb-2 block font-extrabold text-slate-700">ชื่อลูกค้า <span className="text-rose-600">*</span></label>
+                <input required value={form.customer_name} onChange={(e) => update('customer_name', e.target.value)} className="min-h-12 w-full rounded-lg border border-slate-300 px-4 text-lg" placeholder="ชื่อ นามสกุล" />
+              </div>
+              <div>
+                <label className="mb-2 block font-extrabold text-slate-700">เบอร์โทร</label>
+                <input value={form.customer_phone} onChange={(e) => update('customer_phone', e.target.value)} className="min-h-12 w-full rounded-lg border border-slate-300 px-4 text-lg" placeholder="08xxxxxxxx" />
+              </div>
+              <div>
+                <label className="mb-2 block font-extrabold text-slate-700">ทะเบียนรถ/รุ่นรถ</label>
+                <input value={form.vehicle_info} onChange={(e) => update('vehicle_info', e.target.value)} className="min-h-12 w-full rounded-lg border border-slate-300 px-4 text-lg" placeholder="1กข 1234 กทม." />
+              </div>
+              <div>
+                <label className="mb-2 block font-extrabold text-slate-700">ยอดรวมค้างชำระ <span className="text-rose-600">*</span></label>
+                <input required type="number" step="0.01" inputMode="decimal" value={form.total_amount} onChange={(e) => update('total_amount', e.target.value)} className="min-h-12 w-full rounded-lg border border-slate-300 px-4 text-lg font-bold text-rose-700" placeholder="0.00" />
+              </div>
+              {!form.id && (
+                <div>
+                  <label className="mb-2 block font-extrabold text-slate-700">ชำระแล้วเบื้องต้น (ถ้ามี)</label>
+                  <input type="number" step="0.01" inputMode="decimal" value={form.paid_amount} onChange={(e) => update('paid_amount', e.target.value)} className="min-h-12 w-full rounded-lg border border-slate-300 px-4 text-lg font-bold text-emerald-700" placeholder="0.00" />
+                </div>
+              )}
+              <div>
+                <label className="mb-2 block font-extrabold text-slate-700">กำหนดชำระ</label>
+                <input type="date" value={form.due_date} onChange={(e) => update('due_date', e.target.value)} className="min-h-12 w-full rounded-lg border border-slate-300 px-4 text-lg" />
+              </div>
+              <div className="md:col-span-2">
+                <label className="mb-2 block font-extrabold text-slate-700">ลิงก์รูปบิล/สลิปมัดจำ (ถ้ามี)</label>
+                <input value={form.receipt_image_url} onChange={(e) => update('receipt_image_url', e.target.value)} className="min-h-12 w-full rounded-lg border border-slate-300 px-4 text-lg" placeholder="https://..." />
+              </div>
+              <div className="md:col-span-2">
+                <label className="mb-2 block font-extrabold text-slate-700">หมายเหตุ</label>
+                <textarea rows={2} value={form.note} onChange={(e) => update('note', e.target.value)} className="w-full rounded-lg border border-slate-300 p-4 text-lg" placeholder="รายละเอียดเพิ่มเติม" />
+              </div>
+            </div>
+          </div>
+          <div className="sticky bottom-0 flex justify-end gap-3 border-t border-slate-200 bg-white/95 px-6 py-4 backdrop-blur">
+            <button className="min-h-12 rounded-lg border border-slate-300 bg-white px-6 font-extrabold text-slate-700 hover:bg-slate-50" onClick={onClose} type="button" disabled={saving}>ยกเลิก</button>
+            <button className="inline-flex min-h-12 items-center gap-2 rounded-lg bg-blue-700 px-6 font-extrabold text-white hover:bg-blue-800 disabled:opacity-50" type="submit" disabled={saving}>
+              <Save className="h-5 w-5" /> {saving ? 'กำลังบันทึก...' : 'บันทึกข้อมูล'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function PaymentDebtPaymentModal({ debt, onClose, onSave }) {
+  const [form, setForm] = useState({
+    amount: '',
+    payment_method: 'เงินสด',
+    payment_date: dateInputValue(new Date()),
+    note: '',
+    receipt_image_url: ''
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [paymentMode, setPaymentMode] = useState('select');
+
+  const update = (k, v) => setForm(c => ({ ...c, [k]: v }));
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError('');
+    if (!form.amount || Number(form.amount) <= 0) { setError('กรุณากรอกจำนวนเงินให้ถูกต้อง'); return; }
+    if (Number(form.amount) > Number(debt.balance_amount)) { setError('จำนวนเงินชำระมากกว่ายอดค้าง'); return; }
+    setSaving(true);
+    try {
+      await onSave(form);
+    } catch (err) {
+      setError(err.message);
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <form onSubmit={submit}>
+          <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-4">
+            <h2 className="text-2xl font-extrabold text-slate-950">รับชำระเงิน</h2>
+            <button className="rounded-xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-100 bg-white" onClick={onClose} type="button"><X className="h-6 w-6" /></button>
+          </div>
+          <div className="space-y-5 p-6">
+            <div className="rounded-lg bg-blue-50 p-4 border border-blue-100">
+              <p className="font-bold text-slate-700 mb-1">{debt.customer_name}</p>
+              <p className="text-sm text-slate-600 mb-2">{debt.vehicle_info}</p>
+              <div className="flex justify-between items-center text-lg">
+                <span className="font-extrabold text-slate-800">ยอดค้างชำระ:</span>
+                <span className="font-extrabold text-rose-600">฿{money(debt.balance_amount)}</span>
+              </div>
+            </div>
+
+            {error && <p className="rounded-lg bg-rose-50 px-4 py-3 font-bold text-rose-700">{error}</p>}
+            
+            <div>
+              <label className="mb-2 block font-extrabold text-slate-700">จำนวนเงินที่ชำระ <span className="text-rose-600">*</span></label>
+              <input required type="number" step="0.01" inputMode="decimal" value={form.amount} onChange={(e) => update('amount', e.target.value)} className="min-h-12 w-full rounded-lg border border-slate-300 px-4 text-2xl font-extrabold text-emerald-700" placeholder="0.00" />
+            </div>
+            
+            <div>
+              <label className="mb-2 block font-extrabold text-slate-700">ช่องทางชำระเงิน</label>
+              {paymentMode === 'select' ? (
+                <div className="flex flex-col gap-2">
+                  <select value={form.payment_method} onChange={(e) => update('payment_method', e.target.value)} className="min-h-12 w-full rounded-lg border border-slate-300 px-4 text-lg">
+                    {FINANCIAL_PAYMENT_METHODS.map((method) => <option key={method} value={method}>{method}</option>)}
+                  </select>
+                  <button className="text-sm font-bold text-blue-600 text-left hover:underline" onClick={() => { setPaymentMode('custom'); update('payment_method', ''); }} type="button">+ ระบุช่องทางอื่น</button>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <input autoFocus value={form.payment_method} onChange={(e) => update('payment_method', e.target.value)} className="min-h-12 w-full rounded-lg border border-slate-300 px-4 text-lg" placeholder="ระบุช่องทางชำระเงิน" />
+                  <button className="text-sm font-bold text-slate-500 text-left hover:underline" onClick={() => { setPaymentMode('select'); update('payment_method', 'เงินสด'); }} type="button">กลับไปเลือกช่องทาง</button>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="mb-2 block font-extrabold text-slate-700">วันที่ชำระ</label>
+              <input type="date" value={form.payment_date} onChange={(e) => update('payment_date', e.target.value)} className="min-h-12 w-full rounded-lg border border-slate-300 px-4 text-lg" />
+            </div>
+
+            <div>
+              <label className="mb-2 block font-extrabold text-slate-700">ลิงก์รูปบิล (ถ้ามี)</label>
+              <input value={form.receipt_image_url} onChange={(e) => update('receipt_image_url', e.target.value)} className="min-h-12 w-full rounded-lg border border-slate-300 px-4 text-lg" placeholder="https://..." />
+            </div>
+
+            <div>
+              <label className="mb-2 block font-extrabold text-slate-700">หมายเหตุ</label>
+              <input value={form.note} onChange={(e) => update('note', e.target.value)} className="min-h-12 w-full rounded-lg border border-slate-300 px-4 text-lg" placeholder="เช่น โอนเข้าบัญชี xxx" />
+            </div>
+          </div>
+          <div className="flex justify-end gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4">
+            <button className="min-h-12 rounded-lg border border-slate-300 bg-white px-6 font-extrabold text-slate-700 hover:bg-slate-100" onClick={onClose} type="button" disabled={saving}>ยกเลิก</button>
+            <button className="inline-flex min-h-12 items-center gap-2 rounded-lg bg-emerald-600 px-6 font-extrabold text-white hover:bg-emerald-700 disabled:opacity-50" type="submit" disabled={saving}>
+              <CheckCircle2 className="h-5 w-5" /> {saving ? 'กำลังบันทึก...' : 'ยืนยันรับชำระ'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function JbmProAutoApp({ mode = 'home' }) {
   if (mode === 'admin') return <AdminApp />;
   if (mode === 'status') return <StatusPage />;
   return <HomePage />;
 }
-

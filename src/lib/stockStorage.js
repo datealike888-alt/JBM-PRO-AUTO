@@ -304,19 +304,25 @@ export function normalizeStockCategoryRow(row) {
 
 export function normalizeStockProductInput(body = {}) {
   const imageUrl = cleanImageUrl(body.image_url);
+  const productCode = cleanNullable(body.code ?? body.product_code, 100);
+  const productName = cleanString(body.name ?? body.product_name, 255);
+  const partNo = cleanNullable(body.part_no ?? body.partNo ?? body.product_number, 100);
+  const brand = cleanNullable(body.brand ?? body.product_brand, 100);
+  const carModels = cleanNullable(body.car_models ?? body.carModels ?? body.car_model, 255);
+  const location = cleanNullable(body.location ?? body.storage_location, 255);
   return {
     id: cleanString(body.id, 64) || `stk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    productCode: cleanNullable(body.code || body.product_code, 100),
-    productName: cleanString(body.name || body.product_name, 255),
-    productNumber: cleanNullable(body.part_no || body.product_number, 100),
+    productCode,
+    productName,
+    productNumber: partNo,
     categoryId: cleanNullable(body.category_id, 64),
     categoryName: cleanString(body.category || body.category_name, 255),
-    productBrand: cleanNullable(body.brand || body.product_brand, 100),
+    productBrand: brand,
     carBrand: cleanNullable(body.car_brand, 100),
-    carModel: cleanNullable(body.car_models || body.car_model, 100),
+    carModel: carModels,
     engineNumber: cleanNullable(body.engine_number, 100),
     price: Math.max(0, normalizeNumber(body.price, 0)),
-    storageLocation: cleanNullable(body.location || body.storage_location, 255),
+    storageLocation: location,
     quantity: Math.max(0, Math.trunc(normalizeNumber(body.quantity, 0))),
     reorderPoint: Math.max(0, Math.trunc(normalizeNumber(body.reorder_point, 0))),
     supplier: cleanNullable(body.supplier, 255),
@@ -327,26 +333,34 @@ export function normalizeStockProductInput(body = {}) {
 }
 
 export function normalizeStockProductRow(row) {
+  const productCode = row.code || row.product_code || '';
+  const productName = row.name || row.product_name || '';
+  const partNo = row.part_no || row.product_number || '';
+  const categoryName = row.category || row.category_name || '';
+  const brand = row.brand || row.product_brand || '';
+  const carModels = row.car_models || row.compatible_models || row.car_model || '';
+  const location = row.location || row.storage_location || '';
   return {
     id: row.id,
-    code: row.product_code || '',
-    name: row.product_name || '',
-    part_no: row.product_number || '',
-    category: row.category_name || '',
-    brand: row.product_brand || '',
-    car_models: row.car_model || '',
-    location: row.storage_location || '',
-    product_code: row.product_code || '',
-    product_name: row.product_name || '',
-    product_number: row.product_number || '',
+    code: productCode,
+    name: productName,
+    part_no: partNo,
+    category: categoryName,
+    brand,
+    car_models: carModels,
+    carModels,
+    location,
+    product_code: productCode,
+    product_name: productName,
+    product_number: partNo,
     category_id: row.category_id || '',
-    category_name: row.category_name || '',
-    product_brand: row.product_brand || '',
+    category_name: categoryName,
+    product_brand: brand,
     car_brand: row.car_brand || '',
-    car_model: row.car_model || '',
+    car_model: carModels,
     engine_number: row.engine_number || '',
     price: Number(row.price || 0),
-    storage_location: row.storage_location || '',
+    storage_location: location,
     quantity: Number(row.quantity || 0),
     reorder_point: Number(row.reorder_point || 0),
     supplier: row.supplier || '',

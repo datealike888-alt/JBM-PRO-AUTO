@@ -57,6 +57,24 @@ function cleanReceiptUrl(value) {
   }
 }
 
+function cleanReceiptImages(value) {
+  if (!value) return null;
+  let parsed = value;
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      const clean = cleanReceiptUrl(value);
+      return clean && !clean.error ? JSON.stringify([clean]) : null;
+    }
+  }
+  if (Array.isArray(parsed)) {
+    const validUrls = parsed.map(u => cleanReceiptUrl(u)).filter(u => u && !u.error);
+    return validUrls.length > 0 ? JSON.stringify(validUrls) : null;
+  }
+  return null;
+}
+
 async function ensureColumn(sql) {
   try {
     await query(sql);
@@ -98,6 +116,7 @@ export async function ensurePaymentDebtTables() {
       description TEXT NULL,
       note TEXT NULL,
       receipt_image_url TEXT NULL,
+      receipt_images TEXT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       INDEX idx_payment_debts_status (status),
@@ -116,6 +135,7 @@ export async function ensurePaymentDebtTables() {
       payment_method VARCHAR(100) NULL,
       note TEXT NULL,
       receipt_image_url TEXT NULL,
+      receipt_images TEXT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_payment_debt_payments_debt_id (debt_id),
       INDEX idx_payment_debt_payments_date (payment_date),
@@ -128,7 +148,9 @@ export async function ensurePaymentDebtTables() {
   await ensureColumn('ALTER TABLE payment_debts ADD COLUMN phone VARCHAR(64) NULL');
   await ensureColumn('ALTER TABLE payment_debts ADD COLUMN case_reference VARCHAR(255) NULL');
   await ensureColumn('ALTER TABLE payment_debts ADD COLUMN receipt_image_url TEXT NULL');
+  await ensureColumn('ALTER TABLE payment_debts ADD COLUMN receipt_images TEXT NULL');
   await ensureColumn('ALTER TABLE payment_debt_payments ADD COLUMN receipt_image_url TEXT NULL');
+  await ensureColumn('ALTER TABLE payment_debt_payments ADD COLUMN receipt_images TEXT NULL');
   await ensureIndex('CREATE INDEX idx_payment_debts_status ON payment_debts(status)');
   await ensureIndex('CREATE INDEX idx_payment_debts_due_date ON payment_debts(due_date)');
 }
@@ -139,6 +161,7 @@ export function normalizePaymentDebtInput(body = {}) {
   const balanceAmount = Math.max(0, Number((totalAmount - paidAmount).toFixed(2)));
   const receiptImageUrl = cleanReceiptUrl(body.receipt_image_url || body.receiptUrl || body.receipt_url);
   if (receiptImageUrl && typeof receiptImageUrl === 'object' && receiptImageUrl.error) return { error: receiptImageUrl.error };
+  const receiptImages = cleanReceiptImages(body.receipt_images || body.receiptImages);
 
   return {
     id: cleanString(body.id, 64) || `debt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -154,6 +177,7 @@ export function normalizePaymentDebtInput(body = {}) {
     description: cleanNullable(body.description, 5000),
     note: cleanNullable(body.note, 5000),
     receipt_image_url: receiptImageUrl,
+    receipt_images: receiptImages,
   };
 }
 
@@ -161,6 +185,8 @@ export function normalizeDebtPaymentInput(body = {}, debtId = '') {
   const amount = normalizeMoney(body.amount, 0);
   const receiptImageUrl = cleanReceiptUrl(body.receipt_image_url || body.receiptUrl || body.receipt_url);
   if (receiptImageUrl && typeof receiptImageUrl === 'object' && receiptImageUrl.error) return { error: receiptImageUrl.error };
+  const receiptImages = cleanReceiptImages(body.receipt_images || body.receiptImages);
+
   return {
     id: cleanString(body.id, 64) || `debt-pay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     debt_id: cleanString(body.debt_id || body.debtId || debtId, 64),
@@ -170,10 +196,18 @@ export function normalizeDebtPaymentInput(body = {}, debtId = '') {
     payment_method: cleanNullable(body.payment_method || body.paymentMethod, 100),
     note: cleanNullable(body.note, 5000),
     receipt_image_url: receiptImageUrl,
+    receipt_images: receiptImages,
   };
 }
 
 export function normalizePaymentDebtRow(row = {}, payments = []) {
+  let parsedImages = [];
+  try {
+    if (row.receipt_images) parsedImages = JSON.parse(row.receipt_images);
+  } catch (e) {
+    parsedImages = [];
+  }
+
   return {
     id: row.id,
     customer_name: row.customer_name || '',
@@ -188,6 +222,7 @@ export function normalizePaymentDebtRow(row = {}, payments = []) {
     description: row.description || '',
     note: row.note || '',
     receipt_image_url: row.receipt_image_url || '',
+    receipt_images: parsedImages,
     payments,
     created_at: row.created_at || null,
     updated_at: row.updated_at || null,
@@ -195,6 +230,12 @@ export function normalizePaymentDebtRow(row = {}, payments = []) {
 }
 
 export function normalizeDebtPaymentRow(row = {}) {
+  let parsedImages = [];
+  try {
+    if (row.receipt_images) parsedImages = JSON.parse(row.receipt_images);
+  } catch (e) {
+    parsedImages = [];
+  }
   return {
     id: row.id,
     debt_id: row.debt_id,
@@ -204,6 +245,7 @@ export function normalizeDebtPaymentRow(row = {}) {
     payment_method: row.payment_method || '',
     note: row.note || '',
     receipt_image_url: row.receipt_image_url || '',
+    receipt_images: parsedImages,
     created_at: row.created_at || null,
   };
 }
@@ -267,8 +309,8 @@ export async function savePaymentDebt(body = {}) {
   await query(
     `INSERT INTO payment_debts (
       id, customer_name, phone, case_reference, total_amount, paid_amount, balance_amount, status,
-      due_date, payment_method, description, note, receipt_image_url
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      due_date, payment_method, description, note, receipt_image_url, receipt_images
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON DUPLICATE KEY UPDATE
       customer_name = VALUES(customer_name),
       phone = VALUES(phone),
@@ -281,7 +323,8 @@ export async function savePaymentDebt(body = {}) {
       payment_method = VALUES(payment_method),
       description = VALUES(description),
       note = VALUES(note),
-      receipt_image_url = VALUES(receipt_image_url)`,
+      receipt_image_url = VALUES(receipt_image_url),
+      receipt_images = VALUES(receipt_images)`,
     [
       debt.id,
       debt.customer_name,
@@ -296,6 +339,7 @@ export async function savePaymentDebt(body = {}) {
       debt.description,
       debt.note,
       debt.receipt_image_url,
+      debt.receipt_images,
     ]
   );
   return getPaymentDebtById(debt.id);
@@ -315,8 +359,8 @@ export async function addDebtPayment(debtId, body = {}) {
 
   await query(
     `INSERT INTO payment_debt_payments (
-      id, debt_id, payment_date, payment_time, amount, payment_method, note, receipt_image_url
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      id, debt_id, payment_date, payment_time, amount, payment_method, note, receipt_image_url, receipt_images
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       payment.id,
       payment.debt_id,
@@ -326,6 +370,7 @@ export async function addDebtPayment(debtId, body = {}) {
       payment.payment_method,
       payment.note,
       payment.receipt_image_url,
+      payment.receipt_images,
     ]
   );
 

@@ -5805,6 +5805,7 @@ function FinancialAdmin({ headers, onOpenPaymentDebts }) {
           saving={saving}
           onClose={() => setEditing(null)}
           onSave={saveTransaction}
+          headers={headers}
         />
       )}
     </section>
@@ -6069,7 +6070,7 @@ function PaymentDebtAdmin({ headers, onBack }) {
     if (!window.confirm('ยืนยันการลบรายการค้างชำระนี้? หากลบแล้วจะไม่สามารถกู้คืนได้')) return;
     setError('');
     try {
-      const response = await fetch(`${PAYMENT_DEBTS_API_URL}?id=${encodeURIComponent(id)}`, { method: 'DELETE', headers: headers() });
+      const response = await fetch(`${PAYMENT_DEBTS_API_URL}/${encodeURIComponent(id)}`, { method: 'DELETE', headers: headers() });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.error || 'ลบรายการไม่สำเร็จ');
       await loadDebts();
@@ -6241,6 +6242,7 @@ function PaymentDebtAdmin({ headers, onBack }) {
           initial={editing}
           onClose={() => setEditing(null)}
           onSave={saveDebt}
+          headers={headers}
         />
       )}
       {recordingPayment && (
@@ -6248,19 +6250,47 @@ function PaymentDebtAdmin({ headers, onBack }) {
           debt={recordingPayment}
           onClose={() => setRecordingPayment(null)}
           onSave={(data) => recordPayment(recordingPayment.id, data)}
+          headers={headers}
         />
       )}
     </section>
   );
 }
 
-function PaymentDebtFormModal({ initial, onClose, onSave }) {
+function PaymentDebtFormModal({ initial, onClose, onSave, headers }) {
   const [form, setForm] = useState(initial);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [paymentMode, setPaymentMode] = useState(FINANCIAL_PAYMENT_METHODS.includes(initial.payment_method) ? 'select' : 'custom');
 
   const update = (k, v) => setForm(c => ({ ...c, [k]: v }));
+
+  const handleUpload = async (e) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setSaving(true);
+    setError('');
+    try {
+      const urls = [];
+      for (const file of files) {
+        const fd = new FormData();
+        fd.append('receipt', file);
+        fd.append('scope', 'payment-debt');
+        const res = await fetch('/api/payment-debts/upload-receipt', { method: 'POST', body: fd, headers: headers() });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Upload failed');
+        urls.push(data.url);
+      }
+      setForm(c => ({
+        ...c,
+        receipt_images: [...(c.receipt_images || []), ...urls]
+      }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -6315,8 +6345,28 @@ function PaymentDebtFormModal({ initial, onClose, onSave }) {
                 <input type="date" value={form.due_date} onChange={(e) => update('due_date', e.target.value)} className="min-h-12 w-full rounded-lg border border-slate-300 px-4 text-lg" />
               </div>
               <div className="md:col-span-2">
-                <label className="mb-2 block font-extrabold text-slate-700">ลิงก์รูปบิล/สลิปมัดจำ (ถ้ามี)</label>
-                <input value={form.receipt_image_url} onChange={(e) => update('receipt_image_url', e.target.value)} className="min-h-12 w-full rounded-lg border border-slate-300 px-4 text-lg" placeholder="https://..." />
+                <label className="mb-2 block font-extrabold text-slate-700">แนบรูปใบเสร็จ/สลิปมัดจำ (ถ้ามี)</label>
+                <div className="flex flex-col gap-3">
+                  <input type="file" multiple accept="image/*" onChange={handleUpload} disabled={saving} className="block w-full text-sm text-slate-500 file:mr-4 file:rounded-full file:border-0 file:bg-blue-50 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100" />
+                  {form.receipt_images && form.receipt_images.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {form.receipt_images.map((url, idx) => (
+                        <div key={idx} className="relative group">
+                          <img src={url} alt="Receipt" className="h-20 w-20 object-cover rounded-lg border border-slate-200" />
+                          <button type="button" onClick={() => update('receipt_images', form.receipt_images.filter((_, i) => i !== idx))} className="absolute -top-2 -right-2 h-6 w-6 bg-rose-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><X className="h-4 w-4" /></button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {form.receipt_image_url && (!form.receipt_images || form.receipt_images.length === 0) && (
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      <div className="relative group">
+                        <img src={form.receipt_image_url} alt="Receipt" className="h-20 w-20 object-cover rounded-lg border border-slate-200" />
+                        <button type="button" onClick={() => update('receipt_image_url', '')} className="absolute -top-2 -right-2 h-6 w-6 bg-rose-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><X className="h-4 w-4" /></button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="md:col-span-2">
                 <label className="mb-2 block font-extrabold text-slate-700">หมายเหตุ</label>
@@ -6336,19 +6386,47 @@ function PaymentDebtFormModal({ initial, onClose, onSave }) {
   );
 }
 
-function PaymentDebtPaymentModal({ debt, onClose, onSave }) {
+function PaymentDebtPaymentModal({ debt, onClose, onSave, headers }) {
   const [form, setForm] = useState({
     amount: '',
     payment_method: 'เงินสด',
     payment_date: dateInputValue(new Date()),
     note: '',
-    receipt_image_url: ''
+    receipt_image_url: '',
+    receipt_images: []
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [paymentMode, setPaymentMode] = useState('select');
 
   const update = (k, v) => setForm(c => ({ ...c, [k]: v }));
+
+  const handleUpload = async (e) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setSaving(true);
+    setError('');
+    try {
+      const urls = [];
+      for (const file of files) {
+        const fd = new FormData();
+        fd.append('receipt', file);
+        fd.append('scope', 'payment-debt-receipt');
+        const res = await fetch('/api/payment-debts/upload-receipt', { method: 'POST', body: fd, headers: headers() });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Upload failed');
+        urls.push(data.url);
+      }
+      setForm(c => ({
+        ...c,
+        receipt_images: [...(c.receipt_images || []), ...urls]
+      }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -6412,8 +6490,28 @@ function PaymentDebtPaymentModal({ debt, onClose, onSave }) {
             </div>
 
             <div>
-              <label className="mb-2 block font-extrabold text-slate-700">ลิงก์รูปบิล (ถ้ามี)</label>
-              <input value={form.receipt_image_url} onChange={(e) => update('receipt_image_url', e.target.value)} className="min-h-12 w-full rounded-lg border border-slate-300 px-4 text-lg" placeholder="https://..." />
+              <label className="mb-2 block font-extrabold text-slate-700">แนบรูปใบเสร็จ/สลิป (ถ้ามี)</label>
+              <div className="flex flex-col gap-3">
+                <input type="file" multiple accept="image/*" onChange={handleUpload} disabled={saving} className="block w-full text-sm text-slate-500 file:mr-4 file:rounded-full file:border-0 file:bg-blue-50 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100" />
+                {form.receipt_images && form.receipt_images.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {form.receipt_images.map((url, idx) => (
+                      <div key={idx} className="relative group">
+                        <img src={url} alt="Receipt" className="h-20 w-20 object-cover rounded-lg border border-slate-200" />
+                        <button type="button" onClick={() => update('receipt_images', form.receipt_images.filter((_, i) => i !== idx))} className="absolute -top-2 -right-2 h-6 w-6 bg-rose-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><X className="h-4 w-4" /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {form.receipt_image_url && (!form.receipt_images || form.receipt_images.length === 0) && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    <div className="relative group">
+                      <img src={form.receipt_image_url} alt="Receipt" className="h-20 w-20 object-cover rounded-lg border border-slate-200" />
+                      <button type="button" onClick={() => update('receipt_image_url', '')} className="absolute -top-2 -right-2 h-6 w-6 bg-rose-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><X className="h-4 w-4" /></button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div>

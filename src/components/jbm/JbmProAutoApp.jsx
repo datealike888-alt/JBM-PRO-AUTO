@@ -3648,7 +3648,7 @@ function ShiftDutyPage() {
       )}
 
       {employeeSubTab === 'employees' && (
-      <div className="grid gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
+      <div className="grid gap-5 xl:grid-cols-[340px_minmax(0,1fr)]">
         <form onSubmit={saveEmployee} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="text-2xl font-extrabold text-slate-950">{isEditingEmployee ? 'แก้ไขข้อมูลพนักงาน' : 'เพิ่มพนักงานใหม่'}</h2>
           <div className="mt-4 grid gap-3">
@@ -3856,7 +3856,7 @@ function ShiftDutyPage() {
               <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 font-extrabold text-rose-700 hover:bg-rose-100" onClick={clearAttendanceMonth} type="button"><Trash2 className="h-4 w-4" />ล้าง</button>
             </div>
           </div>
-          <div className="mt-4 grid gap-2 md:grid-cols-3 xl:grid-cols-6">
+          <div className="mt-6 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
             <select value={historyFilters.day} onChange={(event) => setHistoryFilters({ ...historyFilters, day: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><DayOptions /></select>
             <select value={historyFilters.month} onChange={(event) => setHistoryFilters({ ...historyFilters, month: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><option value="all">ทุกเดือน</option><MonthOptions /></select>
             <select value={historyFilters.year} onChange={(event) => setHistoryFilters({ ...historyFilters, year: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><option value="all">ทุกปี</option>{years.map((year) => <option key={year} value={year}>{Number(year) + 543}</option>)}</select>
@@ -4083,7 +4083,7 @@ function AttendanceTable({ rows, onEdit, onDelete }) {
               </td>
             </tr>
           ))}
-          {rows.length === 0 && <tr><td className="p-8 text-center text-slate-500" colSpan={13}>ยังไม่มีประวัติตอกเวลา</td></tr>}
+          {rows.length === 0 && <tr><td className="px-4 py-8 text-center text-slate-500" colSpan={13}>ยังไม่มีประวัติตอกเวลา</td></tr>}
         </tbody>
       </table>
     </div>

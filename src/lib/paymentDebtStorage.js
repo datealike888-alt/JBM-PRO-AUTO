@@ -3,6 +3,21 @@ import { query } from './db';
 export const DEBT_STATUS_PENDING = 'ค้างจ่าย';
 export const DEBT_STATUS_PARTIAL = 'ชำระบางส่วน';
 export const DEBT_STATUS_PAID = 'ชำระครบแล้ว';
+export const DEBT_STATUS_WAITING = 'รอชำระ';
+export const DEBT_STATUS_OVERDUE = 'เกินกำหนด';
+export const DEBT_STATUS_CANCELLED = 'ยกเลิก';
+const DEBT_STATUS_VALUES = new Set([
+  DEBT_STATUS_PENDING,
+  DEBT_STATUS_PARTIAL,
+  DEBT_STATUS_PAID,
+  DEBT_STATUS_WAITING,
+  DEBT_STATUS_OVERDUE,
+  DEBT_STATUS_CANCELLED,
+]);
+const DEBT_STATUS_ALIASES = new Map([
+  ['ชำระแล้วบางส่วน', DEBT_STATUS_PARTIAL],
+  ['ค้างชำระ', DEBT_STATUS_PENDING],
+]);
 
 function cleanString(value, maxLength = 255) {
   if (value === null || value === undefined) return '';
@@ -100,6 +115,13 @@ export function calculateDebtStatus(totalAmount, paidAmount) {
   return DEBT_STATUS_PENDING;
 }
 
+export function normalizeDebtStatus(status, totalAmount, paidAmount) {
+  const text = cleanString(status, 64);
+  if (DEBT_STATUS_ALIASES.has(text)) return DEBT_STATUS_ALIASES.get(text);
+  if (DEBT_STATUS_VALUES.has(text)) return text;
+  return calculateDebtStatus(totalAmount, paidAmount);
+}
+
 export async function ensurePaymentDebtTables() {
   await query(`
     CREATE TABLE IF NOT EXISTS payment_debts (
@@ -166,12 +188,12 @@ export function normalizePaymentDebtInput(body = {}) {
   return {
     id: cleanString(body.id, 64) || `debt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     customer_name: cleanString(body.customer_name || body.customerName, 255),
-    phone: cleanNullable(body.phone, 64),
-    case_reference: cleanNullable(body.case_reference || body.caseReference, 255),
+    phone: cleanNullable(body.phone || body.customer_phone || body.customerPhone, 64),
+    case_reference: cleanNullable(body.case_reference || body.caseReference || body.vehicle_info || body.vehicleInfo, 255),
     total_amount: totalAmount,
     paid_amount: paidAmount,
     balance_amount: balanceAmount,
-    status: calculateDebtStatus(totalAmount, paidAmount),
+    status: normalizeDebtStatus(body.status, totalAmount, paidAmount),
     due_date: cleanDate(body.due_date || body.dueDate),
     payment_method: cleanNullable(body.payment_method || body.paymentMethod, 100),
     description: cleanNullable(body.description, 5000),
@@ -212,11 +234,13 @@ export function normalizePaymentDebtRow(row = {}, payments = []) {
     id: row.id,
     customer_name: row.customer_name || '',
     phone: row.phone || '',
+    customer_phone: row.phone || '',
     case_reference: row.case_reference || '',
+    vehicle_info: row.case_reference || '',
     total_amount: Number(row.total_amount || 0),
     paid_amount: Number(row.paid_amount || 0),
     balance_amount: Number(row.balance_amount || 0),
-    status: row.status || calculateDebtStatus(row.total_amount, row.paid_amount),
+    status: normalizeDebtStatus(row.status, row.total_amount, row.paid_amount),
     due_date: formatSqlDate(row.due_date),
     payment_method: row.payment_method || '',
     description: row.description || '',
@@ -382,6 +406,47 @@ export async function addDebtPayment(debtId, body = {}) {
   );
 
   return getPaymentDebtById(debtId);
+}
+
+export async function recalculatePaymentDebtTotals(debtId) {
+  await ensurePaymentDebtTables();
+  const rows = await query('SELECT total_amount FROM payment_debts WHERE id = ? LIMIT 1', [debtId]);
+  if (!rows.length) return { error: 'Payment debt not found' };
+  const totalAmount = normalizeMoney(rows[0].total_amount, 0);
+  const sumRows = await query(
+    'SELECT COALESCE(SUM(amount), 0) AS paid_amount FROM payment_debt_payments WHERE debt_id = ?',
+    [debtId]
+  );
+  const paidAmount = normalizeMoney(sumRows[0]?.paid_amount, 0);
+  const balanceAmount = Math.max(0, Number((totalAmount - paidAmount).toFixed(2)));
+  const status = calculateDebtStatus(totalAmount, paidAmount);
+
+  await query(
+    `UPDATE payment_debts
+     SET paid_amount = ?, balance_amount = ?, status = ?
+     WHERE id = ?`,
+    [paidAmount, balanceAmount, status, debtId]
+  );
+
+  return getPaymentDebtById(debtId);
+}
+
+export async function deleteDebtPaymentById(debtId, paymentId) {
+  await ensurePaymentDebtTables();
+  const rows = await query(
+    'SELECT * FROM payment_debt_payments WHERE id = ? AND debt_id = ? LIMIT 1',
+    [paymentId, debtId]
+  );
+  if (!rows.length) return { error: 'Payment not found' };
+  const payment = normalizeDebtPaymentRow(rows[0]);
+
+  await query(
+    'DELETE FROM payment_debt_payments WHERE id = ? AND debt_id = ?',
+    [paymentId, debtId]
+  );
+  const debt = await recalculatePaymentDebtTotals(debtId);
+  if (debt.error) return debt;
+  return { payment, debt };
 }
 
 export { cleanString };

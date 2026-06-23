@@ -662,6 +662,7 @@ function normalizeFinancialTransaction(transaction = {}) {
     payment_method: transaction.payment_method || 'เงินสด',
     description: transaction.description || '',
     amount: transaction.amount ?? '',
+    receipt_image_url: transaction.receipt_image_url || '',
   };
 }
 
@@ -669,27 +670,66 @@ function financialDateKey(transaction) {
   return String(transaction.date || '').slice(0, 10);
 }
 
+function normalizePaymentDebtStatus(status) {
+  const text = String(status || '').trim();
+  if (text === 'ชำระแล้วบางส่วน') return 'ชำระบางส่วน';
+  if (text === 'ค้างชำระ') return 'ค้างจ่าย';
+  return text || 'ค้างจ่าย';
+}
+
+function paymentDebtStatusClass(status) {
+  const normalized = normalizePaymentDebtStatus(status);
+  if (normalized === 'ชำระครบแล้ว') return 'bg-emerald-100 text-emerald-800';
+  if (normalized === 'ชำระบางส่วน') return 'bg-amber-100 text-amber-800';
+  if (normalized === 'รอชำระ') return 'bg-slate-100 text-slate-700';
+  if (normalized === 'เกินกำหนด') return 'bg-red-700 text-white';
+  if (normalized === 'ยกเลิก') return 'bg-slate-700 text-white';
+  return 'bg-rose-100 text-rose-800';
+}
+
+function receiptImagesFor(item = {}) {
+  const urls = [];
+  if (item.receipt_image_url) urls.push(item.receipt_image_url);
+  let images = item.receipt_images || item.receiptImages || [];
+  if (typeof images === 'string') {
+    try {
+      images = JSON.parse(images);
+    } catch {
+      images = images ? [images] : [];
+    }
+  }
+  if (Array.isArray(images)) urls.push(...images.filter(Boolean));
+  return Array.from(new Set(urls));
+}
+
 function normalizePaymentDebt(debt = {}) {
+  const payments = Array.isArray(debt.payments) ? debt.payments : [];
   return {
     ...emptyPaymentDebt,
     ...debt,
     id: debt.id || '',
     customer_name: debt.customer_name || '',
-    customer_phone: debt.customer_phone || '',
-    vehicle_info: debt.vehicle_info || '',
+    customer_phone: debt.customer_phone || debt.phone || '',
+    vehicle_info: debt.vehicle_info || debt.case_reference || '',
     total_amount: debt.total_amount ?? '',
     paid_amount: debt.paid_amount ?? '0',
     balance_amount: debt.balance_amount ?? '',
     due_date: String(debt.due_date || '').slice(0, 10),
-    status: debt.status || 'ค้างจ่าย',
+    status: normalizePaymentDebtStatus(debt.status),
     payment_method: debt.payment_method || 'เงินสด',
     note: debt.note || '',
     receipt_image_url: debt.receipt_image_url || '',
+    receipt_images: receiptImagesFor(debt),
+    payments: payments.map((payment) => ({
+      ...payment,
+      payment_date: String(payment.payment_date || payment.date || '').slice(0, 10),
+      payment_time: String(payment.payment_time || payment.time || '').slice(0, 5),
+      amount: payment.amount ?? 0,
+      payment_method: payment.payment_method || '',
+      note: payment.note || '',
+      receipt_images: receiptImagesFor(payment),
+    })),
   };
-}
-
-function paymentDebtDateKey(debt) {
-  return String(debt.due_date || '').slice(0, 10);
 }
 
 function normalizeVehicle(vehicle = {}) {
@@ -2396,6 +2436,14 @@ function StockProductPage({ products, categories, movements, movementError, onAd
                           <div>
                             <p className="font-extrabold text-slate-950">{product.name}</p>
                             <p className="text-base font-bold text-slate-500">{product.brand} | {product.supplier || '-'}</p>
+                            {product.image_url ? (
+                              <a className="mt-1 inline-flex items-center gap-1 text-sm font-extrabold text-blue-700 hover:text-blue-900" href={product.image_url} target="_blank" rel="noopener noreferrer">
+                                <Eye className="h-4 w-4" />
+                                ดูรูป
+                              </a>
+                            ) : (
+                              <p className="mt-1 text-sm font-bold text-slate-400">ไม่มีรูป</p>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -2628,8 +2676,9 @@ function StockProductImage({ product, className }) {
     );
   }
   return (
-    <div className={`flex shrink-0 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-100 text-slate-400 ${className}`}>
+    <div className={`flex shrink-0 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-slate-300 bg-slate-100 text-slate-400 ${className}`}>
       <Package className="h-7 w-7" />
+      <span className="text-xs font-bold">ไม่มีรูป</span>
     </div>
   );
 }
@@ -2752,6 +2801,14 @@ function StockProductDetail({ product, onClose }) {
         <StockModalHeader title="รายละเอียดสินค้า" onClose={onClose} />
         <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
           <StockProductImage product={product} className="h-44 w-full" />
+          {product.image_url ? (
+            <a className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-lg bg-blue-700 px-4 font-extrabold text-white hover:bg-blue-800" href={product.image_url} target="_blank" rel="noopener noreferrer">
+              <Eye className="h-5 w-5" />
+              ดูรูป
+            </a>
+          ) : (
+            <p className="mt-3 text-center font-bold text-slate-500">ไม่มีรูป</p>
+          )}
         </div>
         <div className="grid gap-3 md:grid-cols-2">{rows.map(([label, value]) => <Info key={label} label={label} value={value || '-'} />)}</div>
       </div>
@@ -4068,7 +4125,7 @@ function Dashboard({ stats, vehicles, stockProducts, paymentDebts = [], statusFi
     { level: 'yellow', title: 'รถรออะไหล่ในร้าน', value: `${waitingPartsVehicles.length} คัน` },
     { level: 'red', title: 'สินค้าในสต็อกหมดคลัง', value: `${outOfStockProducts.length} รายการ` },
     { level: 'yellow', title: 'สินค้าในสต็อกใกล้หมด', value: `${lowStockProducts.length} รายการ` },
-    { level: 'red', title: 'ลูกค้าค้างชำระ', value: `${unpaidDebts.length} คน (ยอด ฿${money(totalUnpaidAmount)})` },
+    { level: 'yellow', title: 'ลูกค้าค้างชำระ', value: `${unpaidDebts.length} คน (ยอด ฿${money(totalUnpaidAmount)})` },
   ];
 
   return (
@@ -5746,7 +5803,7 @@ function FinancialAdmin({ headers, onOpenPaymentDebts }) {
         {error && <p className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-lg font-bold text-rose-700">{error}</p>}
 
         <div className="max-w-full overflow-x-auto rounded-lg border border-slate-200">
-          <table className="w-full min-w-[760px] text-left text-base md:min-w-[980px] md:text-lg">
+          <table className="w-full min-w-[840px] text-left text-base md:min-w-[1060px] md:text-lg">
             <thead className="bg-slate-100 text-base font-extrabold text-slate-600">
               <tr>
                 <th className="p-4">วันที่</th>
@@ -5755,6 +5812,7 @@ function FinancialAdmin({ headers, onOpenPaymentDebts }) {
                 <th className="p-4">ช่องทาง</th>
                 <th className="p-4">รายละเอียด</th>
                 <th className="p-4 text-right">จำนวนเงิน</th>
+                <th className="p-4 text-center">บิล</th>
                 <th className="p-4 text-right">จัดการ</th>
               </tr>
             </thead>
@@ -5767,6 +5825,14 @@ function FinancialAdmin({ headers, onOpenPaymentDebts }) {
                   <td className="p-4"><PaymentBadge method={transaction.payment_method} /></td>
                   <td className="p-4 font-bold text-slate-800">{transaction.description || '-'}</td>
                   <td className={`p-4 text-right font-extrabold ${transaction.type === 'income' ? 'text-emerald-700' : 'text-rose-700'}`}>฿{money(transaction.amount)}</td>
+                  <td className="p-4 text-center">
+                    {transaction.receipt_image_url ? (
+                      <a className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm font-extrabold text-blue-700 hover:bg-blue-100" href={transaction.receipt_image_url} target="_blank" rel="noopener noreferrer">
+                        <Eye className="h-4 w-4" />
+                        ดูรูป
+                      </a>
+                    ) : '-'}
+                  </td>
                   <td className="p-4">
                     <div className="flex justify-end gap-2">
                       <button className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 text-blue-700 hover:bg-blue-50" onClick={() => setEditing(normalizeFinancialTransaction(transaction))} type="button" title="แก้ไข">
@@ -5779,7 +5845,7 @@ function FinancialAdmin({ headers, onOpenPaymentDebts }) {
                   </td>
                 </tr>
               ))}
-              {transactions.length === 0 && <tr><td className="p-8 text-center text-slate-500" colSpan={7}>{loading ? 'กำลังโหลดข้อมูลการเงิน' : 'ไม่พบรายการธุรกรรม'}</td></tr>}
+              {transactions.length === 0 && <tr><td className="p-8 text-center text-slate-500" colSpan={8}>{loading ? 'กำลังโหลดข้อมูลการเงิน' : 'ไม่พบรายการธุรกรรม'}</td></tr>}
             </tbody>
           </table>
         </div>
@@ -5855,12 +5921,38 @@ function PaymentBadge({ method }) {
   return <span className="inline-flex rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-base font-extrabold text-blue-800">{method || '-'}</span>;
 }
 
-function FinancialFormModal({ initial, saving, onClose, onSave }) {
+function FinancialFormModal({ initial, saving, onClose, onSave, headers }) {
   const [form, setForm] = useState(() => normalizeFinancialTransaction(initial));
   const [paymentMode, setPaymentMode] = useState(FINANCIAL_PAYMENT_METHODS.includes(initial.payment_method) ? 'select' : 'custom');
   const [error, setError] = useState('');
+  const [receiptUploading, setReceiptUploading] = useState(false);
 
   const update = (field, value) => setForm((current) => ({ ...current, [field]: value }));
+
+  const uploadReceipt = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setReceiptUploading(true);
+    setError('');
+    try {
+      const formData = new FormData();
+      formData.append('receipt', file);
+      formData.append('scope', 'financial');
+      const response = await fetch('/api/financial-transactions/upload-receipt', {
+        method: 'POST',
+        headers: headers(),
+        body: formData,
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || 'อัปโหลดรูปใบเสร็จไม่สำเร็จ');
+      update('receipt_image_url', data.url || '');
+    } catch (uploadError) {
+      setError(uploadError.message || 'อัปโหลดรูปใบเสร็จไม่สำเร็จ');
+    } finally {
+      setReceiptUploading(false);
+      event.target.value = '';
+    }
+  };
 
   const submit = async (event) => {
     event.preventDefault();
@@ -5932,6 +6024,22 @@ function FinancialFormModal({ initial, saving, onClose, onSave }) {
             <textarea value={form.description || ''} onChange={(event) => update('description', event.target.value)} className="mt-2 min-h-32 w-full rounded-lg border border-slate-300 bg-white px-5 py-4 text-xl text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
           </label>
           <Field label="จำนวนเงิน" type="number" step="0.01" inputMode="decimal" value={form.amount} onChange={(value) => update('amount', value)} />
+          <label className="block md:col-span-2">
+            <span className="text-xl font-extrabold text-slate-800">แนบรูปใบเสร็จ/สลิป (ถ้ามี)</span>
+            <input className="mt-2 block w-full text-sm text-slate-500 file:mr-4 file:rounded-lg file:border-0 file:bg-blue-50 file:px-4 file:py-2 file:text-sm file:font-extrabold file:text-blue-700 hover:file:bg-blue-100" type="file" accept="image/*" onChange={uploadReceipt} disabled={saving || receiptUploading} />
+            {form.receipt_image_url ? (
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <img className="h-20 w-20 rounded-lg border border-slate-200 object-cover" src={form.receipt_image_url} alt="Receipt" />
+                <a className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 font-extrabold text-blue-700 hover:bg-blue-100" href={form.receipt_image_url} target="_blank" rel="noopener noreferrer">
+                  <Eye className="h-5 w-5" />
+                  ดูรูป
+                </a>
+                <button className="inline-flex min-h-10 items-center rounded-lg border border-rose-200 bg-white px-4 font-extrabold text-rose-700 hover:bg-rose-50" type="button" onClick={() => update('receipt_image_url', '')}>
+                  ลบรูป
+                </button>
+              </div>
+            ) : null}
+          </label>
         </div>
         <div className="mt-6 flex flex-col gap-3 border-t border-slate-200 pt-5 sm:flex-row sm:justify-end">
           <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-5 text-xl font-extrabold text-slate-700 hover:bg-slate-50" onClick={onClose} type="button"><X className="h-6 w-6" />ยกเลิก</button>
@@ -6097,6 +6205,23 @@ function PaymentDebtAdmin({ headers, onBack }) {
     }
   };
 
+  const deletePayment = async (debt, payment) => {
+    if (!window.confirm('ยืนยันการลบประวัติการชำระรายการนี้?')) return;
+    if (Number(payment.amount || 0) > 0 && !window.confirm(`รายการนี้มีจำนวนเงิน ฿${money(payment.amount)} ต้องการลบจริงหรือไม่?`)) return;
+    setError('');
+    try {
+      const response = await fetch(`${PAYMENT_DEBTS_API_URL}/${encodeURIComponent(debt.id)}/payments/${encodeURIComponent(payment.id)}`, {
+        method: 'DELETE',
+        headers: headers(),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || 'ลบประวัติการชำระไม่สำเร็จ');
+      await loadDebts();
+    } catch (err) {
+      setError(err.message || 'ลบประวัติการชำระไม่สำเร็จ');
+    }
+  };
+
   const exportDebts = () => {
     downloadCsv(
       `payment-debts-${dateInputValue(new Date())}.csv`,
@@ -6166,7 +6291,7 @@ function PaymentDebtAdmin({ headers, onBack }) {
           <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })} className="min-h-12 rounded-lg border border-slate-300 px-3 text-lg">
             <option value="all">ทุกสถานะ</option>
             <option value="ค้างจ่าย">ค้างจ่าย</option>
-            <option value="ชำระแล้วบางส่วน">ชำระแล้วบางส่วน</option>
+            <option value="ชำระบางส่วน">ชำระบางส่วน</option>
             <option value="ชำระครบแล้ว">ชำระครบแล้ว</option>
           </select>
         </div>
@@ -6191,45 +6316,106 @@ function PaymentDebtAdmin({ headers, onBack }) {
             </thead>
             <tbody className="divide-y divide-slate-200">
               {filteredDebts.map((debt) => (
-                <tr key={debt.id} className="hover:bg-slate-50">
-                  <td className="p-3 font-bold text-slate-700">{dateText(debt.created_at)}</td>
-                  <td className="p-3">
-                    <p className="font-extrabold text-slate-900">{debt.customer_name || '-'}</p>
-                    <p className="text-sm text-slate-500">{debt.customer_phone || '-'}</p>
-                  </td>
-                  <td className="p-3 font-bold text-slate-800">{debt.vehicle_info || '-'}</td>
-                  <td className="p-3 text-right font-bold text-slate-700">฿{money(debt.total_amount)}</td>
-                  <td className="p-3 text-right font-bold text-emerald-700">฿{money(debt.paid_amount)}</td>
-                  <td className="p-3 text-right font-extrabold text-rose-700">฿{money(debt.balance_amount)}</td>
-                  <td className="p-3 text-center text-slate-700">{debt.due_date ? dateText(debt.due_date) : '-'}</td>
-                  <td className="p-3 text-center">
-                    <span className={`inline-flex rounded-lg px-2.5 py-1 text-sm font-extrabold ${debt.status === 'ชำระครบแล้ว' ? 'bg-emerald-100 text-emerald-800' : debt.status === 'ชำระแล้วบางส่วน' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'}`}>
-                      {debt.status}
-                    </span>
-                  </td>
-                  <td className="p-3 text-center">
-                    {debt.receipt_image_url ? (
-                      <a href={debt.receipt_image_url} target="_blank" rel="noopener noreferrer" className="inline-flex text-blue-600 hover:text-blue-800" title="ดูรูปบิล">
-                        <Eye className="h-5 w-5" />
-                      </a>
-                    ) : '-'}
-                  </td>
-                  <td className="p-3">
-                    <div className="flex justify-end gap-2">
-                      {debt.status !== 'ชำระครบแล้ว' && (
-                        <button className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-emerald-700 hover:bg-emerald-50" onClick={() => setRecordingPayment(debt)} type="button" title="รับชำระ">
-                          <Banknote className="h-4 w-4" />
+                <React.Fragment key={debt.id}>
+                  <tr className="hover:bg-slate-50">
+                    <td className="p-3 font-bold text-slate-700">{dateText(debt.created_at)}</td>
+                    <td className="p-3">
+                      <p className="font-extrabold text-slate-900">{debt.customer_name || '-'}</p>
+                      <p className="text-sm text-slate-500">{debt.customer_phone || '-'}</p>
+                    </td>
+                    <td className="p-3 font-bold text-slate-800">{debt.vehicle_info || '-'}</td>
+                    <td className="p-3 text-right font-bold text-slate-700">฿{money(debt.total_amount)}</td>
+                    <td className="p-3 text-right font-bold text-emerald-700">฿{money(debt.paid_amount)}</td>
+                    <td className="p-3 text-right font-extrabold text-rose-700">฿{money(debt.balance_amount)}</td>
+                    <td className="p-3 text-center text-slate-700">{debt.due_date ? dateText(debt.due_date) : '-'}</td>
+                    <td className="p-3 text-center">
+                      <span className={`inline-flex rounded-lg px-2.5 py-1 text-sm font-extrabold ${paymentDebtStatusClass(debt.status)}`}>
+                        {normalizePaymentDebtStatus(debt.status)}
+                      </span>
+                    </td>
+                    <td className="p-3 text-center">
+                      {receiptImagesFor(debt).length > 0 ? (
+                        <div className="flex flex-wrap justify-center gap-2">
+                          {receiptImagesFor(debt).map((url, index) => (
+                            <a key={`${url}-${index}`} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm font-extrabold text-blue-700 hover:bg-blue-100">
+                              <Eye className="h-4 w-4" />
+                              ดูรูป
+                            </a>
+                          ))}
+                        </div>
+                      ) : '-'}
+                    </td>
+                    <td className="p-3">
+                      <div className="flex justify-end gap-2">
+                        {normalizePaymentDebtStatus(debt.status) !== 'ชำระครบแล้ว' && (
+                          <button className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-emerald-700 hover:bg-emerald-50" onClick={() => setRecordingPayment(debt)} type="button" title="รับชำระ">
+                            <Banknote className="h-4 w-4" />
+                          </button>
+                        )}
+                        <button className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-blue-700 hover:bg-blue-50" onClick={() => setEditing(debt)} type="button" title="แก้ไข">
+                          <Edit3 className="h-4 w-4" />
                         </button>
-                      )}
-                      <button className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-blue-700 hover:bg-blue-50" onClick={() => setEditing(debt)} type="button" title="แก้ไข">
-                        <Edit3 className="h-4 w-4" />
-                      </button>
-                      <button className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-rose-700 hover:bg-rose-50" onClick={() => deleteDebt(debt.id)} type="button" title="ลบ">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                        <button className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-rose-700 hover:bg-rose-50" onClick={() => deleteDebt(debt.id)} type="button" title="ลบ">
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr className="bg-slate-50/70">
+                    <td className="p-0" colSpan={10}>
+                      <div className="border-t border-slate-100 px-4 py-3">
+                        <p className="mb-2 text-sm font-extrabold text-slate-500">ประวัติการชำระ</p>
+                        {debt.payments?.length > 0 ? (
+                          <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                            <table className="w-full min-w-[860px] text-left text-sm">
+                              <thead className="bg-slate-100 text-slate-600">
+                                <tr>
+                                  <th className="p-2">วันที่</th>
+                                  <th className="p-2">เวลา</th>
+                                  <th className="p-2 text-right">จำนวนเงิน</th>
+                                  <th className="p-2">ช่องทาง</th>
+                                  <th className="p-2">หมายเหตุ</th>
+                                  <th className="p-2 text-center">สลิป</th>
+                                  <th className="p-2 text-right">จัดการ</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                {debt.payments.map((payment) => (
+                                  <tr key={payment.id}>
+                                    <td className="p-2 font-bold text-slate-700">{payment.payment_date ? dateText(payment.payment_date) : '-'}</td>
+                                    <td className="p-2 text-slate-600">{payment.payment_time || '-'}</td>
+                                    <td className="p-2 text-right font-extrabold text-emerald-700">฿{money(payment.amount)}</td>
+                                    <td className="p-2 font-bold text-slate-700">{payment.payment_method || '-'}</td>
+                                    <td className="p-2 text-slate-600">{payment.note || '-'}</td>
+                                    <td className="p-2 text-center">
+                                      {receiptImagesFor(payment).length > 0 ? (
+                                        <div className="flex flex-wrap justify-center gap-2">
+                                          {receiptImagesFor(payment).map((url, index) => (
+                                            <a key={`${url}-${index}`} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-8 items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2 text-xs font-extrabold text-blue-700 hover:bg-blue-100">
+                                              <Eye className="h-3.5 w-3.5" />
+                                              ดูรูป
+                                            </a>
+                                          ))}
+                                        </div>
+                                      ) : '-'}
+                                    </td>
+                                    <td className="p-2 text-right">
+                                      <button className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-50" onClick={() => deletePayment(debt, payment)} type="button" title="ลบประวัติการชำระ">
+                                        <Trash2 className="h-4 w-4" />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          <p className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-400">ยังไม่มีประวัติการชำระ</p>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                </React.Fragment>
               ))}
               {filteredDebts.length === 0 && <tr><td className="p-8 text-center text-slate-500" colSpan={10}>{loading ? 'กำลังโหลด...' : 'ไม่มีข้อมูลค้างชำระ'}</td></tr>}
             </tbody>

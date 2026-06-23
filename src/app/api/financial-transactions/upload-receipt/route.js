@@ -46,7 +46,7 @@ export async function POST(request) {
     return json({
       success: true,
       filename: name,
-      url: `/api/receipts/${name}`,
+      url: `/uploads/receipts/${name}`,
     }, { status: 200 });
   } catch (error) {
     console.error('[financial-transactions/upload-receipt] POST failed', error);

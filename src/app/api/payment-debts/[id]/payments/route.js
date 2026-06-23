@@ -6,15 +6,15 @@ function json(data, init = {}) {
   return Response.json(data, init);
 }
 
-async function getRouteId(context) {
-  const params = await context?.params;
-  return cleanString(params?.id, 64);
+async function getRouteId({ params }) {
+  const resolvedParams = await params;
+  return cleanString(resolvedParams?.id, 64);
 }
 
-export async function GET(request, context) {
+export async function GET(request, { params }) {
   try {
     if (!(await isAuthorizedAdminRequest(request))) return json({ error: 'Forbidden' }, { status: 403 });
-    const id = await getRouteId(context);
+    const id = await getRouteId({ params });
     if (!id) return json({ error: 'Missing id' }, { status: 400 });
     const debt = await getPaymentDebtById(id);
     if (!debt) return json({ error: 'Payment debt not found' }, { status: 404 });
@@ -25,11 +25,11 @@ export async function GET(request, context) {
   }
 }
 
-export async function POST(request, context) {
+export async function POST(request, { params }) {
   try {
     const admin = await getAuthorizedAdminFromRequest(request);
     if (!admin) return json({ error: 'Forbidden' }, { status: 403 });
-    const id = await getRouteId(context);
+    const id = await getRouteId({ params });
     if (!id) return json({ error: 'Missing id' }, { status: 400 });
     let body;
     try {

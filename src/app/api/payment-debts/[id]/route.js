@@ -11,7 +11,8 @@ export async function DELETE(request, { params }) {
     const adminUser = await getAuthorizedAdminFromRequest(request);
     if (!adminUser) return json({ error: 'Unauthorized' }, { status: 401 });
 
-    const id = params.id;
+    const resolvedParams = await params;
+    const id = resolvedParams?.id;
     if (!id) return json({ error: 'Missing ID' }, { status: 400 });
 
     const rows = await query('SELECT * FROM payment_debts WHERE id = ? LIMIT 1', [id]);
@@ -21,8 +22,10 @@ export async function DELETE(request, { params }) {
 
     const debt = rows[0];
 
-    // Delete payments first
-    await query('DELETE FROM payment_debt_payments WHERE debt_id = ?', [id]);
+    const paymentRows = await query('SELECT id FROM payment_debt_payments WHERE debt_id = ?', [id]);
+    for (const payment of paymentRows) {
+      await query('DELETE FROM payment_debt_payments WHERE id = ? AND debt_id = ?', [payment.id, id]);
+    }
     
     // Delete main debt
     await query('DELETE FROM payment_debts WHERE id = ?', [id]);

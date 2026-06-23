@@ -21,6 +21,6 @@ db/backup_*.sql
 
 # local debug / database backups
 tmp_debug_seed.js
-db/*.sql
 db/*.bak
 db/*.backup
+db/*backup*.sql

@@ -767,7 +767,7 @@ function normalizeStockProduct(product = {}) {
     id: product.id || `stk-${Date.now()}`,
     code,
     name: product.name || product.product_name || '',
-    part_no: product.part_no || product.product_number || code,
+    part_no: product.part_no || '',
     category: product.category || 'อื่น ๆ',
     brand: product.brand || product.product_brand || '',
     car_models: product.car_models || product.car_model || '',

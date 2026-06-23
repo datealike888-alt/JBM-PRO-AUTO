@@ -1,8 +1,10 @@
-﻿import { isAuthorizedAdminRequest } from '../../../lib/adminAuth';
+import { isAuthorizedAdminRequest } from '../../../lib/adminAuth';
 import { query } from '../../../lib/db';
 import { getAuthorizedAdminFromRequest } from '../../../lib/adminAuth';
 import { insertAuditLogSafe } from '../../../lib/auditLog';
 import { v2 as cloudinary } from 'cloudinary';
+import fs from 'fs/promises';
+import path from 'path';
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -332,12 +334,26 @@ function buildDateWhere(url) {
 }
 
 async function saveReceiptImage(base64Data, id) {
-  if (!process.env.CLOUDINARY_CLOUD_NAME) return base64Data;
-  const result = await cloudinary.uploader.upload(base64Data, {
-    folder: 'jbm-pro-auto/receipts',
-    public_id: `vehicle-${id}-${Date.now()}`,
-  });
-  return result.secure_url;
+  if (process.env.CLOUDINARY_CLOUD_NAME) {
+    const result = await cloudinary.uploader.upload(base64Data, {
+      folder: 'jbm-pro-auto/receipts',
+      public_id: `vehicle-${id}-${Date.now()}`,
+    });
+    return result.secure_url;
+  }
+
+  const matched = base64Data.match(/^data:image\/(jpeg|png|webp|gif);base64,(.+)$/);
+  if (!matched) return null;
+
+  const ext = matched[1] === 'jpeg' ? 'jpg' : matched[1];
+  const buffer = Buffer.from(matched[2], 'base64');
+  const filename = `vehicle-${id}-${Date.now()}.${ext}`;
+  const dir = path.resolve(process.cwd(), 'public', 'uploads', 'vehicles');
+
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, filename), buffer);
+
+  return `/uploads/vehicles/${filename}`;
 }
 
 async function saveReceiptImages(images, id) {

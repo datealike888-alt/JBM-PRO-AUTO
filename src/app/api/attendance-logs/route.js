@@ -172,6 +172,14 @@ export async function POST(request) {
   }
 }
 
+export async function PUT(request) {
+  return POST(request);
+}
+
+export async function PATCH(request) {
+  return POST(request);
+}
+
 export async function DELETE(request) {
   try {
     const admin = await getAuthorizedAdminFromRequest(request);

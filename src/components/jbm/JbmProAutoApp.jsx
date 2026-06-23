@@ -2931,6 +2931,7 @@ function ShiftDutyPage() {
     afternoonIn: attendanceSettings.afternoonStart,
     eveningOut: attendanceSettings.workEnd,
     method: 'auto',
+    note: '',
   };
   const [employees, setEmployees] = useState([]);
   const [positions, setPositions] = useState(DEFAULT_EMPLOYEE_POSITIONS);
@@ -3378,6 +3379,7 @@ function ShiftDutyPage() {
       employeeCode: employee?.code || '',
       status,
       hours: hasWorkHours ? calculateWorkHours(normalizedMorningIn, normalizedLunchOut, normalizedAfternoonIn, normalizedEveningOut) : 0,
+      note: attendanceForm.note || '',
       createdAt: editingAttendanceId ? (attendanceLogs.find((log) => log.id === editingAttendanceId)?.createdAt || new Date().toISOString()) : new Date().toISOString(),
     };
     const response = await fetch(EMPLOYEE_ATTENDANCE_API_URL, {
@@ -3413,6 +3415,7 @@ function ShiftDutyPage() {
       afternoonIn: log.afternoonIn || attendanceSettings.afternoonStart,
       eveningOut: log.eveningOut || attendanceSettings.workEnd,
       method,
+      note: log.note || '',
     });
     setEditingAttendanceId(log.id);
   };
@@ -3814,6 +3817,15 @@ function ShiftDutyPage() {
                 {LEAVE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
               </select>
             </label>
+            <label className="block">
+              <span className="text-lg font-extrabold text-slate-800">หมายเหตุ</span>
+              <textarea
+                value={attendanceForm.note || ''}
+                onChange={(event) => setAttendanceForm({ ...attendanceForm, note: event.target.value })}
+                placeholder="หมายเหตุ เช่น มาทำงานปกติ แต่ลืมลงเวลากลับ / กลับจริง 18:10 / หัวหน้างานยืนยันแล้ว"
+                className="mt-2 min-h-28 w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-lg text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
+              />
+            </label>
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
               <div className="flex flex-wrap items-center gap-2 text-base font-extrabold text-emerald-800">
                 <span>สถานะที่จะบันทึก:</span>
@@ -4046,7 +4058,7 @@ function AttendanceTable({ rows, onEdit, onDelete }) {
     <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
       <table className="w-full min-w-[1280px] text-left text-base">
         <thead className="bg-slate-100 text-sm font-extrabold text-slate-600">
-          <tr><th className="p-3">วันที่</th><th className="p-3">รหัสพนักงาน</th><th className="p-3">ชื่อ-นามสกุล</th><th className="p-3">ชื่อเล่น</th><th className="p-3">ตำแหน่ง</th><th className="p-3">เวลาเข้าเช้า</th><th className="p-3">เวลาออกพักเที่ยง</th><th className="p-3">เวลากลับจากพัก</th><th className="p-3">เวลาออกงานเย็น</th><th className="p-3">สถานะ</th><th className="p-3">ชั่วโมงทำงานรวม</th><th className="p-3 text-right">จัดการ</th></tr>
+          <tr><th className="p-3">วันที่</th><th className="p-3">รหัสพนักงาน</th><th className="p-3">ชื่อ-นามสกุล</th><th className="p-3">ชื่อเล่น</th><th className="p-3">ตำแหน่ง</th><th className="p-3">เวลาเข้าเช้า</th><th className="p-3">เวลาออกพักเที่ยง</th><th className="p-3">เวลากลับจากพัก</th><th className="p-3">เวลาออกงานเย็น</th><th className="p-3">สถานะ</th><th className="p-3">ชั่วโมงทำงานรวม</th><th className="p-3">หมายเหตุ</th><th className="p-3 text-right">จัดการ</th></tr>
         </thead>
         <tbody className="divide-y divide-slate-200">
           {rows.map((log) => (
@@ -4062,6 +4074,7 @@ function AttendanceTable({ rows, onEdit, onDelete }) {
               <td className="p-3 font-mono">{timeText(log.eveningOut)}</td>
               <td className="p-3"><AttendanceStatusBadge status={log.status} /></td>
               <td className="p-3 font-extrabold text-emerald-700">{log.hours || 0} ชม.</td>
+              <td className="max-w-[280px] break-words p-3">{String(log.note || '').trim() || '-'}</td>
               <td className="p-3">
                 <div className="flex justify-end gap-2">
                   <button className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 font-extrabold text-blue-800 hover:bg-blue-100" onClick={() => onEdit(log)} type="button"><Edit3 className="h-4 w-4" />แก้ไข</button>
@@ -4070,7 +4083,7 @@ function AttendanceTable({ rows, onEdit, onDelete }) {
               </td>
             </tr>
           ))}
-          {rows.length === 0 && <tr><td className="p-8 text-center text-slate-500" colSpan={12}>ยังไม่มีประวัติตอกเวลา</td></tr>}
+          {rows.length === 0 && <tr><td className="p-8 text-center text-slate-500" colSpan={13}>ยังไม่มีประวัติตอกเวลา</td></tr>}
         </tbody>
       </table>
     </div>

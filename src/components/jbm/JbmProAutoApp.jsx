@@ -278,6 +278,21 @@ const emptyVehicle = {
   receipt_images: [],
 };
 
+const emptyCashReserveTransaction = {
+  transaction_date: '',
+  transaction_time: '',
+  type: '',
+  detail: '',
+  amount: '',
+  direction: 'IN',
+  vehicle_ref: '',
+  case_ref: '',
+  person_name: '',
+  payment_channel: '',
+  receipt_image_url: '',
+  note: ''
+};
+
 const emptyFinancialTransaction = {
   id: '',
   date: dateInputValue(new Date()),
@@ -2251,6 +2266,7 @@ function AdminApp() {
             )}
             {activeTab === 'in-shop' && <InShop vehicles={inShopVehicles} query={inShopQuery} setQuery={setInShopQuery} />}
             {activeTab === 'finance' && <FinancialAdmin headers={headers} onOpenPaymentDebts={() => setActiveTab('paymentDebts')} />}
+            {activeTab === 'cashReserve' && <CashReserveAdmin headers={headers} />}
             {activeTab === 'paymentDebts' && <PaymentDebtAdmin headers={headers} onBack={() => setActiveTab('finance')} />}
             {activeTab === 'charts' && <ManagementDashboard vehicles={vehicles} stockProducts={stockProducts} />}
           </div>
@@ -6726,6 +6742,322 @@ function PaymentDebtPaymentModal({ debt, onClose, onSave, headers }) {
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+
+function CashReserveAdmin({ headers }) {
+  const current = currentYearMonth();
+  const [transactions, setTransactions] = useState([]);
+  const [summary, setSummary] = useState({ balance: 0, totalIn: 0, totalOut: 0, totalReturned: 0 });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [editing, setEditing] = useState(null);
+  const [query, setQuery] = useState('');
+  const [filters, setFilters] = useState({ type: 'all', month: current.month, year: current.year });
+  const [viewingImage, setViewingImage] = useState('');
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (filters.year !== 'all') params.append('year', filters.year);
+      if (filters.month !== 'all') params.append('month', filters.month);
+      if (filters.type !== 'all') params.append('type', filters.type);
+      if (query) params.append('search', query);
+
+      const response = await fetch(`${CASH_RESERVE_API_URL}?${params}`, { headers: headers() });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'โหลดข้อมูลไม่สำเร็จ');
+      setTransactions(data.transactions || []);
+      if (data.summary) setSummary(data.summary);
+      setError('');
+    } catch (err) {
+      setError(err.message || 'เกิดข้อผิดพลาด');
+    } finally {
+      setLoading(false);
+    }
+  }, [filters, query, headers]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const isNew = !editing.id;
+      const url = isNew ? CASH_RESERVE_API_URL : `${CASH_RESERVE_API_URL}/${editing.id}`;
+      const method = isNew ? 'POST' : 'PUT';
+      
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json', ...headers() },
+        body: JSON.stringify(editing)
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'บันทึกไม่สำเร็จ');
+      setEditing(null);
+      loadData();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('ยืนยันการลบรายการนี้? ระบบจะคำนวณยอดเงินสะสมใหม่ทั้งหมด')) return;
+    setLoading(true);
+    try {
+      const response = await fetch(`${CASH_RESERVE_API_URL}/${id}`, { method: 'DELETE', headers: headers() });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'ลบไม่สำเร็จ');
+      loadData();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const uploadReceipt = async (file) => {
+    const formData = new FormData();
+    formData.append('receipt', file);
+    const response = await fetch(`${CASH_RESERVE_API_URL}/upload-receipt`, { method: 'POST', headers: headers(), body: formData });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data?.error || 'อัพโหลดรูปไม่สำเร็จ');
+    return data.url;
+  };
+
+  return (
+    <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8 space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+            <Wallet className="h-6 w-6 text-blue-600" />
+            ระบบเงินสำรองจ่าย
+          </h2>
+          <p className="text-slate-500">จัดการเงินสำรอง/เงินกองกลางของร้าน</p>
+        </div>
+        <button
+          onClick={() => setEditing({ ...emptyCashReserveTransaction })}
+          className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 shadow-sm transition-all"
+        >
+          <Banknote className="h-5 w-5" /> เพิ่มรายการเงินสำรอง
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="relative overflow-hidden rounded-2xl bg-blue-50 p-6 border border-blue-100 group">
+          <Wallet className="absolute -right-4 -top-4 h-24 w-24 text-blue-200/50 group-hover:scale-110 transition-transform duration-500" />
+          <p className="relative text-sm font-medium text-blue-600">เงินสำรองคงเหลือ</p>
+          <p className="relative mt-2 text-3xl font-bold text-blue-900">฿{money(summary.balance)}</p>
+        </div>
+        <div className="relative overflow-hidden rounded-2xl bg-emerald-50 p-6 border border-emerald-100 group">
+          <Banknote className="absolute -right-4 -top-4 h-24 w-24 text-emerald-200/50 group-hover:scale-110 transition-transform duration-500" />
+          <p className="relative text-sm font-medium text-emerald-600">ยอดเงินเข้า (ตั้งยอด/เติมเงิน)</p>
+          <p className="relative mt-2 text-3xl font-bold text-emerald-900">฿{money(summary.totalIn)}</p>
+        </div>
+        <div className="relative overflow-hidden rounded-2xl bg-rose-50 p-6 border border-rose-100 group">
+          <Banknote className="absolute -right-4 -top-4 h-24 w-24 text-rose-200/50 group-hover:scale-110 transition-transform duration-500" />
+          <p className="relative text-sm font-medium text-rose-600">ยอดเงินออก (จ่ายเงิน)</p>
+          <p className="relative mt-2 text-3xl font-bold text-rose-900">฿{money(summary.totalOut)}</p>
+        </div>
+        <div className="relative overflow-hidden rounded-2xl bg-amber-50 p-6 border border-amber-100 group">
+          <Banknote className="absolute -right-4 -top-4 h-24 w-24 text-amber-200/50 group-hover:scale-110 transition-transform duration-500" />
+          <p className="relative text-sm font-medium text-amber-600">คืนเงินเข้ากอง</p>
+          <p className="relative mt-2 text-3xl font-bold text-amber-900">฿{money(summary.totalReturned)}</p>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="border-b border-slate-200 bg-slate-50 p-4">
+          <div className="flex flex-wrap items-center gap-4">
+            <select
+              value={filters.month}
+              onChange={(e) => setFilters(prev => ({ ...prev, month: e.target.value }))}
+              className="rounded-lg border-slate-300 text-sm focus:border-blue-500 focus:ring-blue-500"
+            >
+              <option value="all">ทุกเดือน</option>
+              {MONTHS_TH.map((m, i) => <option key={i} value={String(i + 1).padStart(2, '0')}>{m}</option>)}
+            </select>
+            <select
+              value={filters.year}
+              onChange={(e) => setFilters(prev => ({ ...prev, year: e.target.value }))}
+              className="rounded-lg border-slate-300 text-sm focus:border-blue-500 focus:ring-blue-500"
+            >
+              <option value="all">ทุกปี</option>
+              {Array.from({ length: 5 }).map((_, i) => {
+                const y = currentYearMonth().year - i;
+                return <option key={y} value={y}>{y + 543}</option>;
+              })}
+            </select>
+            <select
+              value={filters.type}
+              onChange={(e) => setFilters(prev => ({ ...prev, type: e.target.value }))}
+              className="rounded-lg border-slate-300 text-sm focus:border-blue-500 focus:ring-blue-500"
+            >
+              <option value="all">ทุกประเภทรายการ</option>
+              <option value="ตั้งยอดเริ่มต้น">ตั้งยอดเริ่มต้น</option>
+              <option value="เติมเงินสำรอง">เติมเงินสำรอง</option>
+              <option value="จ่ายจากเงินสำรอง">จ่ายจากเงินสำรอง</option>
+              <option value="คืนเงินเข้ากอง">คืนเงินเข้ากอง</option>
+              <option value="ปรับยอด">ปรับยอด</option>
+            </select>
+            <input
+              type="text"
+              placeholder="ค้นหารายละเอียด..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="w-64 rounded-lg border-slate-300 text-sm focus:border-blue-500 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+
+        {loading && transactions.length === 0 ? (
+          <div className="p-8 text-center text-slate-500">กำลังโหลด...</div>
+        ) : error ? (
+          <div className="p-8 text-center text-rose-500">{error}</div>
+        ) : transactions.length === 0 ? (
+          <div className="p-12 text-center flex flex-col items-center">
+            <Wallet className="h-12 w-12 text-slate-200 mb-3" />
+            <p className="text-slate-500 font-medium">ไม่พบรายการเงินสำรอง</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-200">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">วันที่-เวลา</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">ประเภท/รายละเอียด</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-slate-500">เงินเข้า</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-slate-500">เงินออก</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-slate-500">คงเหลือ</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-slate-500">เอกสาร</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-slate-500">จัดการ</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 bg-white">
+                {transactions.map((t) => (
+                  <tr key={t.id} className="hover:bg-slate-50/50">
+                    <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-900">
+                      {formatDate(t.transaction_date)} {t.transaction_time?.slice(0, 5)}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="text-sm font-medium text-slate-900">{t.type}</div>
+                      <div className="text-sm text-slate-500">{t.detail}</div>
+                      {t.vehicle_ref && <div className="text-xs text-blue-600 mt-1">อ้างอิงรถ: {t.vehicle_ref}</div>}
+                    </td>
+                    <td className="whitespace-nowrap px-6 py-4 text-right text-sm font-medium text-emerald-600">
+                      {(t.direction === 'IN' || (t.direction === 'ADJUST' && t.amount >= 0)) ? '+' + money(t.amount) : '-'}
+                    </td>
+                    <td className="whitespace-nowrap px-6 py-4 text-right text-sm font-medium text-rose-600">
+                      {t.direction === 'OUT' ? '-' + money(t.amount) : '-'}
+                    </td>
+                    <td className="whitespace-nowrap px-6 py-4 text-right text-sm font-bold text-slate-900">
+                      {money(t.balance_after)}
+                    </td>
+                    <td className="whitespace-nowrap px-6 py-4 text-center">
+                      {t.receipt_image_url && (
+                        <button
+                          onClick={() => setViewingImage(t.receipt_image_url)}
+                          className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200"
+                        >
+                          <ExternalLink className="h-4 w-4" /> สลิป/บิล
+                        </button>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap px-6 py-4 text-right text-sm font-medium">
+                      <button onClick={() => setEditing(t)} className="text-blue-600 hover:text-blue-900 mr-3">แก้ไข</button>
+                      <button onClick={() => handleDelete(t.id)} className="text-rose-600 hover:text-rose-900">ลบ</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {editing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto overflow-x-hidden bg-slate-900/50 p-4 backdrop-blur-sm">
+          <div className="relative w-full max-w-2xl rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+              <h3 className="text-lg font-bold text-slate-900">{editing.id ? 'แก้ไขรายการเงินสำรอง' : 'เพิ่มรายการเงินสำรอง'}</h3>
+              <button onClick={() => setEditing(null)} className="text-slate-400 hover:text-slate-500">✕</button>
+            </div>
+            <form onSubmit={handleSave} className="p-6">
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">วันที่ทำรายการ *</label>
+                  <input type="date" required value={editing.transaction_date || ''} onChange={e => setEditing({...editing, transaction_date: e.target.value})} className="w-full rounded-lg border-slate-300" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">เวลา</label>
+                  <input type="time" value={editing.transaction_time || ''} onChange={e => setEditing({...editing, transaction_time: e.target.value})} className="w-full rounded-lg border-slate-300" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">ประเภทรายการ *</label>
+                  <select required value={editing.type || ''} onChange={e => setEditing({...editing, type: e.target.value})} className="w-full rounded-lg border-slate-300">
+                    <option value="">-- เลือกประเภท --</option>
+                    <option value="ตั้งยอดเริ่มต้น">ตั้งยอดเริ่มต้น (IN)</option>
+                    <option value="เติมเงินสำรอง">เติมเงินสำรอง (IN)</option>
+                    <option value="จ่ายจากเงินสำรอง">จ่ายจากเงินสำรอง (OUT)</option>
+                    <option value="คืนเงินเข้ากอง">คืนเงินเข้ากอง (IN)</option>
+                    <option value="ปรับยอด">ปรับยอด (ADJUST)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">จำนวนเงิน *</label>
+                  <input type="number" step="0.01" inputMode="decimal" required min="0.01" value={editing.amount || ''} onChange={e => setEditing({...editing, amount: e.target.value})} className="w-full rounded-lg border-slate-300" placeholder="0.00" />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">รายละเอียด *</label>
+                  <input type="text" required value={editing.detail || ''} onChange={e => setEditing({...editing, detail: e.target.value})} className="w-full rounded-lg border-slate-300" placeholder="ระบุรายละเอียดการรับ/จ่าย" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">อ้างอิงทะเบียนรถ (ถ้ามี)</label>
+                  <input type="text" value={editing.vehicle_ref || ''} onChange={e => setEditing({...editing, vehicle_ref: e.target.value})} className="w-full rounded-lg border-slate-300" placeholder="เช่น กข 1234" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">ผู้รับเงิน/ผู้ทำรายการ</label>
+                  <input type="text" value={editing.person_name || ''} onChange={e => setEditing({...editing, person_name: e.target.value})} className="w-full rounded-lg border-slate-300" />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">สลิป/บิล (แนบรูปภาพ)</label>
+                  <div className="flex items-center gap-4">
+                    <input type="file" accept="image/*" onChange={async (e) => {
+                      if (e.target.files?.[0]) {
+                        try {
+                          const url = await uploadReceipt(e.target.files[0]);
+                          setEditing({...editing, receipt_image_url: url});
+                        } catch(err) { alert(err.message); }
+                      }
+                    }} className="text-sm" />
+                    {editing.receipt_image_url && <a href={editing.receipt_image_url} target="_blank" rel="noreferrer" className="text-sm text-blue-600 hover:underline">ดูรูปที่แนบไว้</a>}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-6 flex justify-end gap-3 border-t border-slate-100 pt-4">
+                <button type="button" onClick={() => setEditing(null)} className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">ยกเลิก</button>
+                <button type="submit" disabled={loading} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
+                  {loading ? 'กำลังบันทึก...' : 'บันทึกข้อมูล'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {viewingImage && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 p-4" onClick={() => setViewingImage(null)}>
+          <img src={viewingImage} alt="Receipt" className="max-h-full max-w-full rounded-lg object-contain shadow-2xl" />
+          <button className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20">✕</button>
+        </div>
+      )}
     </div>
   );
 }

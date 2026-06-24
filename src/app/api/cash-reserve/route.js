@@ -207,6 +207,8 @@ export async function GET(request) {
     let calcTotalInCents = 0;
     let calcTotalOutCents = 0;
     let calcTotalReturnedCents = 0;
+    let calcTotalTransferredOutCents = 0;
+    let calcTotalAdjustCents = 0;
     let calcBalanceCents = 0;
 
     for (const r of allRows) {
@@ -220,9 +222,14 @@ export async function GET(request) {
         }
       } else if (r.direction === 'OUT') {
         calcBalanceCents -= amtCents;
-        calcTotalOutCents += amtCents;
+        if (r.type === 'โอนออกจากกอง / คืนบัญชีหลัก') {
+          calcTotalTransferredOutCents += amtCents;
+        } else {
+          calcTotalOutCents += amtCents;
+        }
       } else if (r.direction === 'ADJUST') {
         calcBalanceCents += amtCents;
+        calcTotalAdjustCents += amtCents;
       }
     }
 
@@ -234,6 +241,8 @@ export async function GET(request) {
         totalIn: fromCents(calcTotalInCents),
         totalOut: fromCents(calcTotalOutCents),
         totalReturned: fromCents(calcTotalReturnedCents),
+        totalTransferredOut: fromCents(calcTotalTransferredOutCents),
+        totalAdjust: fromCents(calcTotalAdjustCents),
       }
     }, { status: 200, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
@@ -254,24 +263,20 @@ export async function POST(request) {
       return json({ error: 'รูปแบบ JSON ไม่ถูกต้อง' }, { status: 400 });
     }
 
-    const transactionDate = cleanDate(body.transaction_date);
-    if (!transactionDate) return json({ error: 'กรุณาระบุวันที่ทำรายการให้ถูกต้อง' }, { status: 400 });
+    const transactionDate = cleanDate(body.transaction_date) || new Date().toISOString().slice(0, 10);
 
-    const type = cleanString(body.type, 50);
-    if (!type) return json({ error: 'กรุณาระบุประเภทรายการ' }, { status: 400 });
-
-    const detail = cleanString(body.detail, 5000);
-    if (!detail) return json({ error: 'กรุณาระบุรายละเอียด' }, { status: 400 });
+    const type = cleanString(body.type, 50) || 'จ่ายจากเงินสำรอง';
+    const detail = cleanString(body.detail, 5000) || '-';
 
     const amount = normalizeAmount(body.amount);
     
     let direction = cleanString(body.direction, 20) || 'IN';
     if (type === 'ตั้งยอดเริ่มต้น' || type === 'เติมเงินสำรอง' || type === 'คืนเงินเข้ากอง') direction = 'IN';
-    else if (type === 'จ่ายจากเงินสำรอง') direction = 'OUT';
+    else if (type === 'จ่ายจากเงินสำรอง' || type === 'โอนออกจากกอง / คืนบัญชีหลัก') direction = 'OUT';
     else if (type === 'ปรับยอด') direction = 'ADJUST';
 
-    if (direction !== 'ADJUST' && amount <= 0) {
-      return json({ error: 'จำนวนเงินต้องมากกว่า 0' }, { status: 400 });
+    if (direction !== 'ADJUST' && amount < 0) {
+      return json({ error: 'จำนวนเงินไม่สามารถติดลบได้' }, { status: 400 });
     }
 
     const id = cleanString(body.id, 64) || `cr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -279,7 +284,7 @@ export async function POST(request) {
     await ensureCashReserveTable();
 
     // Check balance if OUT
-    if (direction === 'OUT') {
+    if (direction === 'OUT' && amount > 0) {
       const summary = await recalculateBalances();
       if (amount > summary.balance) {
         return json({ error: 'ยอดเงินสำรองไม่เพียงพอ' }, { status: 400 });

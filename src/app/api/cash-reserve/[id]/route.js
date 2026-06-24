@@ -77,23 +77,19 @@ export async function PUT(request, { params }) {
     const id = cleanString(resolvedParams?.id, 64);
     if (!id) return json({ error: 'กรุณาระบุ id ของรายการ' }, { status: 400 });
 
-    const transactionDate = cleanDate(body.transaction_date);
-    if (!transactionDate) return json({ error: 'กรุณาระบุวันที่ทำรายการให้ถูกต้อง' }, { status: 400 });
+    const transactionDate = cleanDate(body.transaction_date) || new Date().toISOString().slice(0, 10);
 
-    const type = cleanString(body.type, 50);
-    if (!type) return json({ error: 'กรุณาระบุประเภทรายการ' }, { status: 400 });
-
-    const detail = cleanString(body.detail, 5000);
-    if (!detail) return json({ error: 'กรุณาระบุรายละเอียด' }, { status: 400 });
+    const type = cleanString(body.type, 50) || 'จ่ายจากเงินสำรอง';
+    const detail = cleanString(body.detail, 5000) || '-';
 
     const amount = normalizeAmount(body.amount);
     let direction = cleanString(body.direction, 20) || 'IN';
     if (type === 'ตั้งยอดเริ่มต้น' || type === 'เติมเงินสำรอง' || type === 'คืนเงินเข้ากอง') direction = 'IN';
-    else if (type === 'จ่ายจากเงินสำรอง') direction = 'OUT';
+    else if (type === 'จ่ายจากเงินสำรอง' || type === 'โอนออกจากกอง / คืนบัญชีหลัก') direction = 'OUT';
     else if (type === 'ปรับยอด') direction = 'ADJUST';
 
-    if (direction !== 'ADJUST' && amount <= 0) {
-      return json({ error: 'จำนวนเงินต้องมากกว่า 0' }, { status: 400 });
+    if (direction !== 'ADJUST' && amount < 0) {
+      return json({ error: 'จำนวนเงินไม่สามารถติดลบได้' }, { status: 400 });
     }
 
     await ensureCashReserveTable();

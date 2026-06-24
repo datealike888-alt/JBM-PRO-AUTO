@@ -58,6 +58,7 @@ const FINANCIAL_API_URL = '/api/financial-transactions';
 const PAYMENT_DEBTS_API_URL = '/api/payment-debts';
 const STOCK_CATEGORIES_API_URL = '/api/stock/categories';
 const STOCK_PRODUCTS_API_URL = '/api/stock/products';
+const CASH_RESERVE_API_URL = '/api/cash-reserve';
 const STOCK_MOVEMENTS_API_URL = '/api/stock/movements';
 const EMPLOYEES_API_URL = '/api/employees';
 const EMPLOYEE_PHOTO_UPLOAD_API_URL = '/api/employees/upload-photo';
@@ -285,8 +286,6 @@ const emptyCashReserveTransaction = {
   detail: '',
   amount: '',
   direction: 'IN',
-  vehicle_ref: '',
-  case_ref: '',
   person_name: '',
   payment_channel: '',
   receipt_image_url: '',
@@ -2059,6 +2058,7 @@ function AdminApp() {
       items: [
         ['productStock', 'สต็อกสินค้า', Package],
         ['finance', 'การเงิน', Coins],
+        ['cashReserve', 'เงินสำรองจ่าย', Wallet],
         ['paymentDebts', 'ค้างชำระ', ClipboardList],
         ['charts', 'รายงาน / กราฟ', ClipboardList],
       ]
@@ -6747,21 +6747,33 @@ function PaymentDebtPaymentModal({ debt, onClose, onSave, headers }) {
 }
 
 
+const cashReserveTodayDate = () => new Date().toISOString().slice(0, 10);
+const cashReserveCurrentTime = () => {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+};
+const cashReserveToMoneyNumber = (value) => {
+  if (value === '' || value === null || value === undefined) return 0;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : 0;
+};
+
 function CashReserveAdmin({ headers }) {
   const current = currentYearMonth();
   const [transactions, setTransactions] = useState([]);
-  const [summary, setSummary] = useState({ balance: 0, totalIn: 0, totalOut: 0, totalReturned: 0 });
+  const [summary, setSummary] = useState({ balance: 0, totalIn: 0, totalOut: 0, totalReturned: 0, totalTransferredOut: 0, totalAdjust: 0 });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(null);
   const [query, setQuery] = useState('');
-  const [filters, setFilters] = useState({ type: 'all', month: current.month, year: current.year });
+  const [filters, setFilters] = useState({ type: 'all', day: 'all', month: current.month, year: current.year });
   const [viewingImage, setViewingImage] = useState('');
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
+      if (filters.day !== 'all') params.append('day', filters.day);
       if (filters.year !== 'all') params.append('year', filters.year);
       if (filters.month !== 'all') params.append('month', filters.month);
       if (filters.type !== 'all') params.append('type', filters.type);
@@ -6792,10 +6804,21 @@ function CashReserveAdmin({ headers }) {
       const url = isNew ? CASH_RESERVE_API_URL : `${CASH_RESERVE_API_URL}/${editing.id}`;
       const method = isNew ? 'POST' : 'PUT';
       
+      const payload = {
+        ...editing,
+        transaction_date: editing.transaction_date || cashReserveTodayDate(),
+        transaction_time: editing.transaction_time || cashReserveCurrentTime(),
+        type: editing.type || 'จ่ายจากเงินสำรอง',
+        amount: cashReserveToMoneyNumber(editing.amount),
+        detail: String(editing.detail || '-').trim(),
+        person_name: String(editing.person_name || '').trim(),
+        receipt_image_url: editing.receipt_image_url || '',
+      };
+
       const response = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json', ...headers() },
-        body: JSON.stringify(editing)
+        body: JSON.stringify(payload)
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || 'บันทึกไม่สำเร็จ');
@@ -6832,6 +6855,17 @@ function CashReserveAdmin({ headers }) {
     return data.url;
   };
 
+  const daysInMonth = useMemo(() => {
+    if (filters.month === 'all' || filters.year === 'all') return 31;
+    return new Date(parseInt(filters.year, 10), parseInt(filters.month, 10), 0).getDate();
+  }, [filters.month, filters.year]);
+
+  useEffect(() => {
+    if (filters.day !== 'all' && parseInt(filters.day, 10) > daysInMonth) {
+      setFilters(prev => ({ ...prev, day: 'all' }));
+    }
+  }, [daysInMonth, filters.day]);
+
   return (
     <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8 space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -6850,7 +6884,7 @@ function CashReserveAdmin({ headers }) {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div className="relative overflow-hidden rounded-2xl bg-blue-50 p-6 border border-blue-100 group">
           <Wallet className="absolute -right-4 -top-4 h-24 w-24 text-blue-200/50 group-hover:scale-110 transition-transform duration-500" />
           <p className="relative text-sm font-medium text-blue-600">เงินสำรองคงเหลือ</p>
@@ -6863,7 +6897,7 @@ function CashReserveAdmin({ headers }) {
         </div>
         <div className="relative overflow-hidden rounded-2xl bg-rose-50 p-6 border border-rose-100 group">
           <Banknote className="absolute -right-4 -top-4 h-24 w-24 text-rose-200/50 group-hover:scale-110 transition-transform duration-500" />
-          <p className="relative text-sm font-medium text-rose-600">ยอดเงินออก (จ่ายเงิน)</p>
+          <p className="relative text-sm font-medium text-rose-600">ยอดจ่ายออกทั้งหมด</p>
           <p className="relative mt-2 text-3xl font-bold text-rose-900">฿{money(summary.totalOut)}</p>
         </div>
         <div className="relative overflow-hidden rounded-2xl bg-amber-50 p-6 border border-amber-100 group">
@@ -6871,11 +6905,32 @@ function CashReserveAdmin({ headers }) {
           <p className="relative text-sm font-medium text-amber-600">คืนเงินเข้ากอง</p>
           <p className="relative mt-2 text-3xl font-bold text-amber-900">฿{money(summary.totalReturned)}</p>
         </div>
+        <div className="relative overflow-hidden rounded-2xl bg-orange-50 p-6 border border-orange-100 group">
+          <Banknote className="absolute -right-4 -top-4 h-24 w-24 text-orange-200/50 group-hover:scale-110 transition-transform duration-500" />
+          <p className="relative text-sm font-medium text-orange-600">โอนออกจากกอง / คืนบัญชีหลัก</p>
+          <p className="relative mt-2 text-3xl font-bold text-orange-900">฿{money(summary.totalTransferredOut)}</p>
+        </div>
+        <div className="relative overflow-hidden rounded-2xl bg-indigo-50 p-6 border border-indigo-100 group">
+          <Banknote className="absolute -right-4 -top-4 h-24 w-24 text-indigo-200/50 group-hover:scale-110 transition-transform duration-500" />
+          <p className="relative text-sm font-medium text-indigo-600">ปรับยอดสุทธิ</p>
+          <p className="relative mt-2 text-3xl font-bold text-indigo-900">฿{money(summary.totalAdjust)}</p>
+        </div>
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div className="border-b border-slate-200 bg-slate-50 p-4">
           <div className="flex flex-wrap items-center gap-4">
+            <select
+              value={filters.day}
+              onChange={(e) => setFilters(prev => ({ ...prev, day: e.target.value }))}
+              className="rounded-lg border-slate-300 text-sm focus:border-blue-500 focus:ring-blue-500"
+            >
+              <option value="all">ทุกวัน</option>
+              {Array.from({ length: daysInMonth }).map((_, i) => {
+                const dayStr = String(i + 1).padStart(2, '0');
+                return <option key={i} value={dayStr}>{dayStr}</option>;
+              })}
+            </select>
             <select
               value={filters.month}
               onChange={(e) => setFilters(prev => ({ ...prev, month: e.target.value }))}
@@ -6905,6 +6960,7 @@ function CashReserveAdmin({ headers }) {
               <option value="เติมเงินสำรอง">เติมเงินสำรอง</option>
               <option value="จ่ายจากเงินสำรอง">จ่ายจากเงินสำรอง</option>
               <option value="คืนเงินเข้ากอง">คืนเงินเข้ากอง</option>
+              <option value="โอนออกจากกอง / คืนบัญชีหลัก">โอนออกจากกอง / คืนบัญชีหลัก</option>
               <option value="ปรับยอด">ปรับยอด</option>
             </select>
             <input
@@ -6924,7 +6980,7 @@ function CashReserveAdmin({ headers }) {
         ) : transactions.length === 0 ? (
           <div className="p-12 text-center flex flex-col items-center">
             <Wallet className="h-12 w-12 text-slate-200 mb-3" />
-            <p className="text-slate-500 font-medium">ไม่พบรายการเงินสำรอง</p>
+            <p className="text-slate-500 font-medium">ไม่พบรายการเงินสำรองจ่ายในช่วงวันที่เลือก</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -6944,12 +7000,11 @@ function CashReserveAdmin({ headers }) {
                 {transactions.map((t) => (
                   <tr key={t.id} className="hover:bg-slate-50/50">
                     <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-900">
-                      {formatDate(t.transaction_date)} {t.transaction_time?.slice(0, 5)}
+                      {dateText(t.transaction_date)} {t.transaction_time?.slice(0, 5)}
                     </td>
                     <td className="px-6 py-4">
                       <div className="text-sm font-medium text-slate-900">{t.type}</div>
                       <div className="text-sm text-slate-500">{t.detail}</div>
-                      {t.vehicle_ref && <div className="text-xs text-blue-600 mt-1">อ้างอิงรถ: {t.vehicle_ref}</div>}
                     </td>
                     <td className="whitespace-nowrap px-6 py-4 text-right text-sm font-medium text-emerald-600">
                       {(t.direction === 'IN' || (t.direction === 'ADJUST' && t.amount >= 0)) ? '+' + money(t.amount) : '-'}
@@ -6992,43 +7047,40 @@ function CashReserveAdmin({ headers }) {
             <form onSubmit={handleSave} className="p-6">
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">วันที่ทำรายการ *</label>
-                  <input type="date" required value={editing.transaction_date || ''} onChange={e => setEditing({...editing, transaction_date: e.target.value})} className="w-full rounded-lg border-slate-300" />
+                  <label className="block text-sm font-medium text-slate-700 mb-1">วันที่ทำรายการ</label>
+                  <input type="date" value={editing.transaction_date || ''} onChange={e => setEditing({...editing, transaction_date: e.target.value})} className="w-full rounded-lg border border-slate-300 px-3 py-2" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">เวลา</label>
-                  <input type="time" value={editing.transaction_time || ''} onChange={e => setEditing({...editing, transaction_time: e.target.value})} className="w-full rounded-lg border-slate-300" />
+                  <input type="time" value={editing.transaction_time || ''} onChange={e => setEditing({...editing, transaction_time: e.target.value})} className="w-full rounded-lg border border-slate-300 px-3 py-2" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">ประเภทรายการ *</label>
-                  <select required value={editing.type || ''} onChange={e => setEditing({...editing, type: e.target.value})} className="w-full rounded-lg border-slate-300">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">ประเภทรายการ</label>
+                  <select value={editing.type || ''} onChange={e => setEditing({...editing, type: e.target.value})} className="w-full rounded-lg border border-slate-300 px-3 py-2 bg-white">
                     <option value="">-- เลือกประเภท --</option>
                     <option value="ตั้งยอดเริ่มต้น">ตั้งยอดเริ่มต้น (IN)</option>
                     <option value="เติมเงินสำรอง">เติมเงินสำรอง (IN)</option>
                     <option value="จ่ายจากเงินสำรอง">จ่ายจากเงินสำรอง (OUT)</option>
                     <option value="คืนเงินเข้ากอง">คืนเงินเข้ากอง (IN)</option>
+                    <option value="โอนออกจากกอง / คืนบัญชีหลัก">โอนออกจากกอง / คืนบัญชีหลัก (OUT)</option>
                     <option value="ปรับยอด">ปรับยอด (ADJUST)</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">จำนวนเงิน *</label>
-                  <input type="number" step="0.01" inputMode="decimal" required min="0.01" value={editing.amount || ''} onChange={e => setEditing({...editing, amount: e.target.value})} className="w-full rounded-lg border-slate-300" placeholder="0.00" />
+                  <label className="block text-sm font-medium text-slate-700 mb-1">จำนวนเงิน</label>
+                  <input type="number" step="0.01" inputMode="decimal" min="0" value={editing.amount || ''} onChange={e => setEditing({...editing, amount: e.target.value})} className="w-full rounded-lg border border-slate-300 px-3 py-2" placeholder="0.00" />
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="block text-sm font-medium text-slate-700 mb-1">รายละเอียด *</label>
-                  <input type="text" required value={editing.detail || ''} onChange={e => setEditing({...editing, detail: e.target.value})} className="w-full rounded-lg border-slate-300" placeholder="ระบุรายละเอียดการรับ/จ่าย" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">อ้างอิงทะเบียนรถ (ถ้ามี)</label>
-                  <input type="text" value={editing.vehicle_ref || ''} onChange={e => setEditing({...editing, vehicle_ref: e.target.value})} className="w-full rounded-lg border-slate-300" placeholder="เช่น กข 1234" />
+                  <label className="block text-sm font-medium text-slate-700 mb-1">รายละเอียด</label>
+                  <input type="text" value={editing.detail || ''} onChange={e => setEditing({...editing, detail: e.target.value})} className="w-full rounded-lg border border-slate-300 px-3 py-2" placeholder="ระบุรายละเอียดการรับ/จ่าย" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">ผู้รับเงิน/ผู้ทำรายการ</label>
-                  <input type="text" value={editing.person_name || ''} onChange={e => setEditing({...editing, person_name: e.target.value})} className="w-full rounded-lg border-slate-300" />
+                  <input type="text" value={editing.person_name || ''} onChange={e => setEditing({...editing, person_name: e.target.value})} className="w-full rounded-lg border border-slate-300 px-3 py-2" />
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="block text-sm font-medium text-slate-700 mb-1">สลิป/บิล (แนบรูปภาพ)</label>
-                  <div className="flex items-center gap-4">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">สลิป/บิล แนบรูปภาพ</label>
+                  <div className="flex items-center gap-4 rounded-lg border border-slate-300 p-3 bg-slate-50">
                     <input type="file" accept="image/*" onChange={async (e) => {
                       if (e.target.files?.[0]) {
                         try {
@@ -7036,8 +7088,15 @@ function CashReserveAdmin({ headers }) {
                           setEditing({...editing, receipt_image_url: url});
                         } catch(err) { alert(err.message); }
                       }
-                    }} className="text-sm" />
-                    {editing.receipt_image_url && <a href={editing.receipt_image_url} target="_blank" rel="noreferrer" className="text-sm text-blue-600 hover:underline">ดูรูปที่แนบไว้</a>}
+                    }} className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+                    {editing.receipt_image_url ? (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <a href={editing.receipt_image_url} target="_blank" rel="noreferrer" className="text-sm font-medium text-blue-600 hover:underline">ดูรูปที่แนบไว้</a>
+                        <button type="button" onClick={() => setEditing({...editing, receipt_image_url: ''})} className="text-rose-500 hover:text-rose-700 text-sm font-medium">ลบรูป</button>
+                      </div>
+                    ) : (
+                      <span className="text-sm text-slate-400 shrink-0">ยังไม่ได้แนบรูป</span>
+                    )}
                   </div>
                 </div>
               </div>

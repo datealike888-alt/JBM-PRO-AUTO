@@ -1,7 +1,7 @@
 import { isAuthorizedAdminRequest, getAuthorizedAdminFromRequest } from '../../../../lib/adminAuth';
 import { insertAuditLogSafe } from '../../../../lib/auditLog';
 import { query } from '../../../../lib/db';
-import { ensureCashReserveTable, recalculateBalances } from '../route';
+import { ensureCashReserveTable, recalculateBalances } from '../../../../lib/cashReserveStorage';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 

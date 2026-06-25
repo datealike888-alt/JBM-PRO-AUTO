@@ -2,6 +2,7 @@ import { isAuthorizedAdminRequest } from '../../../lib/adminAuth';
 import { query } from '../../../lib/db';
 import { getAuthorizedAdminFromRequest } from '../../../lib/adminAuth';
 import { insertAuditLogSafe } from '../../../lib/auditLog';
+import { requirePermission, requireAnyPermission } from '../../../lib/adminPermissions';
 import { v2 as cloudinary } from 'cloudinary';
 import fs from 'fs/promises';
 import path from 'path';
@@ -377,8 +378,9 @@ export async function GET(request) {
     const wantsInShop = url.searchParams.get('in_shop') === '1';
     const status = cleanString(url.searchParams.get('status'), 64);
 
-    if ((wantsAdminData || wantsSummary || wantsInShop || status) && !(await isAuthorizedAdminRequest(request))) {
-      return json({ error: 'Forbidden' }, { status: 403 });
+    if (wantsAdminData || wantsSummary || wantsInShop || status) {
+      const authResult = await requirePermission(request, 'vehicles.view');
+      if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
     }
 
     if (wantsSummary) {
@@ -457,8 +459,9 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const admin = await getAuthorizedAdminFromRequest(request);
-    if (!admin) return json({ error: 'Forbidden' }, { status: 403 });
+    const authResult = await requireAnyPermission(request, ['vehicles.create', 'vehicles.update']);
+    if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
+    const admin = authResult.admin;
     if (getContentLength(request) > MAX_REQUEST_BYTES) return json({ error: 'Request body too large' }, { status: 413 });
 
     let body;
@@ -547,8 +550,9 @@ export async function POST(request) {
 
 export async function DELETE(request) {
   try {
-    const admin = await getAuthorizedAdminFromRequest(request);
-    if (!admin) return json({ error: 'Forbidden' }, { status: 403 });
+    const authResult = await requirePermission(request, 'vehicles.delete');
+    if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
+    const admin = authResult.admin;
     const id = cleanString(new URL(request.url).searchParams.get('id'), 64);
     if (!id) return json({ error: 'Missing id parameter' }, { status: 400 });
     await ensureVehiclesTable();

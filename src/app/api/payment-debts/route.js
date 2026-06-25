@@ -1,4 +1,5 @@
 import { getAuthorizedAdminFromRequest, isAuthorizedAdminRequest } from '../../../lib/adminAuth';
+import { requirePermission } from '../../../lib/adminPermissions';
 import { insertAuditLogSafe } from '../../../lib/auditLog';
 import {
   cleanString,
@@ -13,7 +14,8 @@ function json(data, init = {}) {
 
 export async function GET(request) {
   try {
-    if (!(await isAuthorizedAdminRequest(request))) return json({ error: 'Forbidden' }, { status: 403 });
+    const authResult = await requirePermission(request, 'paymentDebts.view');
+    if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
     await ensurePaymentDebtTables();
     const url = new URL(request.url);
     const debts = await getPaymentDebts({
@@ -39,8 +41,9 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const admin = await getAuthorizedAdminFromRequest(request);
-    if (!admin) return json({ error: 'Forbidden' }, { status: 403 });
+    const authResult = await requirePermission(request, 'paymentDebts.update'); // Using update as it covers both create and update for debts
+    if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
+    const admin = authResult.admin;
     let body;
     try {
       body = await request.json();

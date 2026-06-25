@@ -7,6 +7,8 @@ import {
   normalizeStockCategoryRow,
   query,
 } from '../../../../lib/stockStorage';
+import { getAuthorizedAdminFromRequest } from '../../../../lib/adminAuth';
+import { requirePermission, requireAnyPermission } from '../../../../lib/adminPermissions';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
@@ -19,7 +21,8 @@ function json(data, init = {}) {
 
 export async function GET(request) {
   try {
-    if (!(await isAuthorizedStockRequest(request))) return json({ error: 'Forbidden' }, { status: 403 });
+    const authResult = await requirePermission(request, 'stock.view');
+    if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
     await ensureStockCategoriesTable();
     const rows = await query('SELECT * FROM stock_categories ORDER BY created_at DESC');
     return json({ success: true, categories: rows.map(normalizeStockCategoryRow) }, { status: 200, headers: { 'Cache-Control': 'no-store' } });
@@ -31,7 +34,8 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    if (!(await isAuthorizedStockRequest(request))) return json({ error: 'Forbidden' }, { status: 403 });
+    const authResult = await requireAnyPermission(request, ['stock.create', 'stock.update']);
+    if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
     const body = await request.json();
     const category = normalizeStockCategoryInput(body);
     if (!category.name) return json({ error: 'Category name is required' }, { status: 400 });
@@ -60,7 +64,8 @@ export async function POST(request) {
 
 export async function DELETE(request) {
   try {
-    if (!(await isAuthorizedStockRequest(request))) return json({ error: 'Forbidden' }, { status: 403 });
+    const authResult = await requirePermission(request, 'stock.delete');
+    if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
     const id = cleanString(new URL(request.url).searchParams.get('id'), 64);
     if (!id) return json({ error: 'Missing id parameter' }, { status: 400 });
     await ensureStockProductsTable();

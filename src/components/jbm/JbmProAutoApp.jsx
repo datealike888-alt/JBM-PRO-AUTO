@@ -1570,7 +1570,7 @@ function StatusPage() {
 
 function AdminApp() {
   const [token, setToken] = useState('');
-  const [, setAdminProfile] = useState(null);
+  const [adminProfile, setAdminProfile] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [usernameInput, setUsernameInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
@@ -1613,6 +1613,23 @@ function AdminApp() {
   const [stockMovements, setStockMovements] = useState(INITIAL_STOCK_MOVEMENTS);
   const [stockMovementError, setStockMovementError] = useState('');
   const activeTab = active;
+
+      const hasPermission = useCallback((permissionKey) => {
+    if (!permissionKey) return true;
+    if (!adminProfile) return false;
+
+    const permissions = adminProfile?.permissions || [];
+    const roleKeys = adminProfile?.roleKeys || adminProfile?.role_keys || [];
+    const roles = adminProfile?.roles || [];
+
+    return (
+      permissions.includes(permissionKey) ||
+      permissions.includes('*') ||
+      roleKeys.includes('super_admin') ||
+      roles.includes('จัดการยศ') ||
+      roles.includes('super_admin')
+    );
+  }, [adminProfile]);
 
   const headers = useCallback(() => ({}), []);
   const setActiveTab = useCallback((key) => {
@@ -1681,8 +1698,13 @@ function AdminApp() {
   }, [headers, token]);
 
   useEffect(() => {
-    loadVehicles();
-  }, [loadVehicles]);
+    if (!adminProfile) return;
+    if (hasPermission('vehicles.view') || hasPermission('repair.view') || hasPermission('calendar.view') || hasPermission('dashboard.all')) {
+      loadVehicles();
+    } else {
+      setVehicles([]);
+    }
+  }, [loadVehicles, adminProfile, hasPermission]);
 
   const loadPaymentDebts = useCallback(async () => {
     if (!token) return;
@@ -1698,8 +1720,13 @@ function AdminApp() {
   }, [headers, token]);
 
   useEffect(() => {
-    loadPaymentDebts();
-  }, [loadPaymentDebts]);
+    if (!adminProfile) return;
+    if (hasPermission('paymentDebts.view') || hasPermission('finance.view') || hasPermission('dashboard.all')) {
+      loadPaymentDebts();
+    } else {
+      setPaymentDebts([]);
+    }
+  }, [loadPaymentDebts, adminProfile, hasPermission]);
 
   const loadStockData = useCallback(async () => {
     if (!token) return;
@@ -1754,8 +1781,15 @@ function AdminApp() {
   }, [headers, token]);
 
   useEffect(() => {
-    loadStockData();
-  }, [loadStockData]);
+    if (!adminProfile) return;
+    if (hasPermission('stock.view') || hasPermission('dashboard.all')) {
+      loadStockData();
+    } else {
+      setStockCategories(INITIAL_STOCK_CATEGORIES);
+      setStockProducts(INITIAL_STOCK_PRODUCTS);
+      setStockMovements(INITIAL_STOCK_MOVEMENTS);
+    }
+  }, [loadStockData, adminProfile, hasPermission]);
 
   useEffect(() => {
     window.localStorage.setItem(SHIFT_LOGS_STORAGE_KEY, JSON.stringify(shiftLogs));
@@ -2041,35 +2075,41 @@ function AdminApp() {
     {
       group: 'ภาพรวม',
       items: [
-        ['dashboard', 'Dashboard', Gauge],
-      ]
+        hasPermission('dashboard.all') && ['dashboard', 'Dashboard', Gauge],
+      ].filter(Boolean)
     },
     {
       group: 'งานซ่อม',
-      items: [
+      items: (hasPermission('repair.view') || hasPermission('repair.create') || hasPermission('calendar.view') || hasPermission('vehicles.view') || hasPermission('dashboard.all')) ? [
         ['form', 'เพิ่มคิว / ลงทะเบียนเคสซ่อม', Plus],
         ['calendar', 'ปฏิทินจองคิว', CalendarDays],
         ['in-shop', 'รถค้างในร้าน', Wrench],
         ['all', 'รถทั้งหมดในระบบ', Car],
-      ]
+      ] : []
     },
     {
       group: 'จัดการร้าน',
       items: [
-        ['productStock', 'สต็อกสินค้า', Package],
-        ['finance', 'การเงิน', Coins],
-        ['cashReserve', 'เงินสำรองจ่าย', Wallet],
-        ['paymentDebts', 'ค้างชำระ', ClipboardList],
-        ['charts', 'รายงาน / กราฟ', ClipboardList],
-      ]
+        (hasPermission('stock.view') || hasPermission('dashboard.all')) && ['productStock', 'สต็อกสินค้า', Package],
+        (hasPermission('finance.view') || hasPermission('dashboard.all')) && ['finance', 'การเงิน', Coins],
+        (hasPermission('cashReserve.view') || hasPermission('dashboard.all')) && ['cashReserve', 'เงินสำรองจ่าย', Wallet],
+        (hasPermission('paymentDebts.view') || hasPermission('dashboard.all')) && ['paymentDebts', 'ค้างชำระ', ClipboardList],
+        (hasPermission('reports.view') || hasPermission('dashboard.all')) && ['charts', 'รายงาน / กราฟ', ClipboardList],
+      ].filter(Boolean)
     },
     {
       group: 'ระบบพนักงาน',
-      items: [
+      items: (hasPermission('employees.view') || hasPermission('dashboard.all')) ? [
         ['shift-duty', 'จัดการพนักงาน', UserCheck],
-      ]
+      ] : []
+    },
+    {
+      group: 'ตั้งค่าระบบ',
+      items: (hasPermission('roles.view') || hasPermission('adminUsers.view') || hasPermission('dashboard.all')) ? [
+        ['roles', 'จัดการยศ', ShieldCheck],
+      ] : []
     }
-  ];
+  ].filter(group => group.items.length > 0);
 
   if (!token) {
     if (!authChecked) {
@@ -2225,9 +2265,9 @@ function AdminApp() {
 
           {/* Content Wrapper */}
           <div className="flex-1 space-y-6 p-4 sm:p-6 bg-slate-50">
-            {activeTab === 'dashboard' && <Dashboard stats={stats} vehicles={vehicles} stockProducts={stockProducts} paymentDebts={paymentDebts} statusFilter={dashboardStatusFilter} setStatusFilter={setDashboardStatusFilter} />}
+            {activeTab === 'dashboard' && <Dashboard stats={stats} vehicles={vehicles} stockProducts={stockProducts} paymentDebts={paymentDebts} statusFilter={dashboardStatusFilter} setStatusFilter={setDashboardStatusFilter} hasPermission={hasPermission} adminProfile={adminProfile} />}
             {activeTab === 'form' && <VehicleForm initial={editing || emptyVehicle} onSave={saveVehicle} onCancel={() => setActiveTab('dashboard')} />}
-            {activeTab === 'shift-duty' && <ShiftDutyPage />}
+            {activeTab === 'shift-duty' && <ShiftDutyPage adminProfile={adminProfile} hasPermission={hasPermission} />}
             {activeTab === 'all' && (
               <VehicleTable
                 title="รถทั้งหมดในระบบ"
@@ -2265,10 +2305,10 @@ function AdminApp() {
               />
             )}
             {activeTab === 'in-shop' && <InShop vehicles={inShopVehicles} query={inShopQuery} setQuery={setInShopQuery} />}
-            {activeTab === 'finance' && <FinancialAdmin headers={headers} onOpenPaymentDebts={() => setActiveTab('paymentDebts')} />}
-            {activeTab === 'cashReserve' && <CashReserveAdmin headers={headers} />}
-            {activeTab === 'paymentDebts' && <PaymentDebtAdmin headers={headers} onBack={() => setActiveTab('finance')} />}
-            {activeTab === 'charts' && <ManagementDashboard vehicles={vehicles} stockProducts={stockProducts} />}
+            {activeTab === 'finance' && <FinancialAdmin headers={headers} onOpenPaymentDebts={() => setActiveTab('paymentDebts')} hasPermission={hasPermission} />}
+            {activeTab === 'cashReserve' && <CashReserveAdmin headers={headers} hasPermission={hasPermission} />}
+            {activeTab === 'paymentDebts' && <PaymentDebtAdmin headers={headers} onBack={() => setActiveTab('finance')} hasPermission={hasPermission} />}
+            {activeTab === 'charts' && <ManagementDashboard vehicles={vehicles} stockProducts={stockProducts} hasPermission={hasPermission} />}
           </div>
         </main>
       </div>
@@ -2933,7 +2973,7 @@ function StockModalActions({ onClose, saving = false }) {
   );
 }
 
-function ShiftDutyPage() {
+function ShiftDutyPage({ adminProfile, hasPermission = () => false }) {
   const today = dateInputValue(new Date());
   const current = currentYearMonth();
   const emptyEmployee = { id: '', code: '', status: EMPLOYEE_STATUSES[0], firstName: '', lastName: '', nickname: '', position: DEFAULT_EMPLOYEE_POSITIONS[4], photo_url: '', photoUrl: '' };
@@ -3011,8 +3051,15 @@ function ShiftDutyPage() {
   }, [authHeaders]);
 
   useEffect(() => {
-    loadEmployeeData();
-  }, [loadEmployeeData]);
+    if (!adminProfile) return;
+    if (hasPermission('employees.view') || hasPermission('dashboard.all')) {
+      loadEmployeeData();
+    } else {
+      setEmployees([]);
+      setAttendanceLogs([]);
+      setLeaveLogs([]);
+    }
+  }, [loadEmployeeData, adminProfile, hasPermission]);
 
   const employeeMap = useMemo(() => new Map(employees.map((employee) => [employee.id, employee])), [employees]);
   const activeEmployees = employees.filter((employee) => employee.status === 'ทำงานอยู่');
@@ -4115,7 +4162,7 @@ function StockSummaryCard({ title, value, className }) {
   );
 }
 
-function Dashboard({ stats, vehicles, stockProducts, paymentDebts = [], statusFilter, setStatusFilter }) {
+function Dashboard({ stats, vehicles, stockProducts, paymentDebts = [], statusFilter, setStatusFilter, hasPermission, adminProfile }) {
   const today = dateInputValue(new Date());
   const monthRange = chartRange('month');
   const monthVehicles = vehicles.filter((vehicle) => inChartRange(dateKey(vehicle), monthRange));
@@ -4228,7 +4275,7 @@ function Dashboard({ stats, vehicles, stockProducts, paymentDebts = [], statusFi
                 <tr>
                   <th className="p-3.5">เลขที่ใบแจ้งหนี้</th>
                   <th className="p-3.5">ยี่ห้อ / ทะเบียน</th>
-                  <th className="p-3.5">ลูกค้า</th>
+                  {(!hasPermission || hasPermission('dashboard.repair') || hasPermission('dashboard.all')) && <th className="p-3.5">ลูกค้า</th>}
                   <th className="p-3.5">สถานะ</th>
                   <th className="p-3.5">วันที่รับคิว</th>
                 </tr>
@@ -4241,14 +4288,14 @@ function Dashboard({ stats, vehicles, stockProducts, paymentDebts = [], statusFi
                       <p className="text-slate-900 font-extrabold">{vehicle.brand}</p>
                       <p className="text-xs font-semibold text-slate-500 mt-0.5">{vehicle.license_plate}</p>
                     </td>
-                    <td className="p-3.5 text-slate-950 font-extrabold">{vehicle.owner_name || '-'}</td>
+                    {(!hasPermission || hasPermission('dashboard.repair') || hasPermission('dashboard.all')) && <td className="p-3.5 text-slate-950 font-extrabold">{vehicle.owner_name || '-'}</td>}
                     <td className="p-3.5"><StatusPill status={vehicle.status} /></td>
                     <td className="p-3.5 text-slate-500 text-xs font-semibold">{dateText(vehicle.booking_date)}</td>
                   </tr>
                 ))}
                 {latestVehicles.length === 0 && (
                   <tr>
-                    <td className="p-8 text-center text-slate-400" colSpan={5}>
+                    <td className="p-8 text-center text-slate-400" colSpan={(!hasPermission || hasPermission('dashboard.repair') || hasPermission('dashboard.all')) ? 5 : 4}>
                       ยังไม่มีข้อมูลรถยนต์ในอู่ ณ ขณะนี้
                     </td>
                   </tr>
@@ -4718,7 +4765,7 @@ const CHART_FILTERS = [
   ['custom', 'กำหนดเอง'],
 ];
 
-function ManagementDashboard({ vehicles, stockProducts }) {
+function ManagementDashboard({ vehicles, stockProducts, hasPermission = () => false }) {
   const [filter, setFilter] = useState('month');
   const [customStart, setCustomStart] = useState(dateInputValue(new Date()));
   const [customEnd, setCustomEnd] = useState(dateInputValue(new Date()));
@@ -4760,21 +4807,23 @@ function ManagementDashboard({ vehicles, stockProducts }) {
 
   const [employeesData, setEmployeesData] = useState([]);
   const [attendanceData, setAttendanceData] = useState([]);
-  useEffect(() => {
+    useEffect(() => {
+    if (!hasPermission || (!hasPermission('employees.view') && !hasPermission('dashboard.employee') && !hasPermission('dashboard.all'))) return;
+
     const token = window.localStorage.getItem('jbm_admin_token') || '';
     const headers = { 'Content-Type': 'application/json' };
     if (token) headers.Authorization = `Bearer ${token}`;
     
     fetch('/api/employees', { headers })
-      .then(r => r.json())
+      .then(r => r.ok ? r.json() : {})
       .then(d => { if (d && d.employees) setEmployeesData(d.employees); })
       .catch(() => {});
 
     fetch('/api/employee-attendance', { headers })
-      .then(r => r.json())
+      .then(r => r.ok ? r.json() : {})
       .then(d => { if (d && d.logs) setAttendanceData(d.logs); })
       .catch(() => {});
-  }, []);
+  }, [hasPermission]);
 
   const employeeStatusRows = useMemo(() => {
     const counts = (employeesData || []).reduce((acc, emp) => {
@@ -5608,7 +5657,7 @@ function InShop({ vehicles, query, setQuery }) {
   );
 }
 
-function FinancialAdmin({ headers, onOpenPaymentDebts }) {
+function FinancialAdmin({ headers, onOpenPaymentDebts, hasPermission = () => false }) {
   const current = currentYearMonth();
   const [transactions, setTransactions] = useState([]);
   const [summaryTransactions, setSummaryTransactions] = useState([]);
@@ -5654,12 +5703,20 @@ function FinancialAdmin({ headers, onOpenPaymentDebts }) {
   }, [headers]);
 
   useEffect(() => {
-    loadTransactions();
-  }, [loadTransactions]);
+    if (hasPermission('finance.view') || hasPermission('dashboard.all')) {
+      loadTransactions();
+    } else {
+      setTransactions([]);
+    }
+  }, [loadTransactions, hasPermission]);
 
   useEffect(() => {
-    loadSummaryTransactions();
-  }, [loadSummaryTransactions]);
+    if (hasPermission('finance.view') || hasPermission('dashboard.all')) {
+      loadSummaryTransactions();
+    } else {
+      setSummaryTransactions([]);
+    }
+  }, [loadSummaryTransactions, hasPermission]);
 
   const summary = useMemo(() => {
     const today = dateInputValue(new Date());
@@ -6157,7 +6214,7 @@ function VehicleDetailModal({ vehicle, onClose }) {
   );
 }
 
-function PaymentDebtAdmin({ headers, onBack }) {
+function PaymentDebtAdmin({ headers, onBack, hasPermission = () => false }) {
   const [debts, setDebts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -6182,8 +6239,12 @@ function PaymentDebtAdmin({ headers, onBack }) {
   }, [headers]);
 
   useEffect(() => {
-    loadDebts();
-  }, [loadDebts]);
+    if (hasPermission('paymentDebts.view') || hasPermission('finance.view') || hasPermission('dashboard.all')) {
+      loadDebts();
+    } else {
+      setDebts([]);
+    }
+  }, [loadDebts, hasPermission]);
 
   const saveDebt = async (debt) => {
     setError('');
@@ -6758,7 +6819,7 @@ const cashReserveToMoneyNumber = (value) => {
   return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : 0;
 };
 
-function CashReserveAdmin({ headers }) {
+function CashReserveAdmin({ headers, hasPermission = () => false }) {
   const current = currentYearMonth();
   const [transactions, setTransactions] = useState([]);
   const [summary, setSummary] = useState({ balance: 0, totalIn: 0, totalOut: 0, totalReturned: 0, totalTransferredOut: 0, totalAdjust: 0 });
@@ -6793,8 +6854,12 @@ function CashReserveAdmin({ headers }) {
   }, [filters, query, headers]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (hasPermission('cashReserve.view') || hasPermission('finance.view') || hasPermission('dashboard.all')) {
+      loadData();
+    } else {
+      setTransactions([]);
+    }
+  }, [loadData, hasPermission]);
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -6866,6 +6931,76 @@ function CashReserveAdmin({ headers }) {
     }
   }, [daysInMonth, filters.day]);
 
+  const handleExportCsv = () => {
+    if (transactions.length === 0) {
+      alert('ยังไม่มีข้อมูลสำหรับ Export');
+      return;
+    }
+
+    const escapeCsvValue = (value) => {
+      const text = String(value ?? '');
+      if (/[",\n\r]/.test(text)) {
+        return `"${text.replace(/"/g, '""')}"`;
+      }
+      return text;
+    };
+
+    const formatCsvMoney = (value) => {
+      const n = Number(value || 0);
+      return Number.isFinite(n) ? n.toFixed(2) : '0.00';
+    };
+
+    const toCsvDate = (value) => {
+      if (!value) return '';
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return String(value).slice(0, 10);
+      return d.toISOString().slice(0, 10);
+    };
+
+    const headers = [
+      'วันที่',
+      'เวลา',
+      'ประเภทรายการ',
+      'รายละเอียด',
+      'ผู้รับเงิน/ผู้ทำรายการ',
+      'ช่องทางการเงิน',
+      'จำนวนเงิน',
+      'ทิศทาง',
+      'ยอดคงเหลือหลังรายการ',
+      'หมายเหตุ',
+      'วันที่สร้าง',
+    ];
+
+    const rows = [headers];
+
+    for (const t of transactions) {
+      rows.push([
+        toCsvDate(t.transaction_date),
+        t.transaction_time || '',
+        t.type || '',
+        t.detail || '',
+        t.person_name || '',
+        t.payment_channel || '',
+        formatCsvMoney(t.amount),
+        t.direction === 'IN' ? 'เข้า' : t.direction === 'OUT' ? 'ออก' : t.direction === 'ADJUST' ? 'ปรับปรุง' : t.direction,
+        formatCsvMoney(t.balance_after),
+        t.note || '',
+        t.created_at || ''
+      ]);
+    }
+
+    const csvContent = '\uFEFF' + rows.map(row => row.map(escapeCsvValue).join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const today = new Date().toISOString().slice(0, 10);
+    link.href = url;
+    link.setAttribute('download', `cash-reserve-${today}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8 space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -6876,12 +7011,22 @@ function CashReserveAdmin({ headers }) {
           </h2>
           <p className="text-slate-500">จัดการเงินสำรอง/เงินกองกลางของร้าน</p>
         </div>
-        <button
-          onClick={() => setEditing({ ...emptyCashReserveTransaction })}
-          className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 shadow-sm transition-all"
-        >
-          <Banknote className="h-5 w-5" /> เพิ่มรายการเงินสำรอง
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          {hasPermission('cashReserve.view') && (
+            <button
+              onClick={handleExportCsv}
+              className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-slate-700 hover:bg-slate-50 shadow-sm transition-all"
+            >
+              <Download className="h-5 w-5" /> Export CSV
+            </button>
+          )}
+          <button
+            onClick={() => setEditing({ ...emptyCashReserveTransaction })}
+            className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 shadow-sm transition-all"
+          >
+            <Banknote className="h-5 w-5" /> เพิ่มรายการเงินสำรอง
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

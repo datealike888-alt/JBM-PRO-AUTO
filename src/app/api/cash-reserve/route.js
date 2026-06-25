@@ -1,4 +1,5 @@
 import { isAuthorizedAdminRequest, getAuthorizedAdminFromRequest } from '../../../lib/adminAuth';
+import { requirePermission } from '../../../lib/adminPermissions';
 import { insertAuditLogSafe } from '../../../lib/auditLog';
 import { query } from '../../../lib/db';
 
@@ -65,7 +66,7 @@ function formatSqlTime(value) {
   return String(value).slice(0, 5);
 }
 
-export async function ensureCashReserveTable() {
+async function ensureCashReserveTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS cash_reserve_transactions (
       id VARCHAR(64) PRIMARY KEY,
@@ -88,7 +89,7 @@ export async function ensureCashReserveTable() {
   `);
 }
 
-export async function recalculateBalances() {
+async function recalculateBalances() {
   const rows = await query(`
     SELECT id, direction, amount, balance_after 
     FROM cash_reserve_transactions 
@@ -180,7 +181,8 @@ function buildWhere(url) {
 
 export async function GET(request) {
   try {
-    if (!(await isAuthorizedAdminRequest(request))) return json({ error: 'ไม่มีสิทธิ์ใช้งานข้อมูลเงินสำรองจ่าย' }, { status: 403 });
+    const authResult = await requirePermission(request, 'cashReserve.view');
+    if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
     await ensureCashReserveTable();
 
     const url = new URL(request.url);
@@ -253,8 +255,9 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const admin = await getAuthorizedAdminFromRequest(request);
-    if (!admin) return json({ error: 'ไม่มีสิทธิ์บันทึกข้อมูลเงินสำรองจ่าย' }, { status: 403 });
+    const authResult = await requirePermission(request, 'cashReserve.create');
+    if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
+    const admin = authResult.admin;
 
     let body;
     try {

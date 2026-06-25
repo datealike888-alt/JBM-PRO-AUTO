@@ -1,4 +1,5 @@
 import { getAuthorizedAdminFromRequest, isAuthorizedAdminRequest } from '../../../../../lib/adminAuth';
+import { requirePermission } from '../../../../../lib/adminPermissions';
 import { insertAuditLogSafe } from '../../../../../lib/auditLog';
 import { addDebtPayment, cleanString, getPaymentDebtById } from '../../../../../lib/paymentDebtStorage';
 
@@ -13,7 +14,8 @@ async function getRouteId({ params }) {
 
 export async function GET(request, { params }) {
   try {
-    if (!(await isAuthorizedAdminRequest(request))) return json({ error: 'Forbidden' }, { status: 403 });
+    const authResult = await requirePermission(request, 'paymentDebts.view');
+    if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
     const id = await getRouteId({ params });
     if (!id) return json({ error: 'Missing id' }, { status: 400 });
     const debt = await getPaymentDebtById(id);
@@ -27,8 +29,9 @@ export async function GET(request, { params }) {
 
 export async function POST(request, { params }) {
   try {
-    const admin = await getAuthorizedAdminFromRequest(request);
-    if (!admin) return json({ error: 'Forbidden' }, { status: 403 });
+    const authResult = await requirePermission(request, 'paymentDebts.payment');
+    if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
+    const admin = authResult.admin;
     const id = await getRouteId({ params });
     if (!id) return json({ error: 'Missing id' }, { status: 400 });
     let body;

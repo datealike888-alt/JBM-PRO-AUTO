@@ -8,6 +8,7 @@ import {
 } from '../../../lib/employeeStorage';
 import { getAuthorizedAdminFromRequest } from '../../../lib/adminAuth';
 import { insertAuditLogSafe } from '../../../lib/auditLog';
+import { requirePermission, requireAnyPermission } from '../../../lib/adminPermissions';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
@@ -54,7 +55,8 @@ function buildWhere(url) {
 
 export async function GET(request) {
   try {
-    if (!(await isAuthorizedToken(request))) return json({ error: 'Forbidden' }, { status: 403 });
+    const authResult = await requirePermission(request, 'employees.view');
+    if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
     await ensureEmployeesTable();
 
     const where = buildWhere(new URL(request.url));
@@ -76,8 +78,9 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const admin = await getAuthorizedAdminFromRequest(request);
-    if (!admin) return json({ error: 'Forbidden' }, { status: 403 });
+    const authResult = await requireAnyPermission(request, ['employees.create', 'employees.update']);
+    if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
+    const admin = authResult.admin;
 
     let body;
     try {
@@ -179,8 +182,9 @@ export async function POST(request) {
 
 export async function DELETE(request) {
   try {
-    const admin = await getAuthorizedAdminFromRequest(request);
-    if (!admin) return json({ error: 'Forbidden' }, { status: 403 });
+    const authResult = await requirePermission(request, 'employees.delete');
+    if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
+    const admin = authResult.admin;
     const id = cleanString(new URL(request.url).searchParams.get('id'), 64);
     if (!id) return json({ error: 'Missing id parameter' }, { status: 400 });
 

@@ -8,6 +8,7 @@ import {
 } from '../../../../lib/stockStorage';
 import { getAuthorizedAdminFromRequest } from '../../../../lib/adminAuth';
 import { insertAuditLogSafe } from '../../../../lib/auditLog';
+import { requirePermission } from '../../../../lib/adminPermissions';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
@@ -20,7 +21,8 @@ function json(data, init = {}) {
 
 export async function GET(request) {
   try {
-    if (!(await isAuthorizedStockRequest(request))) return json({ error: 'Forbidden' }, { status: 403 });
+    const authResult = await requirePermission(request, 'stock.view');
+    if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
     await ensureStockMovementsTable();
     const productId = cleanString(new URL(request.url).searchParams.get('productId'), 64);
     const rows = await query(
@@ -39,8 +41,9 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const admin = await getAuthorizedAdminFromRequest(request);
-    if (!admin) return json({ error: 'Forbidden' }, { status: 403 });
+    const authResult = await requirePermission(request, 'stock.movement');
+    if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
+    const admin = authResult.admin;
     let body;
     try {
       body = await request.json();
@@ -115,8 +118,9 @@ export async function POST(request) {
 
 export async function DELETE(request) {
   try {
-    const admin = await getAuthorizedAdminFromRequest(request);
-    if (!admin) return json({ error: 'Forbidden' }, { status: 403 });
+    const authResult = await requirePermission(request, 'stock.delete');
+    if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
+    const admin = authResult.admin;
     const id = cleanString(new URL(request.url).searchParams.get('id'), 64);
     if (!id) return json({ error: 'Missing id parameter' }, { status: 400 });
     await ensureStockMovementsTable();

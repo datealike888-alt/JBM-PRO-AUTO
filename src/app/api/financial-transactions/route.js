@@ -1,4 +1,5 @@
 import { isAuthorizedAdminRequest, getAuthorizedAdminFromRequest } from '../../../lib/adminAuth';
+import { requirePermission } from '../../../lib/adminPermissions';
 import { insertAuditLogSafe } from '../../../lib/auditLog';
 import { query } from '../../../lib/db';
 
@@ -231,7 +232,8 @@ function buildWhere(url) {
 
 export async function GET(request) {
   try {
-    if (!(await isAuthorizedAdminRequest(request))) return json({ error: 'ไม่มีสิทธิ์ใช้งานข้อมูลการเงิน' }, { status: 403 });
+    const authResult = await requirePermission(request, 'finance.view');
+    if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
     await ensureFinancialTransactionsTable();
 
     const url = new URL(request.url);
@@ -253,8 +255,9 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const admin = await getAuthorizedAdminFromRequest(request);
-    if (!admin) return json({ error: 'ไม่มีสิทธิ์บันทึกข้อมูลการเงิน' }, { status: 403 });
+    const authResult = await requirePermission(request, 'finance.create');
+    if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
+    const admin = authResult.admin;
 
     let body;
     try {
@@ -326,8 +329,9 @@ export async function POST(request) {
 
 export async function DELETE(request) {
   try {
-    const admin = await getAuthorizedAdminFromRequest(request);
-    if (!admin) return json({ error: 'ไม่มีสิทธิ์ลบข้อมูลการเงิน' }, { status: 403 });
+    const authResult = await requirePermission(request, 'finance.delete');
+    if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
+    const admin = authResult.admin;
     const id = cleanString(new URL(request.url).searchParams.get('id'), 64);
     if (!id) return json({ error: 'กรุณาระบุ id ของรายการที่ต้องการลบ' }, { status: 400 });
 

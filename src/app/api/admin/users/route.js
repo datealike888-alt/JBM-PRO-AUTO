@@ -1,4 +1,4 @@
-import { requirePermission } from '../../../../lib/adminPermissions';
+import { requireAnyPermission, requirePermission } from '../../../../lib/adminPermissions';
 import { listAdminUsers, createAdminUser, ensureDefaultRolesAndPermissions } from '../../../../lib/adminPermissions';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
@@ -12,7 +12,7 @@ function json(data, init = {}) {
 
 export async function GET(request) {
   try {
-    const auth = await requirePermission(request, 'adminUsers.view');
+    const auth = await requireAnyPermission(request, ['adminUsers.view', 'roles.view']);
     if (auth.error) return json({ error: auth.error }, { status: auth.status });
 
     const users = await listAdminUsers();

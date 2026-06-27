@@ -1,5 +1,5 @@
 import { getAuthorizedAdminFromRequest, isAuthorizedAdminRequest } from '../../../lib/adminAuth';
-import { requirePermission } from '../../../lib/adminPermissions';
+import { requireAnyPermission, requirePermission } from '../../../lib/adminPermissions';
 import { insertAuditLogSafe } from '../../../lib/auditLog';
 import {
   cleanString,
@@ -14,7 +14,7 @@ function json(data, init = {}) {
 
 export async function GET(request) {
   try {
-    const authResult = await requirePermission(request, 'paymentDebts.view');
+    const authResult = await requireAnyPermission(request, ['paymentDebts.view', 'finance.view']);
     if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
     await ensurePaymentDebtTables();
     const url = new URL(request.url);

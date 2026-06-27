@@ -70,6 +70,10 @@ export async function PUT(request, { params }) {
       return json({ error: 'Invalid JSON body' }, { status: 400 });
     }
 
+    if (body.is_active === false && auth.admin?.id === id) {
+      return json({ error: 'ไม่สามารถปิดใช้งานบัญชีที่กำลังใช้งานอยู่ได้' }, { status: 400 });
+    }
+
     if (body.role_ids && !body.roleIds) {
       body.roleIds = body.role_ids;
     }

@@ -68,6 +68,8 @@ export const PERMISSION_KEYS = {
   EMPLOYEES_DELETE: 'employees.delete',
   EMPLOYEES_ATTENDANCE: 'employees.attendance',
   EMPLOYEES_LEAVE: 'employees.leave',
+  ATTENDANCE_VIEW: 'attendance.view',
+  LEAVE_VIEW: 'leave.view',
 
   // Roles
   ROLES_VIEW: 'roles.view',
@@ -140,6 +142,8 @@ const ALL_PERMISSIONS = [
   { key: 'employees.delete', name: 'ลบพนักงาน', group: 'พนักงาน' },
   { key: 'employees.attendance', name: 'ลงเวลาพนักงาน', group: 'พนักงาน' },
   { key: 'employees.leave', name: 'จัดการใบลา', group: 'พนักงาน' },
+  { key: 'attendance.view', name: 'ดูข้อมูลลงเวลา', group: 'พนักงาน' },
+  { key: 'leave.view', name: 'ดูข้อมูลใบลา', group: 'พนักงาน' },
 
   { key: 'roles.view', name: 'ดูยศ', group: 'จัดการยศ' },
   { key: 'roles.create', name: 'สร้างยศ', group: 'จัดการยศ' },
@@ -160,14 +164,26 @@ const ALL_PERMISSIONS = [
 
 export const ROLE_DEFINITIONS = [
   {
+    key: 'dashboard',
+    name: 'แดชบอร์ด',
+    description: 'เห็นหน้า Dashboard และภาพรวมตามข้อมูลที่ได้รับอนุญาต',
+    permissions: [
+      'dashboard.view',
+      'dashboard.repair',
+      'dashboard.stock',
+      'dashboard.finance',
+      'dashboard.employee',
+    ],
+  },
+  {
     key: 'repair',
     name: 'งานซ่อม',
     description: 'เห็นเฉพาะงานซ่อม รถ คิว ปฏิทิน รถค้าง รถทั้งหมด',
     permissions: [
       'dashboard.view', 'dashboard.repair',
-      'repair.view', 'repair.create', 'repair.update',
+      'repair.view', 'repair.create', 'repair.update', 'repair.delete',
       'calendar.view',
-      'vehicles.view', 'vehicles.create', 'vehicles.update',
+      'vehicles.view', 'vehicles.create', 'vehicles.update', 'vehicles.delete',
     ],
   },
   {
@@ -199,6 +215,7 @@ export const ROLE_DEFINITIONS = [
       'dashboard.view', 'dashboard.employee',
       'employees.view', 'employees.create', 'employees.update', 'employees.delete',
       'employees.attendance', 'employees.leave',
+      'attendance.view', 'leave.view',
     ],
   },
   {
@@ -241,12 +258,51 @@ function generateId(prefix = 'id') {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function uniqueCleanIds(values, maxLength = 64) {
+  if (!Array.isArray(values)) return [];
+  return [...new Set(values.map((value) => cleanString(value, maxLength)).filter(Boolean))];
+}
+
 async function ensureColumn(sql) {
   try {
     await query(sql);
   } catch (error) {
     if (Number(error?.errno || 0) !== 1060) throw error;
   }
+}
+
+async function assertExistingRoleIds(roleIds = []) {
+  const cleanRoleIds = uniqueCleanIds(roleIds, 64);
+  if (cleanRoleIds.length === 0) return [];
+
+  const placeholders = cleanRoleIds.map(() => '?').join(',');
+  const rows = await query(
+    `SELECT id FROM admin_roles WHERE id IN (${placeholders})`,
+    cleanRoleIds
+  );
+  const foundIds = new Set((Array.isArray(rows) ? rows : []).map((row) => String(row.id)));
+  const missingIds = cleanRoleIds.filter((id) => !foundIds.has(id));
+  if (missingIds.length > 0) {
+    throw new Error('พบยศที่ไม่มีอยู่ในระบบ');
+  }
+  return cleanRoleIds;
+}
+
+async function assertExistingPermissionIds(permissionIds = []) {
+  const cleanPermissionIds = uniqueCleanIds(permissionIds, 64);
+  if (cleanPermissionIds.length === 0) return [];
+
+  const placeholders = cleanPermissionIds.map(() => '?').join(',');
+  const rows = await query(
+    `SELECT id FROM admin_permissions WHERE id IN (${placeholders})`,
+    cleanPermissionIds
+  );
+  const foundIds = new Set((Array.isArray(rows) ? rows : []).map((row) => String(row.id)));
+  const missingIds = cleanPermissionIds.filter((id) => !foundIds.has(id));
+  if (missingIds.length > 0) {
+    throw new Error('พบสิทธิ์ที่ไม่มีอยู่ในระบบ');
+  }
+  return cleanPermissionIds;
 }
 
 // ---------------------------------------------------------------------------
@@ -353,29 +409,6 @@ export async function ensureDefaultRolesAndPermissions() {
          ON DUPLICATE KEY UPDATE id = id`,
         [rpId, roleId, permId]
       ).catch(() => {});
-    }
-  }
-
-  // 4. Assign default admin to super_admin role
-  const existingAdmins = await query(
-    `SELECT id FROM admin_users WHERE username = 'admin' LIMIT 1`
-  );
-  if (Array.isArray(existingAdmins) && existingAdmins.length > 0) {
-    for (const admin of existingAdmins) {
-      // Check if admin already has any role
-      const existingRoles = await query(
-        `SELECT id FROM admin_user_roles WHERE user_id = ? LIMIT 1`,
-        [String(admin.id)]
-      );
-      if (!Array.isArray(existingRoles) || existingRoles.length === 0) {
-        // No roles assigned, give super_admin
-        await query(
-          `INSERT INTO admin_user_roles (id, user_id, role_id)
-           VALUES (?, ?, 'role-super_admin')
-           ON DUPLICATE KEY UPDATE id = id`,
-          [generateId('ur'), String(admin.id)]
-        ).catch((err) => { console.error('Failed to assign super_admin', err) });
-      }
     }
   }
 
@@ -554,6 +587,11 @@ export async function createAdminUser({ username, password, display_name, email,
   const passwordStr = String(password || '');
   if (!usernameClean || !passwordStr) throw new Error('กรุณากรอกชื่อผู้ใช้และรหัสผ่าน');
 
+  const USERNAME_PATTERN = /^[a-zA-Z0-9._-]{3,50}$/;
+  if (!USERNAME_PATTERN.test(usernameClean)) {
+    throw new Error('ชื่อผู้ใช้ต้องเป็นตัวอักษรอังกฤษ ตัวเลข จุด ขีดกลาง หรือขีดล่าง ความยาว 3-50 ตัวอักษร');
+  }
+
   // Check duplicate username
   const existing = await query(
     `SELECT id FROM admin_users WHERE LOWER(username) = ? LIMIT 1`,
@@ -562,6 +600,8 @@ export async function createAdminUser({ username, password, display_name, email,
   if (Array.isArray(existing) && existing.length > 0) {
     throw new Error('ชื่อผู้ใช้นี้ถูกใช้งานแล้ว');
   }
+
+  const cleanRoleIds = await assertExistingRoleIds(roleIds);
 
   const userId = generateId('admin');
   const passwordHash = await bcrypt.hash(passwordStr, 10);
@@ -573,14 +613,14 @@ export async function createAdminUser({ username, password, display_name, email,
   );
 
   // Assign roles
-  if (Array.isArray(roleIds) && roleIds.length > 0) {
-    for (const roleId of roleIds) {
+  if (cleanRoleIds.length > 0) {
+    for (const roleId of cleanRoleIds) {
       await query(
         `INSERT INTO admin_user_roles (id, user_id, role_id)
          VALUES (?, ?, ?)
          ON DUPLICATE KEY UPDATE id = id`,
-        [generateId('ur'), userId, cleanString(roleId, 64)]
-      ).catch(() => {});
+        [generateId('ur'), userId, roleId]
+      );
     }
   }
 
@@ -596,7 +636,7 @@ export async function updateAdminUser(userId, { username, display_name, email, r
   // Check if trying to deactivate last super admin
   if (is_active === false || is_active === 0) {
     if (await isLastSuperAdmin(userIdStr)) {
-      throw new Error('ไม่สามารถปิดใช้งานผู้ดูแลระบบคนสุดท้ายได้');
+      throw new Error('ไม่สามารถปิดใช้งานผู้ดูแลระบบสูงสุดคนสุดท้ายได้');
     }
   }
 
@@ -605,7 +645,10 @@ export async function updateAdminUser(userId, { username, display_name, email, r
 
   if (username !== undefined) {
     const usernameClean = cleanString(username, 100).toLowerCase();
-    if (!usernameClean) throw new Error('ชื่อผู้ใช้ไม่ถูกต้อง');
+    const USERNAME_PATTERN = /^[a-zA-Z0-9._-]{3,50}$/;
+    if (!USERNAME_PATTERN.test(usernameClean)) {
+      throw new Error('ชื่อผู้ใช้ต้องเป็นตัวอักษรอังกฤษ ตัวเลข จุด ขีดกลาง หรือขีดล่าง ความยาว 3-50 ตัวอักษร');
+    }
     // Check duplicate (exclude self)
     const existing = await query(
       `SELECT id FROM admin_users WHERE LOWER(username) = ? AND id <> ? LIMIT 1`,
@@ -640,8 +683,10 @@ export async function updateAdminUser(userId, { username, display_name, email, r
 
   // Update roles if provided
   if (Array.isArray(roleIds)) {
+    const cleanRoleIds = await assertExistingRoleIds(roleIds);
+
     // Check if removing super_admin from last super admin
-    if (await isLastSuperAdmin(userIdStr) && !roleIds.includes('role-super_admin')) {
+    if (await isLastSuperAdmin(userIdStr) && !cleanRoleIds.includes('role-super_admin')) {
       throw new Error('ไม่สามารถถอดสิทธิ์ผู้ดูแลระบบคนสุดท้ายได้');
     }
 
@@ -649,13 +694,13 @@ export async function updateAdminUser(userId, { username, display_name, email, r
     await query(`DELETE FROM admin_user_roles WHERE user_id = ?`, [userIdStr]);
 
     // Add new roles
-    for (const roleId of roleIds) {
+    for (const roleId of cleanRoleIds) {
       await query(
         `INSERT INTO admin_user_roles (id, user_id, role_id)
          VALUES (?, ?, ?)
          ON DUPLICATE KEY UPDATE id = id`,
-        [generateId('ur'), userIdStr, cleanString(roleId, 64)]
-      ).catch(() => {});
+        [generateId('ur'), userIdStr, roleId]
+      );
     }
   }
 }
@@ -703,15 +748,37 @@ export async function listRoles() {
      FROM admin_roles r
      ORDER BY r.created_at ASC`
   );
-  return Array.isArray(roles) ? roles.map((r) => ({
-    id: String(r.id),
-    role_key: r.role_key,
-    role_name: r.role_name,
-    description: r.description || '',
-    is_system: Number(r.is_system) === 1,
-    user_count: Number(r.user_count || 0),
-    permission_count: Number(r.permission_count || 0),
-  })) : [];
+  const roleRows = Array.isArray(roles) ? roles : [];
+  const results = [];
+
+  for (const role of roleRows) {
+    const permRows = await query(
+      `SELECT p.id, p.permission_key, p.permission_name, p.group_name
+       FROM admin_role_permissions rp
+       JOIN admin_permissions p ON p.id = rp.permission_id
+       WHERE rp.role_id = ?
+       ORDER BY p.group_name, p.permission_key`,
+      [String(role.id)]
+    );
+
+    results.push({
+      id: String(role.id),
+      role_key: role.role_key,
+      role_name: role.role_name,
+      description: role.description || '',
+      is_system: Number(role.is_system) === 1,
+      user_count: Number(role.user_count || 0),
+      permission_count: Number(role.permission_count || 0),
+      permissions: Array.isArray(permRows) ? permRows.map((p) => ({
+        id: String(p.id),
+        permission_key: p.permission_key,
+        permission_name: p.permission_name,
+        group_name: p.group_name || '',
+      })) : [],
+    });
+  }
+
+  return results;
 }
 
 export async function getRoleWithPermissions(roleId) {
@@ -750,18 +817,29 @@ export async function updateRolePermissions(roleId, permissionIds = []) {
   await ensureAdminRoleTables();
 
   const roleIdStr = cleanString(roleId, 64);
+  if (!roleIdStr) throw new Error('Invalid role ID');
+
+  const roleRows = await query(
+    `SELECT id FROM admin_roles WHERE id = ? LIMIT 1`,
+    [roleIdStr]
+  );
+  if (!Array.isArray(roleRows) || roleRows.length === 0) {
+    throw new Error('ไม่พบยศ');
+  }
+
+  const cleanPermissionIds = await assertExistingPermissionIds(permissionIds);
 
   // Remove existing permissions for this role
   await query(`DELETE FROM admin_role_permissions WHERE role_id = ?`, [roleIdStr]);
 
   // Add new permissions
-  for (const permId of permissionIds) {
+  for (const permId of cleanPermissionIds) {
     await query(
       `INSERT INTO admin_role_permissions (id, role_id, permission_id)
        VALUES (?, ?, ?)
        ON DUPLICATE KEY UPDATE id = id`,
-      [generateId('rp'), roleIdStr, cleanString(permId, 64)]
-    ).catch(() => {});
+      [generateId('rp'), roleIdStr, permId]
+    );
   }
 }
 

@@ -47,7 +47,7 @@ async function loadUserPermissions(adminId) {
     };
   } catch (error) {
     console.error('[admin/validate] loadUserPermissions failed', error);
-    return { roles: [], permissions: [] };
+    return { roles: [], roleKeys: [], permissions: [] };
   }
 }
 
@@ -106,7 +106,7 @@ export async function POST(request) {
       [admin.id]
     );
     if (Array.isArray(activeCheck) && activeCheck.length > 0 && Number(activeCheck[0].is_active) === 0) {
-      return json({ error: 'บัญชีนี้ถูกปิดใช้งาน กรุณาติดต่อผู้ดูแลระบบ' }, { status: 403 });
+      return json({ error: 'บัญชีนี้ถูกปิดใช้งาน' }, { status: 403 });
     }
 
     const { roles, roleKeys, permissions } = await loadUserPermissions(admin.id);
@@ -131,6 +131,6 @@ export async function POST(request) {
     });
   } catch (error) {
     console.error('[admin/validate] POST failed', error);
-    return json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' }, { status: 403 });
+    return json({ error: error?.message || 'เกิดข้อผิดพลาดภายในระบบ' }, { status: 500 });
   }
 }

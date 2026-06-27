@@ -9,8 +9,6 @@ import {
   CheckCircle2,
   X,
   Lock,
-  Search,
-  Eye,
   AlertCircle
 } from 'lucide-react';
 
@@ -18,7 +16,18 @@ const API_USERS = '/api/admin/users';
 const API_ROLES = '/api/admin/roles';
 const API_PERMISSIONS = '/api/admin/permissions';
 
-export default function RolesManagement({ adminProfile, headers }) {
+export default function RolesManagement({
+  headers = () => ({}),
+  adminProfile = null,
+  hasPermission = () => false,
+}) {
+  const canViewRoles = hasPermission('roles.view');
+  const adminName = adminProfile?.displayName || adminProfile?.username || '';
+  const canCreateUsers = hasPermission('adminUsers.create');
+  const canUpdateUsers = hasPermission('adminUsers.update');
+  const canDeleteUsers = hasPermission('adminUsers.delete');
+  const canChangePasswords = hasPermission('adminUsers.password');
+
   const [activeTab, setActiveTab] = useState('users');
   
   const [users, setUsers] = useState([]);
@@ -30,11 +39,21 @@ export default function RolesManagement({ adminProfile, headers }) {
   // Modal states
   const [showUserModal, setShowUserModal] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
+  const [saveError, setSaveError] = useState('');
   
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   
   // Data load
   const loadData = useCallback(async () => {
+    if (!canViewRoles) {
+      setRoles([]);
+      setUsers([]);
+      setPermissions([]);
+      setError('');
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError('');
     try {
@@ -44,44 +63,50 @@ export default function RolesManagement({ adminProfile, headers }) {
         fetch(API_PERMISSIONS, { headers: headers() })
       ]);
       
-      const uData = await uRes.json();
-      const rData = await rRes.json();
-      const pData = await pRes.json();
+      const uData = await uRes.json().catch(() => ({}));
+      const rData = await rRes.json().catch(() => ({}));
+      const pData = await pRes.json().catch(() => ({}));
       
       if (!uRes.ok) throw new Error(uData.error || 'Failed to load users');
       if (!rRes.ok) throw new Error(rData.error || 'Failed to load roles');
       if (!pRes.ok) throw new Error(pData.error || 'Failed to load permissions');
       
-      setUsers(uData.users || []);
-      setRoles(rData.roles || []);
-      setPermissions(pData.permissions || []);
+      setUsers(Array.isArray(uData.users) ? uData.users : []);
+      setRoles(Array.isArray(rData.roles) ? rData.roles : []);
+      setPermissions(Array.isArray(pData.permissions) ? pData.permissions : []);
     } catch (err) {
-      setError(err.message);
+      console.error('[RolesManagement] load data failed', err);
+      setUsers([]);
+      setRoles([]);
+      setPermissions([]);
+      setError(err.message || 'โหลดข้อมูลจัดการยศไม่สำเร็จ');
     } finally {
       setLoading(false);
     }
-  }, [headers]);
+  }, [canViewRoles, headers]);
 
   useEffect(() => {
+    if (!canViewRoles) return;
     loadData();
-  }, [loadData]);
+  }, [canViewRoles, loadData]);
 
   // Actions
   const handleSaveUser = async (e) => {
     e.preventDefault();
+    setSaveError('');
     const formData = new FormData(e.target);
     const data = {
-      username: formData.get('username'),
       display_name: formData.get('display_name'),
       email: formData.get('email'),
-      role_ids: formData.getAll('roles'),
-      is_active: formData.get('is_active') === 'on' ? 1 : 0
+      role_ids: formData.getAll('roles')
     };
     
     if (!editingUser?.id) {
+      data.username = formData.get('username');
+      data.is_active = 1;
       data.password = formData.get('password');
       if (data.password !== formData.get('confirm_password')) {
-        alert('รหัสผ่านไม่ตรงกัน');
+        setSaveError('รหัสผ่านไม่ตรงกัน');
         return;
       }
     }
@@ -96,13 +121,13 @@ export default function RolesManagement({ adminProfile, headers }) {
         body: JSON.stringify(data)
       });
       
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.error || 'Failed to save user');
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(result.error || result.message || 'บันทึกข้อมูลไม่สำเร็จ');
       
       setShowUserModal(false);
       loadData();
     } catch (err) {
-      alert(err.message);
+      setSaveError(err.message);
     }
   };
 
@@ -144,6 +169,26 @@ export default function RolesManagement({ adminProfile, headers }) {
     }
   };
 
+  const safeUsers = useMemo(() => (Array.isArray(users) ? users : []), [users]);
+  const safeRoles = useMemo(() => (Array.isArray(roles) ? roles : []), [roles]);
+  const safePermissions = useMemo(() => (Array.isArray(permissions) ? permissions : []), [permissions]);
+  const permissionsByGroup = useMemo(() => {
+    return safePermissions.reduce((groups, permission) => {
+      const group = permission?.group || permission?.group_name || 'อื่น ๆ';
+      if (!groups[group]) groups[group] = [];
+      groups[group].push(permission);
+      return groups;
+    }, {});
+  }, [safePermissions]);
+
+  if (!canViewRoles) {
+    return (
+      <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700">
+        ไม่มีสิทธิ์เข้าถึงหน้าจัดการยศ
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -153,6 +198,7 @@ export default function RolesManagement({ adminProfile, headers }) {
             จัดการยศและสิทธิ์
           </h2>
           <p className="text-sm text-slate-500 mt-1">จัดการบัญชีผู้ดูแลระบบและการเข้าถึง</p>
+          {adminName && <p className="text-xs text-slate-400 mt-1">ผู้ใช้งาน: {adminName}</p>}
         </div>
       </div>
 
@@ -184,14 +230,16 @@ export default function RolesManagement({ adminProfile, headers }) {
         <div className="py-12 text-center text-slate-500">กำลังโหลด...</div>
       ) : activeTab === 'users' ? (
         <div className="space-y-4">
-          <div className="flex justify-end">
-            <button
-              onClick={() => { setEditingUser(null); setShowUserModal(true); }}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-bold transition-colors shadow-sm"
-            >
-              <Plus className="w-4 h-4" /> สร้างบัญชีผู้ใช้
-            </button>
-          </div>
+          {canCreateUsers && (
+            <div className="flex justify-end">
+              <button
+                onClick={() => { setEditingUser(null); setSaveError(''); setShowUserModal(true); }}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-bold transition-colors shadow-sm"
+              >
+                <Plus className="w-4 h-4" /> สร้างบัญชีผู้ใช้
+              </button>
+            </div>
+          )}
           
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="overflow-x-auto">
@@ -207,16 +255,16 @@ export default function RolesManagement({ adminProfile, headers }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {users.map(u => (
+                  {safeUsers.map(u => (
                     <tr key={u.id} className="hover:bg-slate-50">
                       <td className="px-6 py-4 font-medium text-slate-900">{u.username}</td>
                       <td className="px-6 py-4 text-slate-600">{u.display_name || '-'}</td>
                       <td className="px-6 py-4 text-slate-500">{u.email || '-'}</td>
                       <td className="px-6 py-4">
                         <div className="flex flex-wrap gap-1">
-                          {u.roles?.map(r => (
+                          {(Array.isArray(u.roles) ? u.roles : []).map(r => (
                             <span key={r.id} className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-md text-xs font-medium border border-blue-100">
-                              {r.role_name}
+                              {r.name || r.role_name}
                             </span>
                           ))}
                         </div>
@@ -227,19 +275,25 @@ export default function RolesManagement({ adminProfile, headers }) {
                         </span>
                       </td>
                       <td className="px-6 py-4 flex items-center justify-end gap-2">
-                        <button onClick={() => { setEditingUser(u); setShowUserModal(true); }} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="แก้ไข">
-                          <Edit3 className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => { setEditingUser(u); setShowPasswordModal(true); }} className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors" title="เปลี่ยนรหัสผ่าน">
-                          <Lock className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => handleDeleteUser(u.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="ลบ">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {canUpdateUsers && (
+                          <button onClick={() => { setEditingUser(u); setSaveError(''); setShowUserModal(true); }} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="แก้ไข">
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                        )}
+                        {canChangePasswords && (
+                          <button onClick={() => { setEditingUser(u); setShowPasswordModal(true); }} className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors" title="เปลี่ยนรหัสผ่าน">
+                            <Lock className="w-4 h-4" />
+                          </button>
+                        )}
+                        {canDeleteUsers && (
+                          <button onClick={() => handleDeleteUser(u.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="ลบ">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
-                  {users.length === 0 && (
+                  {safeUsers.length === 0 && (
                     <tr><td colSpan="6" className="px-6 py-8 text-center text-slate-500">ไม่พบข้อมูลผู้ใช้</td></tr>
                   )}
                 </tbody>
@@ -260,14 +314,14 @@ export default function RolesManagement({ adminProfile, headers }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {roles.map(r => (
+                  {safeRoles.map(r => (
                     <tr key={r.id} className="hover:bg-slate-50">
                       <td className="px-6 py-4 font-bold text-slate-900">{r.role_name}</td>
                       <td className="px-6 py-4">
                         <div className="flex flex-wrap gap-1">
-                          {r.permissions?.map(p => (
+                          {(Array.isArray(r.permissions) ? r.permissions : []).map(p => (
                             <span key={p.id} className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md text-[10px] font-medium border border-slate-200" title={p.permission_name}>
-                              {p.permission_key}
+                              {p.permission_key || p.key}
                             </span>
                           ))}
                         </div>
@@ -281,9 +335,36 @@ export default function RolesManagement({ adminProfile, headers }) {
                       </td>
                     </tr>
                   ))}
+                  {safeRoles.length === 0 && (
+                    <tr><td colSpan="3" className="px-6 py-8 text-center text-slate-500">ไม่พบข้อมูลยศ</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+            <h3 className="mb-4 text-base font-bold text-slate-800">รายการสิทธิ์ทั้งหมด</h3>
+            {safePermissions.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm font-bold text-slate-500">
+                ไม่พบข้อมูลสิทธิ์
+              </div>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {Object.entries(permissionsByGroup).map(([group, groupPermissions]) => (
+                  <div key={group} className="rounded-xl border border-slate-200 p-4">
+                    <p className="mb-3 text-sm font-extrabold text-slate-800">{group}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {(Array.isArray(groupPermissions) ? groupPermissions : []).map((permission) => (
+                        <span key={permission.id || permission.key || permission.permission_key} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-600" title={permission.name || permission.permission_name || ''}>
+                          {permission.key || permission.permission_key || '-'}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -297,6 +378,12 @@ export default function RolesManagement({ adminProfile, headers }) {
               <button onClick={() => setShowUserModal(false)} className="text-slate-400 hover:text-slate-600 p-1"><X className="w-5 h-5" /></button>
             </div>
             <div className="p-6 overflow-y-auto">
+              {saveError && (
+                <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  {saveError}
+                </div>
+              )}
               <form id="user-form" onSubmit={handleSaveUser} className="space-y-4">
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1">ชื่อผู้ใช้ (Username) *</label>
@@ -327,21 +414,16 @@ export default function RolesManagement({ adminProfile, headers }) {
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-2">ยศที่ได้รับ *</label>
                   <div className="grid grid-cols-2 gap-2">
-                    {roles.map(r => (
+                    {safeRoles.map(r => (
                       <label key={r.id} className="flex items-center gap-2 p-2 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-50">
-                        <input type="checkbox" name="roles" value={r.id} defaultChecked={editingUser?.roles?.some(ur => ur.id === r.id)} className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500" />
+                        <input type="checkbox" name="roles" value={r.id} defaultChecked={(Array.isArray(editingUser?.roles) ? editingUser.roles : []).some(ur => ur.id === r.id)} className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500" />
                         <span className="text-sm font-medium text-slate-700">{r.role_name}</span>
                       </label>
                     ))}
                   </div>
                 </div>
 
-                <div className="pt-2">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" name="is_active" defaultChecked={editingUser ? editingUser.is_active === 1 : true} className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500" />
-                    <span className="text-sm font-bold text-slate-700">เปิดใช้งานบัญชีนี้</span>
-                  </label>
-                </div>
+
               </form>
             </div>
             <div className="p-5 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">

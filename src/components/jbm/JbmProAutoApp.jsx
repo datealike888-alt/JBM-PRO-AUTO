@@ -52,6 +52,7 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
+import RolesManagement from './RolesManagement';
 
 const API_URL = '/api/vehicles';
 const FINANCIAL_API_URL = '/api/financial-transactions';
@@ -1620,14 +1621,12 @@ function AdminApp() {
 
     const permissions = adminProfile?.permissions || [];
     const roleKeys = adminProfile?.roleKeys || adminProfile?.role_keys || [];
-    const roles = adminProfile?.roles || [];
 
     return (
       permissions.includes(permissionKey) ||
       permissions.includes('*') ||
-      roleKeys.includes('super_admin') ||
-      roles.includes('จัดการยศ') ||
-      roles.includes('super_admin')
+      permissions.includes('dashboard.all') ||
+      roleKeys.includes('super_admin')
     );
   }, [adminProfile]);
 
@@ -2075,7 +2074,7 @@ function AdminApp() {
     {
       group: 'ภาพรวม',
       items: [
-        hasPermission('dashboard.all') && ['dashboard', 'Dashboard', Gauge],
+        (hasPermission('dashboard.view') || hasPermission('dashboard.all')) && ['dashboard', 'Dashboard', Gauge],
       ].filter(Boolean)
     },
     {
@@ -2092,8 +2091,8 @@ function AdminApp() {
       items: [
         (hasPermission('stock.view') || hasPermission('dashboard.all')) && ['productStock', 'สต็อกสินค้า', Package],
         (hasPermission('finance.view') || hasPermission('dashboard.all')) && ['finance', 'การเงิน', Coins],
-        (hasPermission('cashReserve.view') || hasPermission('dashboard.all')) && ['cashReserve', 'เงินสำรองจ่าย', Wallet],
-        (hasPermission('paymentDebts.view') || hasPermission('dashboard.all')) && ['paymentDebts', 'ค้างชำระ', ClipboardList],
+        (hasPermission('cashReserve.view') || hasPermission('finance.view') || hasPermission('dashboard.all')) && ['cashReserve', 'เงินสำรองจ่าย', Wallet],
+        (hasPermission('paymentDebts.view') || hasPermission('finance.view') || hasPermission('dashboard.all')) && ['paymentDebts', 'ค้างชำระ', ClipboardList],
         (hasPermission('reports.view') || hasPermission('dashboard.all')) && ['charts', 'รายงาน / กราฟ', ClipboardList],
       ].filter(Boolean)
     },
@@ -2105,7 +2104,7 @@ function AdminApp() {
     },
     {
       group: 'ตั้งค่าระบบ',
-      items: (hasPermission('roles.view') || hasPermission('adminUsers.view') || hasPermission('dashboard.all')) ? [
+      items: hasPermission('roles.view') ? [
         ['roles', 'จัดการยศ', ShieldCheck],
       ] : []
     }
@@ -2309,6 +2308,7 @@ function AdminApp() {
             {activeTab === 'cashReserve' && <CashReserveAdmin headers={headers} hasPermission={hasPermission} />}
             {activeTab === 'paymentDebts' && <PaymentDebtAdmin headers={headers} onBack={() => setActiveTab('finance')} hasPermission={hasPermission} />}
             {activeTab === 'charts' && <ManagementDashboard vehicles={vehicles} stockProducts={stockProducts} hasPermission={hasPermission} />}
+            {activeTab === 'roles' && <RolesManagement headers={headers} adminProfile={adminProfile} hasPermission={hasPermission} />}
           </div>
         </main>
       </div>
@@ -6215,6 +6215,12 @@ function VehicleDetailModal({ vehicle, onClose }) {
 }
 
 function PaymentDebtAdmin({ headers, onBack, hasPermission = () => false }) {
+  const canViewPaymentDebts = hasPermission('paymentDebts.view') || hasPermission('finance.view') || hasPermission('dashboard.all');
+  const canCreatePaymentDebts = hasPermission('paymentDebts.create') || hasPermission('dashboard.all');
+  const canUpdatePaymentDebts = hasPermission('paymentDebts.update') || hasPermission('dashboard.all');
+  const canDeletePaymentDebts = hasPermission('paymentDebts.delete') || hasPermission('dashboard.all');
+  const canRecordPaymentDebts = hasPermission('paymentDebts.payment') || hasPermission('dashboard.all');
+
   const [debts, setDebts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -6405,8 +6411,11 @@ function PaymentDebtAdmin({ headers, onBack, hasPermission = () => false }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {filteredDebts.map((debt) => (
-                <React.Fragment key={debt.id}>
+              {filteredDebts.map((debt, debtIndex) => {
+                const debtPayments = Array.isArray(debt.payments) ? debt.payments : [];
+                const debtReceipts = receiptImagesFor(debt);
+                return (
+                <React.Fragment key={debt.id || `payment-debt-${debtIndex}`}>
                   <tr className="hover:bg-slate-50">
                     <td className="p-3 font-bold text-slate-700">{dateText(debt.created_at)}</td>
                     <td className="p-3">
@@ -6424,9 +6433,9 @@ function PaymentDebtAdmin({ headers, onBack, hasPermission = () => false }) {
                       </span>
                     </td>
                     <td className="p-3 text-center">
-                      {receiptImagesFor(debt).length > 0 ? (
+                      {debtReceipts.length > 0 ? (
                         <div className="flex flex-wrap justify-center gap-2">
-                          {receiptImagesFor(debt).map((url, index) => (
+                          {debtReceipts.map((url, index) => (
                             <a key={`${url}-${index}`} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm font-extrabold text-blue-700 hover:bg-blue-100">
                               <Eye className="h-4 w-4" />
                               ดูรูป
@@ -6437,17 +6446,21 @@ function PaymentDebtAdmin({ headers, onBack, hasPermission = () => false }) {
                     </td>
                     <td className="p-3">
                       <div className="flex justify-end gap-2">
-                        {normalizePaymentDebtStatus(debt.status) !== 'ชำระครบแล้ว' && (
+                        {canRecordPaymentDebts && normalizePaymentDebtStatus(debt.status) !== 'ชำระครบแล้ว' && debt.id && (
                           <button className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-emerald-700 hover:bg-emerald-50" onClick={() => setRecordingPayment(debt)} type="button" title="รับชำระ">
                             <Banknote className="h-4 w-4" />
                           </button>
                         )}
-                        <button className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-blue-700 hover:bg-blue-50" onClick={() => setEditing(debt)} type="button" title="แก้ไข">
-                          <Edit3 className="h-4 w-4" />
-                        </button>
-                        <button className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-rose-700 hover:bg-rose-50" onClick={() => deleteDebt(debt.id)} type="button" title="ลบ">
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        {canUpdatePaymentDebts && (
+                          <button className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-blue-700 hover:bg-blue-50" onClick={() => setEditing(debt)} type="button" title="แก้ไข">
+                            <Edit3 className="h-4 w-4" />
+                          </button>
+                        )}
+                        {canDeletePaymentDebts && debt.id && (
+                          <button className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-rose-700 hover:bg-rose-50" onClick={() => deleteDebt(debt.id)} type="button" title="ลบ">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -6455,7 +6468,7 @@ function PaymentDebtAdmin({ headers, onBack, hasPermission = () => false }) {
                     <td className="p-0" colSpan={10}>
                       <div className="border-t border-slate-100 px-4 py-3">
                         <p className="mb-2 text-sm font-extrabold text-slate-500">ประวัติการชำระ</p>
-                        {debt.payments?.length > 0 ? (
+                        {debtPayments.length > 0 ? (
                           <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
                             <table className="w-full min-w-[860px] text-left text-sm">
                               <thead className="bg-slate-100 text-slate-600">
@@ -6470,8 +6483,8 @@ function PaymentDebtAdmin({ headers, onBack, hasPermission = () => false }) {
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100">
-                                {debt.payments.map((payment) => (
-                                  <tr key={payment.id}>
+                                {debtPayments.map((payment, paymentIndex) => (
+                                  <tr key={payment.id || `${debt.id || debtIndex}-payment-${paymentIndex}`}>
                                     <td className="p-2 font-bold text-slate-700">{payment.payment_date ? dateText(payment.payment_date) : '-'}</td>
                                     <td className="p-2 text-slate-600">{payment.payment_time || '-'}</td>
                                     <td className="p-2 text-right font-extrabold text-emerald-700">฿{money(payment.amount)}</td>
@@ -6490,9 +6503,11 @@ function PaymentDebtAdmin({ headers, onBack, hasPermission = () => false }) {
                                       ) : '-'}
                                     </td>
                                     <td className="p-2 text-right">
-                                      <button className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-50" onClick={() => deletePayment(debt, payment)} type="button" title="ลบประวัติการชำระ">
-                                        <Trash2 className="h-4 w-4" />
-                                      </button>
+                                      {canRecordPaymentDebts && debt.id && payment.id && (
+                                        <button className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-50" onClick={() => deletePayment(debt, payment)} type="button" title="ลบประวัติการชำระ">
+                                          <Trash2 className="h-4 w-4" />
+                                        </button>
+                                      )}
                                     </td>
                                   </tr>
                                 ))}
@@ -6506,7 +6521,8 @@ function PaymentDebtAdmin({ headers, onBack, hasPermission = () => false }) {
                     </td>
                   </tr>
                 </React.Fragment>
-              ))}
+                );
+              })}
               {filteredDebts.length === 0 && <tr><td className="p-8 text-center text-slate-500" colSpan={10}>{loading ? 'กำลังโหลด...' : 'ไม่มีข้อมูลค้างชำระ'}</td></tr>}
             </tbody>
           </table>
@@ -6533,11 +6549,12 @@ function PaymentDebtAdmin({ headers, onBack, hasPermission = () => false }) {
   );
 }
 
-function PaymentDebtFormModal({ initial, onClose, onSave, headers }) {
-  const [form, setForm] = useState(initial);
+function PaymentDebtFormModal({ initial = emptyPaymentDebt, onClose = () => {}, onSave = async () => {}, headers = () => ({}) }) {
+  const normalizedInitial = normalizePaymentDebt(initial);
+  const [form, setForm] = useState(normalizedInitial);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [paymentMode, setPaymentMode] = useState(FINANCIAL_PAYMENT_METHODS.includes(initial.payment_method) ? 'select' : 'custom');
+  const [paymentMode, setPaymentMode] = useState(FINANCIAL_PAYMENT_METHODS.includes(normalizedInitial.payment_method) ? 'select' : 'custom');
 
   const update = (k, v) => setForm(c => ({ ...c, [k]: v }));
 
@@ -6662,7 +6679,8 @@ function PaymentDebtFormModal({ initial, onClose, onSave, headers }) {
   );
 }
 
-function PaymentDebtPaymentModal({ debt, onClose, onSave, headers }) {
+function PaymentDebtPaymentModal({ debt = emptyPaymentDebt, onClose = () => {}, onSave = async () => {}, headers = () => ({}) }) {
+  const safeDebt = normalizePaymentDebt(debt);
   const [form, setForm] = useState({
     amount: '',
     payment_method: 'เงินสด',
@@ -6708,7 +6726,7 @@ function PaymentDebtPaymentModal({ debt, onClose, onSave, headers }) {
     e.preventDefault();
     setError('');
     if (!form.amount || Number(form.amount) <= 0) { setError('กรุณากรอกจำนวนเงินให้ถูกต้อง'); return; }
-    if (Number(form.amount) > Number(debt.balance_amount)) { setError('จำนวนเงินชำระมากกว่ายอดค้าง'); return; }
+    if (Number(form.amount) > Number(safeDebt.balance_amount || 0)) { setError('จำนวนเงินชำระมากกว่ายอดค้าง'); return; }
     setSaving(true);
     try {
       await onSave(form);
@@ -6728,11 +6746,11 @@ function PaymentDebtPaymentModal({ debt, onClose, onSave, headers }) {
           </div>
           <div className="space-y-5 p-6">
             <div className="rounded-lg bg-blue-50 p-4 border border-blue-100">
-              <p className="font-bold text-slate-700 mb-1">{debt.customer_name}</p>
-              <p className="text-sm text-slate-600 mb-2">{debt.vehicle_info}</p>
+              <p className="font-bold text-slate-700 mb-1">{safeDebt.customer_name || '-'}</p>
+              <p className="text-sm text-slate-600 mb-2">{safeDebt.vehicle_info || '-'}</p>
               <div className="flex justify-between items-center text-lg">
                 <span className="font-extrabold text-slate-800">ยอดค้างชำระ:</span>
-                <span className="font-extrabold text-rose-600">฿{money(debt.balance_amount)}</span>
+                <span className="font-extrabold text-rose-600">฿{money(safeDebt.balance_amount)}</span>
               </div>
             </div>
 

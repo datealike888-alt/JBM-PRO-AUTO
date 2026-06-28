@@ -68,7 +68,7 @@ const EMPLOYEE_ATTENDANCE_API_URL = '/api/employee-attendance';
 const EMPLOYEE_LEAVES_API_URL = '/api/employee-leaves';
 const ATTENDANCE_SETTINGS_API_URL = '/api/attendance-settings';
 const AUDIT_LOGS_API_URL = '/api/audit-logs';
-const SHIFT_LOGS_STORAGE_KEY = 'jbm_shift_logs_v1';
+const DATABASE_CONNECTION_ERROR_MESSAGE = 'เชื่อมต่อฐานข้อมูลไม่ได้ กรุณาลองใหม่';
 const DEFAULT_STATUS = 'จองคิว';
 const FINAL_STATUS = 'ซ่อมเสร็จรอส่ง';
 const CLOSED_STATUS = 'ปิดงาน';
@@ -109,8 +109,6 @@ const BASE_YEAR = 2023;
 const CURRENT_YEAR = new Date().getFullYear();
 const REPORT_YEARS = Array.from({ length: CURRENT_YEAR + 10 - BASE_YEAR + 1 }, (_, index) => BASE_YEAR + index);
 const REPORT_YEAR_RANGE_LABEL = `${BASE_YEAR + 543}-${CURRENT_YEAR + 10 + 543}`;
-const DEFAULT_SHIFT_EMPLOYEES = ['JBM Admin', 'ช่างประจำอู่', 'ฝ่ายสต็อก', 'ฝ่ายบัญชี'];
-const SHIFT_TYPES = ['เวรปกติ', 'เวร OT', 'เวรพิเศษ'];
 const EMPLOYEE_STATUSES = ['ทำงานอยู่', 'พักงาน', 'ลาออก'];
 const DEFAULT_EMPLOYEE_POSITIONS = ['เจ้าของอู่', 'ผู้จัดการ', 'พนักงานบัญชี', 'พนักงานสต๊อก', 'ช่าง'];
 const OTHER_EMPLOYEE_POSITION = 'อื่นๆ';
@@ -318,13 +316,6 @@ const emptyPaymentDebt = {
   receipt_image_url: '',
 };
 
-const LEGACY_STOCK_PRODUCTS_STORAGE_KEY = 'jbm-stock-products-v1';
-const LEGACY_STOCK_CATEGORIES_STORAGE_KEY = 'jbm-stock-categories-v1';
-const LEGACY_STOCK_MOVEMENTS_STORAGE_KEY = 'jbm-stock-movements-v1';
-const STOCK_PRODUCTS_STORAGE_KEY = 'jbm-stock-products-v2';
-const STOCK_CATEGORIES_STORAGE_KEY = 'jbm-stock-categories-v2';
-const STOCK_MOVEMENTS_STORAGE_KEY = 'jbm-stock-movements-v2';
-const EMPLOYEES_STORAGE_KEY = 'jbm-employees-v1';
 const INITIAL_STOCK_PRODUCTS = [];
 const INITIAL_STOCK_CATEGORIES = [];
 const INITIAL_STOCK_MOVEMENTS = [];
@@ -350,21 +341,6 @@ const emptyStockCategory = {
   name: '',
   is_active: true,
 };
-
-function clearStockStorageKeys() {
-  window.localStorage.removeItem(LEGACY_STOCK_PRODUCTS_STORAGE_KEY);
-  window.localStorage.removeItem(LEGACY_STOCK_CATEGORIES_STORAGE_KEY);
-  window.localStorage.removeItem(LEGACY_STOCK_MOVEMENTS_STORAGE_KEY);
-  window.localStorage.removeItem(STOCK_PRODUCTS_STORAGE_KEY);
-  window.localStorage.removeItem(STOCK_CATEGORIES_STORAGE_KEY);
-  window.localStorage.removeItem(STOCK_MOVEMENTS_STORAGE_KEY);
-}
-
-function isLegacyMockStockProducts(products) {
-  if (!Array.isArray(products)) return false;
-  const codes = new Set(products.map((product) => product?.code || product?.product_code));
-  return products.length >= 15 && [...codes].filter((code) => /^JBM-\d{3}$/.test(String(code))).length >= 15;
-}
 
 function money(value) {
   return Number(value || 0).toLocaleString('th-TH', {
@@ -397,36 +373,6 @@ function daysInMonth(year, month) {
   return Array.from({ length: count }, (_, index) => `${year}-${month}-${String(index + 1).padStart(2, '0')}`);
 }
 
-function calculateShiftHours(startTime, endTime) {
-  if (!startTime || !endTime) return 0;
-  const [startHour, startMinute] = String(startTime).split(':').map(Number);
-  const [endHour, endMinute] = String(endTime).split(':').map(Number);
-  if (![startHour, startMinute, endHour, endMinute].every(Number.isFinite)) return 0;
-  const startTotal = (startHour * 60) + startMinute;
-  let endTotal = (endHour * 60) + endMinute;
-  if (endTotal < startTotal) endTotal += 24 * 60;
-  return Number(((endTotal - startTotal) / 60).toFixed(2));
-}
-
-function readStorageArray(key, fallback = []) {
-  if (typeof window === 'undefined') return fallback;
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(key) || '[]');
-    return Array.isArray(parsed) ? parsed : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function writeStorageArray(key, rows) {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(key, JSON.stringify(Array.isArray(rows) ? rows : []));
-  } catch (error) {
-    console.error('[storage] write failed', key, error);
-  }
-}
-
 async function readApiError(response, fallbackMessage) {
   const data = await response.json().catch(() => ({}));
   const error = new Error(data?.error || fallbackMessage || response.statusText || 'Request failed');
@@ -434,9 +380,13 @@ async function readApiError(response, fallbackMessage) {
   return error;
 }
 
-function canFallbackToLocalStorage(error) {
-  if (!error?.status) return true;
-  return [500, 502, 503, 504].includes(Number(error.status));
+function isDatabaseConnectionError(error) {
+  const status = Number(error?.status || 0);
+  return !status || [500, 502, 503, 504].includes(status);
+}
+
+function databaseErrorMessage(error, fallbackMessage = DATABASE_CONNECTION_ERROR_MESSAGE) {
+  return isDatabaseConnectionError(error) ? DATABASE_CONNECTION_ERROR_MESSAGE : (error?.message || fallbackMessage);
 }
 
 function normalizeAttendanceSettings(settings = {}) {
@@ -1590,25 +1540,6 @@ function AdminApp() {
   const [selectedVehicle, setSelectedVehicle] = useState(null);
   const [uploadingId, setUploadingId] = useState('');
   const [inShopQuery, setInShopQuery] = useState('');
-  const [shiftLogs, setShiftLogs] = useState(() => {
-    if (typeof window === 'undefined') return [];
-    try {
-      const saved = window.localStorage.getItem(SHIFT_LOGS_STORAGE_KEY);
-      const parsed = saved ? JSON.parse(saved) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  });
-  const [newShiftLog, setNewShiftLog] = useState(() => ({
-    employeeName: DEFAULT_SHIFT_EMPLOYEES[0],
-    date: dateInputValue(new Date()),
-    startTime: '18:00',
-    endTime: '22:00',
-    shiftType: SHIFT_TYPES[0],
-    note: '',
-  }));
-  const [shiftFilters, setShiftFilters] = useState({ month: 'all', year: String(CURRENT_YEAR), employeeName: 'all' });
   const [stockProducts, setStockProducts] = useState(INITIAL_STOCK_PRODUCTS);
   const [stockCategories, setStockCategories] = useState(INITIAL_STOCK_CATEGORIES);
   const [stockMovements, setStockMovements] = useState(INITIAL_STOCK_MOVEMENTS);
@@ -1732,15 +1663,15 @@ function AdminApp() {
     try {
       const results = await Promise.allSettled([
         fetch(STOCK_CATEGORIES_API_URL, { headers: headers() }).then(async r => {
-          if (!r.ok) throw new Error('categories failed');
+          if (!r.ok) throw await readApiError(r, 'โหลดหมวดหมู่สินค้าไม่สำเร็จ');
           return r.json();
         }),
         fetch(STOCK_PRODUCTS_API_URL, { headers: headers() }).then(async r => {
-          if (!r.ok) throw new Error('products failed');
+          if (!r.ok) throw await readApiError(r, 'โหลดสินค้าไม่สำเร็จ');
           return r.json();
         }),
         fetch(STOCK_MOVEMENTS_API_URL, { headers: headers() }).then(async r => {
-          if (!r.ok) throw new Error(r.status === 403 ? 'กรุณาเข้าสู่ระบบใหม่' : 'โหลดประวัติสต๊อกไม่สำเร็จ');
+          if (!r.ok) throw await readApiError(r, r.status === 403 ? 'กรุณาเข้าสู่ระบบใหม่' : 'โหลดประวัติสต๊อกไม่สำเร็จ');
           return r.json();
         }),
       ]);
@@ -1750,32 +1681,36 @@ function AdminApp() {
       if (catResult.status === 'fulfilled') {
         const nextCategories = (catResult.value.categories || []).map(normalizeStockCategory).filter((category) => category.name);
         setStockCategories(nextCategories);
-        writeStorageArray(STOCK_CATEGORIES_STORAGE_KEY, nextCategories);
       } else {
         console.error('[admin] load stock categories failed', catResult.reason);
+        setStockCategories(INITIAL_STOCK_CATEGORIES);
       }
 
       if (prodResult.status === 'fulfilled') {
         const nextProducts = (prodResult.value.products || []).map(normalizeStockProduct);
         setStockProducts(nextProducts);
-        writeStorageArray(STOCK_PRODUCTS_STORAGE_KEY, nextProducts);
       } else {
         console.error('[admin] load stock products failed', prodResult.reason);
+        setStockProducts(INITIAL_STOCK_PRODUCTS);
       }
 
       if (moveResult.status === 'fulfilled') {
-        setStockMovementError('');
         const nextMovements = stockMovementRows(moveResult.value)
           .map(normalizeStockMovement)
           .sort((a, b) => (validDateValue(b.created_at)?.getTime() || 0) - (validDateValue(a.created_at)?.getTime() || 0));
         setStockMovements(nextMovements);
-        writeStorageArray(STOCK_MOVEMENTS_STORAGE_KEY, nextMovements);
       } else {
         console.error('[admin] load stock movements failed', moveResult.reason);
-        setStockMovementError(moveResult.reason?.message || 'โหลดประวัติสต๊อกไม่สำเร็จ');
+        setStockMovements(INITIAL_STOCK_MOVEMENTS);
       }
+      const failedResult = results.find((result) => result.status === 'rejected');
+      setStockMovementError(failedResult ? databaseErrorMessage(failedResult.reason) : '');
     } catch (error) {
       console.error('[admin] load stock data failed', error);
+      setStockCategories(INITIAL_STOCK_CATEGORIES);
+      setStockProducts(INITIAL_STOCK_PRODUCTS);
+      setStockMovements(INITIAL_STOCK_MOVEMENTS);
+      setStockMovementError(databaseErrorMessage(error));
     }
   }, [headers, token]);
 
@@ -1789,10 +1724,6 @@ function AdminApp() {
       setStockMovements(INITIAL_STOCK_MOVEMENTS);
     }
   }, [loadStockData, adminProfile, hasPermission]);
-
-  useEffect(() => {
-    window.localStorage.setItem(SHIFT_LOGS_STORAGE_KEY, JSON.stringify(shiftLogs));
-  }, [shiftLogs]);
 
   const login = async (event) => {
     event.preventDefault();
@@ -1881,16 +1812,14 @@ function AdminApp() {
       headers: { 'Content-Type': 'application/json', ...headers() },
       body: JSON.stringify({ ...item, quantity: after }),
     });
-    if (!productResponse.ok) throw new Error('อัปเดตจำนวนสินค้าไม่สำเร็จ');
+    if (!productResponse.ok) throw await readApiError(productResponse, 'อัปเดตจำนวนสินค้าไม่สำเร็จ');
     const movement = makeStockMovement(item, change > 0 ? 'รับเข้า' : 'เบิกออก', change, before, after, change > 0 ? 'เพิ่มจำนวนจากหน้าสต็อก' : 'ลดจำนวนจากหน้าสต็อก');
     const movementResponse = await fetch(STOCK_MOVEMENTS_API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...headers() },
       body: JSON.stringify(movement),
     });
-    if (!movementResponse.ok) throw new Error('บันทึกประวัติสต็อกไม่สำเร็จ');
-    setStockProducts((current) => current.map((product) => (product.id === id ? { ...product, quantity: after } : product)));
-    setStockMovements((current) => [movement, ...current]);
+    if (!movementResponse.ok) throw await readApiError(movementResponse, 'บันทึกประวัติสต็อกไม่สำเร็จ');
     await loadStockData();
   }, [headers, loadStockData, stockProducts]);
 
@@ -1902,7 +1831,7 @@ function AdminApp() {
       headers: { 'Content-Type': 'application/json', ...headers() },
       body: JSON.stringify(normalized),
     });
-    if (!response.ok) throw new Error('บันทึกสินค้าไม่สำเร็จ');
+    if (!response.ok) throw await readApiError(response, 'บันทึกสินค้าไม่สำเร็จ');
     const before = Number(previous?.quantity || 0);
     const after = Number(normalized.quantity || 0);
     if (!previous || before !== after) {
@@ -1912,10 +1841,8 @@ function AdminApp() {
         headers: { 'Content-Type': 'application/json', ...headers() },
         body: JSON.stringify(movement),
       });
-      if (!movementResponse.ok) throw new Error('บันทึกประวัติสต็อกไม่สำเร็จ');
-      setStockMovements((current) => [movement, ...current]);
+      if (!movementResponse.ok) throw await readApiError(movementResponse, 'บันทึกประวัติสต็อกไม่สำเร็จ');
     }
-    setStockProducts((current) => [normalized, ...current.filter((item) => item.id !== normalized.id)]);
     await loadStockData();
   }, [headers, loadStockData, stockProducts]);
 
@@ -1926,14 +1853,12 @@ function AdminApp() {
       headers: { 'Content-Type': 'application/json', ...headers() },
       body: JSON.stringify(movement),
     });
-    if (!movementResponse.ok) throw new Error('บันทึกประวัติลบสินค้าไม่สำเร็จ');
+    if (!movementResponse.ok) throw await readApiError(movementResponse, 'บันทึกประวัติลบสินค้าไม่สำเร็จ');
     const deleteResponse = await fetch(`${STOCK_PRODUCTS_API_URL}?id=${encodeURIComponent(product.id)}`, {
       method: 'DELETE',
       headers: headers(),
     });
-    if (!deleteResponse.ok) throw new Error('ลบสินค้าไม่สำเร็จ');
-    setStockProducts((current) => current.filter((item) => item.id !== product.id));
-    setStockMovements((current) => [movement, ...current]);
+    if (!deleteResponse.ok) throw await readApiError(deleteResponse, 'ลบสินค้าไม่สำเร็จ');
     await loadStockData();
   }, [headers, loadStockData]);
 
@@ -1968,66 +1893,13 @@ function AdminApp() {
       headers: { 'Content-Type': 'application/json', ...headers() },
       body: JSON.stringify({ ...currentCategory, is_active: !currentCategory.is_active }),
     });
-    if (!response.ok) throw new Error('อัปเดตหมวดหมู่ไม่สำเร็จ');
+    if (!response.ok) throw await readApiError(response, 'อัปเดตหมวดหมู่ไม่สำเร็จ');
     await loadStockData();
   }, [headers, loadStockData, stockCategories]);
 
   const clearStockSampleData = useCallback(() => {
     alert('ปิดการล้างข้อมูลสต็อกอัตโนมัติแล้ว กรุณาจัดการผ่านฐานข้อมูลหรือ API ทีละรายการ');
   }, []);
-
-  const activeEmployees = useMemo(() => {
-    const names = new Set(DEFAULT_SHIFT_EMPLOYEES);
-    shiftLogs.forEach((log) => {
-      if (log.employeeName) names.add(log.employeeName);
-    });
-    return Array.from(names).map((name) => ({ id: name, name }));
-  }, [shiftLogs]);
-
-  const shiftHoursPreview = useMemo(() => (
-    calculateShiftHours(newShiftLog.startTime, newShiftLog.endTime)
-  ), [newShiftLog.endTime, newShiftLog.startTime]);
-
-  const shiftYears = useMemo(() => {
-    const years = new Set([String(CURRENT_YEAR)]);
-    shiftLogs.forEach((log) => {
-      const year = String(log.date || '').slice(0, 4);
-      if (/^\d{4}$/.test(year)) years.add(year);
-    });
-    return Array.from(years).sort((a, b) => Number(b) - Number(a));
-  }, [shiftLogs]);
-
-  const filteredShiftLogs = useMemo(() => {
-    return shiftLogs.filter((log) => {
-      const date = String(log.date || '');
-      if (shiftFilters.month !== 'all' && date.slice(5, 7) !== shiftFilters.month) return false;
-      if (shiftFilters.year !== 'all' && !date.startsWith(shiftFilters.year)) return false;
-      if (shiftFilters.employeeName !== 'all' && log.employeeName !== shiftFilters.employeeName) return false;
-      return true;
-    });
-  }, [shiftFilters, shiftLogs]);
-
-  const alertCustom = useCallback((message) => {
-    if (typeof window !== 'undefined') window.alert(message);
-  }, []);
-
-  const handleAddShiftLog = useCallback((event) => {
-    event.preventDefault();
-    const hours = calculateShiftHours(newShiftLog.startTime, newShiftLog.endTime);
-    const nextLog = {
-      id: `SHIFT${String(shiftLogs.length + 1).padStart(3, '0')}`,
-      employeeName: newShiftLog.employeeName,
-      date: newShiftLog.date,
-      startTime: newShiftLog.startTime,
-      endTime: newShiftLog.endTime,
-      shiftType: newShiftLog.shiftType,
-      hours,
-      note: newShiftLog.note || '-',
-    };
-    setShiftLogs((current) => [nextLog, ...current]);
-    setNewShiftLog((current) => ({ ...current, note: '' }));
-    alertCustom(`บันทึกเวรของ ${newShiftLog.employeeName} สำเร็จ (${hours} ชั่วโมง)`);
-  }, [alertCustom, newShiftLog, shiftLogs.length]);
 
   const stats = useMemo(() => {
     const finalRows = vehicles.filter(isFinal);
@@ -2411,6 +2283,11 @@ function StockProductPage({ products, categories, movements, movementError, onAd
             กรุณาสร้างหมวดหมู่สินค้าก่อน
           </p>
         )}
+        {movementError && (
+          <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-lg font-extrabold text-rose-800">
+            {movementError}
+          </p>
+        )}
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
@@ -2515,8 +2392,8 @@ function StockProductPage({ products, categories, movements, movementError, onAd
                         <div className="flex justify-end gap-2">
                           <button className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 text-blue-700 hover:bg-blue-50" onClick={() => setViewingProduct(product)} type="button" title="ดูรายละเอียด"><Eye className="h-5 w-5" /></button>
                           <button className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50" onClick={() => setEditingProduct(product)} type="button" title="แก้ไข"><Edit3 className="h-5 w-5" /></button>
-                          <button className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-rose-200 bg-white text-2xl font-extrabold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40" onClick={() => onAdjustQuantity(product.id, -1)} disabled={quantity === 0} type="button" title="ลดจำนวน">-</button>
-                          <button className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-emerald-200 bg-white text-2xl font-extrabold text-emerald-700 hover:bg-emerald-50" onClick={() => onAdjustQuantity(product.id, 1)} type="button" title="เพิ่มจำนวน">+</button>
+                          <button className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-rose-200 bg-white text-2xl font-extrabold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40" onClick={() => onAdjustQuantity(product.id, -1).catch((error) => window.alert(databaseErrorMessage(error)))} disabled={quantity === 0} type="button" title="ลดจำนวน">-</button>
+                          <button className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-emerald-200 bg-white text-2xl font-extrabold text-emerald-700 hover:bg-emerald-50" onClick={() => onAdjustQuantity(product.id, 1).catch((error) => window.alert(databaseErrorMessage(error)))} type="button" title="เพิ่มจำนวน">+</button>
                           <button className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-50" onClick={() => setDeletingProduct(product)} type="button" title="ลบรายการ"><Trash2 className="h-5 w-5" /></button>
                         </div>
                       </td>
@@ -2567,8 +2444,8 @@ function StockProductPage({ products, categories, movements, movementError, onAd
           message={`ต้องการลบ ${deletingProduct.name || deletingProduct.code || 'สินค้านี้'} ออกจากสต็อกหรือไม่ ระบบจะบันทึกประวัติเป็นประเภทลบสินค้า`}
           confirmText="ลบสินค้า"
           onCancel={() => setDeletingProduct(null)}
-          onConfirm={() => {
-            onDeleteProduct(deletingProduct);
+          onConfirm={async () => {
+            await onDeleteProduct(deletingProduct);
             setDeletingProduct(null);
           }}
         />
@@ -2602,7 +2479,7 @@ function StockCategoryManager({ categories, products, onEdit, onDelete, onToggle
               </div>
               <div className="mt-4 flex justify-end gap-2 border-t border-slate-100 pt-4">
                 <button className="rounded-lg border border-slate-200 px-4 py-2 text-lg font-extrabold text-blue-700 hover:bg-blue-50" onClick={() => onEdit(category)} type="button">แก้ไข</button>
-                <button className="rounded-lg border border-slate-200 px-4 py-2 text-lg font-extrabold text-slate-700 hover:bg-slate-50" onClick={() => onToggle(category.id)} type="button">{category.is_active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}</button>
+                <button className="rounded-lg border border-slate-200 px-4 py-2 text-lg font-extrabold text-slate-700 hover:bg-slate-50" onClick={() => onToggle(category.id).catch((error) => window.alert(databaseErrorMessage(error, 'อัปเดตหมวดหมู่ไม่สำเร็จ')))} type="button">{category.is_active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}</button>
                 <button className="rounded-lg border border-rose-200 px-4 py-2 text-lg font-extrabold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40" onClick={() => onDelete(category)} disabled={count > 0} type="button" title={count > 0 ? 'ลบไม่ได้เพราะมีสินค้าใช้งานหมวดหมู่นี้' : 'ลบหมวดหมู่'}>ลบ</button>
               </div>
             </div>
@@ -2795,7 +2672,7 @@ function StockProductModal({ product, categories, onClose, onSave }) {
         price: Math.max(0, Number(form.price || 0)) 
       });
     } catch (err) {
-      setError(err.message || 'บันทึกไม่สำเร็จ');
+      setError(databaseErrorMessage(err, 'บันทึกไม่สำเร็จ'));
     } finally {
       setSaving(false);
     }
@@ -2888,7 +2765,7 @@ function StockCategoryModal({ category, onClose, onSave }) {
       await onSave(form);
       onClose();
     } catch (saveError) {
-      setError(saveError.message || 'บันทึกหมวดหมู่ไม่สำเร็จ');
+      setError(databaseErrorMessage(saveError, 'บันทึกหมวดหมู่ไม่สำเร็จ'));
     } finally {
       setSaving(false);
     }
@@ -2915,7 +2792,7 @@ function StockConfirmDialog({ title, message, confirmText, onCancel, onConfirm }
     try {
       await onConfirm();
     } catch (confirmError) {
-      setError(confirmError.message || 'ดำเนินการไม่สำเร็จ');
+      setError(databaseErrorMessage(confirmError, 'ดำเนินการไม่สำเร็จ'));
     } finally {
       setSaving(false);
     }
@@ -2979,6 +2856,7 @@ function ShiftDutyPage({ adminProfile, hasPermission = () => false }) {
   const emptyEmployee = { id: '', code: '', status: EMPLOYEE_STATUSES[0], firstName: '', lastName: '', nickname: '', position: DEFAULT_EMPLOYEE_POSITIONS[4], photo_url: '', photoUrl: '' };
   const emptyLeave = { employeeId: '', type: LEAVE_TYPES[0], startDate: today, endDate: today, approver: '', reason: '' };
   const [attendanceSettings, setAttendanceSettings] = useState(DEFAULT_ATTENDANCE_SETTINGS);
+  const lastSavedAttendanceSettingsRef = useRef(DEFAULT_ATTENDANCE_SETTINGS);
   const emptyAttendance = {
     employeeId: '',
     date: today,
@@ -2993,6 +2871,7 @@ function ShiftDutyPage({ adminProfile, hasPermission = () => false }) {
   const [positions, setPositions] = useState(DEFAULT_EMPLOYEE_POSITIONS);
   const [attendanceLogs, setAttendanceLogs] = useState([]);
   const [leaveLogs, setLeaveLogs] = useState([]);
+  const [employeeDataError, setEmployeeDataError] = useState('');
   const [employeeForm, setEmployeeForm] = useState(emptyEmployee);
   const [customPosition, setCustomPosition] = useState('');
   const [detailEmployee, setDetailEmployee] = useState(null);
@@ -3014,6 +2893,7 @@ function ShiftDutyPage({ adminProfile, hasPermission = () => false }) {
   }, []);
 
   const loadEmployeeData = useCallback(async () => {
+    setEmployeeDataError('');
     try {
       const [employeesResponse, positionsResponse, attendanceResponse, leavesResponse, settingsResponse] = await Promise.all([
         fetch(EMPLOYEES_API_URL, { headers: authHeaders() }),
@@ -3030,23 +2910,25 @@ function ShiftDutyPage({ adminProfile, hasPermission = () => false }) {
         settingsResponse.json().catch(() => ({})),
       ]);
       if (!employeesResponse.ok || !positionsResponse.ok || !attendanceResponse.ok || !leavesResponse.ok || !settingsResponse.ok) {
-        throw new Error('load employee data failed');
+        throw new Error(DATABASE_CONNECTION_ERROR_MESSAGE);
       }
       const nextEmployees = (employeesData.employees || []).map(normalizeEmployee);
       setEmployees(nextEmployees);
-      writeStorageArray(EMPLOYEES_STORAGE_KEY, nextEmployees);
       const nextPositions = (positionsData.positions || []).map((position) => position.name).filter(Boolean);
       setPositions(Array.from(new Set([...DEFAULT_EMPLOYEE_POSITIONS, ...nextPositions])));
       setAttendanceLogs(attendanceData.logs || []);
       setLeaveLogs(leavesData.logs || []);
-      setAttendanceSettings(normalizeAttendanceSettings(settingsData.settings || DEFAULT_ATTENDANCE_SETTINGS));
+      const nextSettings = normalizeAttendanceSettings(settingsData.settings || DEFAULT_ATTENDANCE_SETTINGS);
+      setAttendanceSettings(nextSettings);
+      lastSavedAttendanceSettingsRef.current = nextSettings;
     } catch (error) {
       console.error('[employee] load failed', error);
-      const cachedEmployees = readStorageArray(EMPLOYEES_STORAGE_KEY, []).map(normalizeEmployee);
-      if (cachedEmployees.length) {
-        setEmployees(cachedEmployees);
-        setPositions(Array.from(new Set([...DEFAULT_EMPLOYEE_POSITIONS, ...cachedEmployees.map((employee) => employee.position).filter(Boolean)])));
-      }
+      setEmployees([]);
+      setPositions(DEFAULT_EMPLOYEE_POSITIONS);
+      setAttendanceLogs([]);
+      setLeaveLogs([]);
+      setAttendanceSettings(lastSavedAttendanceSettingsRef.current);
+      setEmployeeDataError(databaseErrorMessage(error));
     }
   }, [authHeaders]);
 
@@ -3274,7 +3156,6 @@ function ShiftDutyPage({ adminProfile, hasPermission = () => false }) {
     }
     const nextEmployee = { ...normalized, position: nextPosition };
     let savedEmployee = null;
-    let usedLocalFallback = false;
     try {
       if (!positions.includes(nextPosition)) {
         const positionResponse = await fetch(EMPLOYEE_POSITIONS_API_URL, {
@@ -3293,18 +3174,13 @@ function ShiftDutyPage({ adminProfile, hasPermission = () => false }) {
       const savedData = await response.json().catch(() => ({}));
       savedEmployee = normalizeEmployee(savedData.employee || nextEmployee);
     } catch (error) {
-      if (!canFallbackToLocalStorage(error)) {
-        window.alert(error.message || 'บันทึกข้อมูลพนักงานไม่สำเร็จ');
-        return;
-      }
-      console.error('[employee] save fallback to localStorage', error);
-      savedEmployee = normalizeEmployee(nextEmployee);
-      usedLocalFallback = true;
+      console.error('[employee] save failed', error);
+      window.alert(databaseErrorMessage(error, 'บันทึกข้อมูลพนักงานไม่สำเร็จ'));
+      return;
     }
 
     const nextEmployees = [savedEmployee, ...employees.filter((employee) => employee.id !== savedEmployee.id)];
     setEmployees(nextEmployees);
-    writeStorageArray(EMPLOYEES_STORAGE_KEY, nextEmployees);
     if (!positions.includes(nextPosition)) setPositions((current) => Array.from(new Set([...current, nextPosition])));
     addAuditLog({
       action: previousEmployee ? 'UPDATE' : 'CREATE',
@@ -3316,11 +3192,7 @@ function ShiftDutyPage({ adminProfile, hasPermission = () => false }) {
     });
     setEmployeeForm(emptyEmployee);
     setCustomPosition('');
-    if (usedLocalFallback) {
-      window.alert('บันทึกชั่วคราวในเครื่อง เพราะเชื่อมต่อฐานข้อมูลไม่ได้');
-    } else {
-      await loadEmployeeData();
-    }
+    await loadEmployeeData();
   };
 
   const editEmployee = (employee) => {
@@ -3338,7 +3210,6 @@ function ShiftDutyPage({ adminProfile, hasPermission = () => false }) {
   const deleteEmployee = async (employee) => {
     if (!window.confirm(`ยืนยันการลบข้อมูลพนักงาน ${employeeFullName(employee)}`)) return;
     const previousEmployee = employees.find((item) => item.id === employee.id) || employee;
-    let usedLocalFallback = false;
     try {
       const response = await fetch(`${EMPLOYEES_API_URL}?id=${encodeURIComponent(employee.id)}`, {
         method: 'DELETE',
@@ -3346,16 +3217,12 @@ function ShiftDutyPage({ adminProfile, hasPermission = () => false }) {
       });
       if (!response.ok) throw await readApiError(response, 'ลบข้อมูลพนักงานไม่สำเร็จ');
     } catch (error) {
-      if (!canFallbackToLocalStorage(error)) {
-        window.alert(error.message || 'ลบข้อมูลพนักงานไม่สำเร็จ');
-        return;
-      }
-      console.error('[employee] delete fallback to localStorage', error);
-      usedLocalFallback = true;
+      console.error('[employee] delete failed', error);
+      window.alert(databaseErrorMessage(error, 'ลบข้อมูลพนักงานไม่สำเร็จ'));
+      return;
     }
     const nextEmployees = employees.filter((item) => item.id !== employee.id);
     setEmployees(nextEmployees);
-    writeStorageArray(EMPLOYEES_STORAGE_KEY, nextEmployees);
     addAuditLog({
       action: 'DELETE',
       module: 'EMPLOYEE',
@@ -3366,11 +3233,7 @@ function ShiftDutyPage({ adminProfile, hasPermission = () => false }) {
     });
     if (employeeForm.id === employee.id) cancelEmployeeEdit();
     if (detailEmployee?.id === employee.id) setDetailEmployee(null);
-    if (usedLocalFallback) {
-      window.alert('บันทึกชั่วคราวในเครื่อง เพราะเชื่อมต่อฐานข้อมูลไม่ได้');
-    } else {
-      await loadEmployeeData();
-    }
+    await loadEmployeeData();
   };
 
   const deleteCustomPosition = async (position) => {
@@ -3381,19 +3244,26 @@ function ShiftDutyPage({ adminProfile, hasPermission = () => false }) {
       return;
     }
     if (!window.confirm(`ยืนยันการลบตำแหน่ง "${position}"`)) return;
-    const existing = (await (async () => {
-      const response = await fetch(EMPLOYEE_POSITIONS_API_URL, { headers: authHeaders() });
-      const data = await response.json().catch(() => ({}));
-      return (data.positions || []).find((item) => item.name === position);
-    })());
-    if (existing?.id) {
-      await fetch(`${EMPLOYEE_POSITIONS_API_URL}?id=${encodeURIComponent(existing.id)}`, {
-        method: 'DELETE',
-        headers: authHeaders(),
-      });
+    try {
+      const existing = (await (async () => {
+        const response = await fetch(EMPLOYEE_POSITIONS_API_URL, { headers: authHeaders() });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw await readApiError(response, 'โหลดตำแหน่งงานไม่สำเร็จ');
+        return (data.positions || []).find((item) => item.name === position);
+      })());
+      if (existing?.id) {
+        const response = await fetch(`${EMPLOYEE_POSITIONS_API_URL}?id=${encodeURIComponent(existing.id)}`, {
+          method: 'DELETE',
+          headers: authHeaders(),
+        });
+        if (!response.ok) throw await readApiError(response, 'ลบตำแหน่งงานไม่สำเร็จ');
+      }
+      if (employeeForm.position === position) setEmployeeForm((form) => ({ ...form, position: DEFAULT_EMPLOYEE_POSITIONS[4] }));
+      await loadEmployeeData();
+    } catch (error) {
+      console.error('[employee] delete position failed', error);
+      window.alert(databaseErrorMessage(error, 'ลบตำแหน่งงานไม่สำเร็จ'));
     }
-    if (employeeForm.position === position) setEmployeeForm((form) => ({ ...form, position: DEFAULT_EMPLOYEE_POSITIONS[4] }));
-    await loadEmployeeData();
   };
 
   const saveAttendance = async (event) => {
@@ -3445,27 +3315,28 @@ function ShiftDutyPage({ adminProfile, hasPermission = () => false }) {
       note: attendanceForm.note || '',
       createdAt: editingAttendanceId ? (attendanceLogs.find((log) => log.id === editingAttendanceId)?.createdAt || new Date().toISOString()) : new Date().toISOString(),
     };
-    const response = await fetch(EMPLOYEE_ATTENDANCE_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify(nextLog),
-    });
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      window.alert(data?.error || 'บันทึกลงเวลาไม่สำเร็จ');
-      return;
+    try {
+      const response = await fetch(EMPLOYEE_ATTENDANCE_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify(nextLog),
+      });
+      if (!response.ok) throw await readApiError(response, 'บันทึกลงเวลาไม่สำเร็จ');
+      addAuditLog({
+        action: previousLog ? 'UPDATE' : 'CREATE',
+        module: 'ATTENDANCE',
+        targetId: nextLog.id,
+        targetLabel: `${employee?.code || '-'} ${employeeFullName(employee || {})} ${nextLog.date}`.trim(),
+        beforeData: previousLog,
+        afterData: nextLog,
+      });
+      setAttendanceForm((form) => ({ ...emptyAttendance, employeeId: form.employeeId, date: form.date }));
+      setEditingAttendanceId('');
+      await loadEmployeeData();
+    } catch (error) {
+      console.error('[employee] save attendance failed', error);
+      window.alert(databaseErrorMessage(error, 'บันทึกลงเวลาไม่สำเร็จ'));
     }
-    addAuditLog({
-      action: previousLog ? 'UPDATE' : 'CREATE',
-      module: 'ATTENDANCE',
-      targetId: nextLog.id,
-      targetLabel: `${employee?.code || '-'} ${employeeFullName(employee || {})} ${nextLog.date}`.trim(),
-      beforeData: previousLog,
-      afterData: nextLog,
-    });
-    setAttendanceForm((form) => ({ ...emptyAttendance, employeeId: form.employeeId, date: form.date }));
-    setEditingAttendanceId('');
-    await loadEmployeeData();
   };
 
   const editAttendance = (log) => {
@@ -3492,35 +3363,48 @@ function ShiftDutyPage({ adminProfile, hasPermission = () => false }) {
     const employee = employeeMap.get(log.employeeId) || {};
     if (!window.confirm(`ยืนยันการลบประวัติลงเวลาของ ${employeeFullName(employee)} วันที่ ${dateText(log.date)}`)) return;
     const previousLog = attendanceLogs.find((item) => item.id === log.id) || log;
-    await fetch(`${EMPLOYEE_ATTENDANCE_API_URL}?id=${encodeURIComponent(log.id)}`, {
-      method: 'DELETE',
-      headers: authHeaders(),
-    });
-    addAuditLog({
-      action: 'DELETE',
-      module: 'ATTENDANCE',
-      targetId: previousLog.id,
-      targetLabel: `${employee?.code || previousLog.employeeCode || '-'} ${employeeFullName(employee)} ${previousLog.date}`.trim(),
-      beforeData: previousLog,
-      afterData: null,
-    });
-    if (editingAttendanceId === log.id) cancelAttendanceEdit();
-    await loadEmployeeData();
+    try {
+      const response = await fetch(`${EMPLOYEE_ATTENDANCE_API_URL}?id=${encodeURIComponent(log.id)}`, {
+        method: 'DELETE',
+        headers: authHeaders(),
+      });
+      if (!response.ok) throw await readApiError(response, 'ลบประวัติลงเวลาไม่สำเร็จ');
+      addAuditLog({
+        action: 'DELETE',
+        module: 'ATTENDANCE',
+        targetId: previousLog.id,
+        targetLabel: `${employee?.code || previousLog.employeeCode || '-'} ${employeeFullName(employee)} ${previousLog.date}`.trim(),
+        beforeData: previousLog,
+        afterData: null,
+      });
+      if (editingAttendanceId === log.id) cancelAttendanceEdit();
+      await loadEmployeeData();
+    } catch (error) {
+      console.error('[employee] delete attendance failed', error);
+      window.alert(databaseErrorMessage(error, 'ลบประวัติลงเวลาไม่สำเร็จ'));
+    }
   };
 
   const clearAttendanceMonth = async () => {
     if (!clearAttendance.month || !clearAttendance.year) return;
     if (!window.confirm(`ยืนยันล้างประวัติตอกเวลาของเดือน ${clearAttendance.month}/${Number(clearAttendance.year) + 543}`)) return;
     const prefix = `${clearAttendance.year}-${clearAttendance.month}`;
-    await Promise.all(
-      attendanceLogs
-        .filter((log) => String(log.date || '').startsWith(prefix))
-        .map((log) => fetch(`${EMPLOYEE_ATTENDANCE_API_URL}?id=${encodeURIComponent(log.id)}`, {
-          method: 'DELETE',
-          headers: authHeaders(),
-        }))
-    );
-    await loadEmployeeData();
+    try {
+      const responses = await Promise.all(
+        attendanceLogs
+          .filter((log) => String(log.date || '').startsWith(prefix))
+          .map((log) => fetch(`${EMPLOYEE_ATTENDANCE_API_URL}?id=${encodeURIComponent(log.id)}`, {
+            method: 'DELETE',
+            headers: authHeaders(),
+          }))
+      );
+      const failedResponse = responses.find((response) => !response.ok);
+      if (failedResponse) throw await readApiError(failedResponse, 'ล้างประวัติลงเวลาไม่สำเร็จ');
+      await loadEmployeeData();
+    } catch (error) {
+      console.error('[employee] clear attendance failed', error);
+      window.alert(databaseErrorMessage(error, 'ล้างประวัติลงเวลาไม่สำเร็จ'));
+    }
   };
 
   const saveLeave = async (event) => {
@@ -3538,27 +3422,28 @@ function ShiftDutyPage({ adminProfile, hasPermission = () => false }) {
       totalDays: leaveDays,
       submittedAt: editingLeaveId ? (leaveLogs.find((log) => log.id === editingLeaveId)?.submittedAt || today) : today,
     };
-    const response = await fetch(EMPLOYEE_LEAVES_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify(nextLeave),
-    });
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      window.alert(data?.error || 'บันทึกใบลาไม่สำเร็จ');
-      return;
+    try {
+      const response = await fetch(EMPLOYEE_LEAVES_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify(nextLeave),
+      });
+      if (!response.ok) throw await readApiError(response, 'บันทึกใบลาไม่สำเร็จ');
+      addAuditLog({
+        action: previousLeave ? 'UPDATE' : 'CREATE',
+        module: 'LEAVE',
+        targetId: nextLeave.id,
+        targetLabel: `${employee?.code || '-'} ${employeeFullName(employee || {})} ${nextLeave.type}`.trim(),
+        beforeData: previousLeave,
+        afterData: nextLeave,
+      });
+      setLeaveForm((form) => ({ ...emptyLeave, employeeId: form.employeeId }));
+      setEditingLeaveId('');
+      await loadEmployeeData();
+    } catch (error) {
+      console.error('[employee] save leave failed', error);
+      window.alert(databaseErrorMessage(error, 'บันทึกใบลาไม่สำเร็จ'));
     }
-    addAuditLog({
-      action: previousLeave ? 'UPDATE' : 'CREATE',
-      module: 'LEAVE',
-      targetId: nextLeave.id,
-      targetLabel: `${employee?.code || '-'} ${employeeFullName(employee || {})} ${nextLeave.type}`.trim(),
-      beforeData: previousLeave,
-      afterData: nextLeave,
-    });
-    setLeaveForm((form) => ({ ...emptyLeave, employeeId: form.employeeId }));
-    setEditingLeaveId('');
-    await loadEmployeeData();
   };
 
   const editLeave = (leave) => {
@@ -3582,20 +3467,26 @@ function ShiftDutyPage({ adminProfile, hasPermission = () => false }) {
     if (!window.confirm(`ยืนยันการลบใบลาของ ${employeeFullName(employeeMap.get(leave.employeeId) || {})}`)) return;
     const employee = employeeMap.get(leave.employeeId) || {};
     const previousLeave = leaveLogs.find((item) => item.id === leave.id) || leave;
-    await fetch(`${EMPLOYEE_LEAVES_API_URL}?id=${encodeURIComponent(leave.id)}`, {
-      method: 'DELETE',
-      headers: authHeaders(),
-    });
-    addAuditLog({
-      action: 'DELETE',
-      module: 'LEAVE',
-      targetId: previousLeave.id,
-      targetLabel: `${employee?.code || previousLeave.employeeCode || '-'} ${employeeFullName(employee)} ${previousLeave.type}`.trim(),
-      beforeData: previousLeave,
-      afterData: null,
-    });
-    if (editingLeaveId === leave.id) cancelLeaveEdit();
-    await loadEmployeeData();
+    try {
+      const response = await fetch(`${EMPLOYEE_LEAVES_API_URL}?id=${encodeURIComponent(leave.id)}`, {
+        method: 'DELETE',
+        headers: authHeaders(),
+      });
+      if (!response.ok) throw await readApiError(response, 'ลบใบลาไม่สำเร็จ');
+      addAuditLog({
+        action: 'DELETE',
+        module: 'LEAVE',
+        targetId: previousLeave.id,
+        targetLabel: `${employee?.code || previousLeave.employeeCode || '-'} ${employeeFullName(employee)} ${previousLeave.type}`.trim(),
+        beforeData: previousLeave,
+        afterData: null,
+      });
+      if (editingLeaveId === leave.id) cancelLeaveEdit();
+      await loadEmployeeData();
+    } catch (error) {
+      console.error('[employee] delete leave failed', error);
+      window.alert(databaseErrorMessage(error, 'ลบใบลาไม่สำเร็จ'));
+    }
   };
 
   const updateAttendanceSetting = (field, value) => {
@@ -3614,7 +3505,8 @@ function ShiftDutyPage({ adminProfile, hasPermission = () => false }) {
 
   const finalizeAttendanceSetting = async (field) => {
     const nextValue = finalizeTimeInput(attendanceSettings[field]);
-    setAttendanceSettings((settings) => ({ ...settings, [field]: nextValue }));
+    const nextSettings = { ...attendanceSettings, [field]: nextValue };
+    setAttendanceSettings(nextSettings);
     const formFieldMap = {
       morningStart: 'morningIn',
       lunchOut: 'lunchOut',
@@ -3624,26 +3516,45 @@ function ShiftDutyPage({ adminProfile, hasPermission = () => false }) {
     if (formFieldMap[field]) {
       setAttendanceForm((form) => ({ ...form, [formFieldMap[field]]: nextValue }));
     }
-    await fetch(ATTENDANCE_SETTINGS_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ id: 'attendance-settings-default', ...attendanceSettings, [field]: nextValue }),
-    });
+    try {
+      const response = await fetch(ATTENDANCE_SETTINGS_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ id: 'attendance-settings-default', ...nextSettings }),
+      });
+      if (!response.ok) throw await readApiError(response, 'บันทึกตั้งค่าเวลาไม่สำเร็จ');
+      lastSavedAttendanceSettingsRef.current = nextSettings;
+    } catch (error) {
+      console.error('[employee] save attendance settings failed', error);
+      const savedSettings = lastSavedAttendanceSettingsRef.current;
+      setAttendanceSettings(savedSettings);
+      if (formFieldMap[field]) {
+        setAttendanceForm((form) => ({ ...form, [formFieldMap[field]]: savedSettings[field] }));
+      }
+      window.alert(databaseErrorMessage(error, 'บันทึกตั้งค่าเวลาไม่สำเร็จ'));
+    }
   };
 
   const clearLeaveMonth = async () => {
     if (!clearLeaves.month || !clearLeaves.year) return;
     if (!window.confirm(`ยืนยันล้างตารางใบลาของเดือน ${clearLeaves.month}/${Number(clearLeaves.year) + 543}`)) return;
     const prefix = `${clearLeaves.year}-${clearLeaves.month}`;
-    await Promise.all(
-      leaveLogs
-        .filter((log) => String(log.submittedAt || '').startsWith(prefix))
-        .map((log) => fetch(`${EMPLOYEE_LEAVES_API_URL}?id=${encodeURIComponent(log.id)}`, {
-          method: 'DELETE',
-          headers: authHeaders(),
-        }))
-    );
-    await loadEmployeeData();
+    try {
+      const responses = await Promise.all(
+        leaveLogs
+          .filter((log) => String(log.submittedAt || '').startsWith(prefix))
+          .map((log) => fetch(`${EMPLOYEE_LEAVES_API_URL}?id=${encodeURIComponent(log.id)}`, {
+            method: 'DELETE',
+            headers: authHeaders(),
+          }))
+      );
+      const failedResponse = responses.find((response) => !response.ok);
+      if (failedResponse) throw await readApiError(failedResponse, 'ล้างตารางใบลาไม่สำเร็จ');
+      await loadEmployeeData();
+    } catch (error) {
+      console.error('[employee] clear leaves failed', error);
+      window.alert(databaseErrorMessage(error, 'ล้างตารางใบลาไม่สำเร็จ'));
+    }
   };
 
   const employeeTabs = [
@@ -3670,6 +3581,11 @@ function ShiftDutyPage({ adminProfile, hasPermission = () => false }) {
           ))}
         </div>
       </div>
+      {employeeDataError && (
+        <p className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-lg font-extrabold text-rose-800">
+          {employeeDataError}
+        </p>
+      )}
 
       {employeeSubTab === 'dashboard' && (
         <div className="space-y-5">

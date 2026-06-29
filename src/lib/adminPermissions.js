@@ -242,6 +242,7 @@ export const MENU_PERMISSION_MAP = {
   paymentDebts: 'paymentDebts.view',
   charts: 'reports.view',
   'shift-duty': 'employees.view',
+  'employee-summary': 'employees.view',
   'roles-management': 'roles.view',
 };
 

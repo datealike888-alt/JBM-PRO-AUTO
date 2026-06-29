@@ -25,7 +25,7 @@ RUN if [ -d src/generated/prisma-v2 ]; then \
       npx prisma generate --schema schema.prisma; \
     else \
       echo "Skipping prisma generate: schema file not found and no generated client directory exists"; \
-    fi && npm run build
+    fi && DATABASE_URL="mysql://dummy:dummy@db:3306/dummy" npm run build
 
 EXPOSE 3000
 

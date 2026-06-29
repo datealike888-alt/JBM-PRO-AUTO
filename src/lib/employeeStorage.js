@@ -73,6 +73,13 @@ function normalizeNumber(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function normalizeOptionalNumber(value) {
+  const text = cleanString(value, 64).replace(/,/g, '');
+  if (!text) return null;
+  const number = Number.parseFloat(text);
+  return Number.isFinite(number) ? number : null;
+}
+
 function wait(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -313,6 +320,70 @@ async function ensureLeaveLogsTableInternal() {
   await ensureColumn('ALTER TABLE employee_leaves ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
 }
 
+async function ensureEmployeeIncomesTableInternal() {
+  await ensureEmployeesTableInternal();
+  await query(`
+    CREATE TABLE IF NOT EXISTS employee_incomes (
+      id VARCHAR(64) PRIMARY KEY,
+      employee_id VARCHAR(64) NOT NULL,
+      type VARCHAR(100) NOT NULL,
+      custom_type VARCHAR(100) NULL,
+      work_date DATE NOT NULL,
+      title VARCHAR(255) NULL,
+      detail TEXT NULL,
+      note TEXT NULL,
+      amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+      status VARCHAR(50) NOT NULL,
+      overtime_start_time TIME NULL,
+      overtime_end_time TIME NULL,
+      overtime_hours DECIMAL(6,2) NULL,
+      overtime_rate_type VARCHAR(50) NULL,
+      overtime_rate DECIMAL(8,2) NULL,
+      hourly_wage DECIMAL(10,2) NULL,
+      overtime_reason TEXT NULL,
+      repair_reference VARCHAR(255) NULL,
+      license_plate VARCHAR(100) NULL,
+      customer_name VARCHAR(255) NULL,
+      commission_base DECIMAL(12,2) NULL,
+      commission_percent DECIMAL(8,2) NULL,
+      calculation_note TEXT NULL,
+      source_type VARCHAR(100) NULL,
+      source_id VARCHAR(100) NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_employee_incomes_employee_id (employee_id),
+      INDEX idx_employee_incomes_work_date (work_date),
+      INDEX idx_employee_incomes_type (type),
+      INDEX idx_employee_incomes_status (status),
+      CONSTRAINT fk_employee_incomes_employee_id
+        FOREIGN KEY (employee_id) REFERENCES employees(id)
+        ON UPDATE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
+  await ensureColumn('ALTER TABLE employee_incomes ADD COLUMN custom_type VARCHAR(100) NULL');
+  await ensureColumn('ALTER TABLE employee_incomes ADD COLUMN title VARCHAR(255) NULL');
+  await ensureColumn('ALTER TABLE employee_incomes ADD COLUMN detail TEXT NULL');
+  await ensureColumn('ALTER TABLE employee_incomes ADD COLUMN note TEXT NULL');
+  await ensureColumn('ALTER TABLE employee_incomes ADD COLUMN overtime_start_time TIME NULL');
+  await ensureColumn('ALTER TABLE employee_incomes ADD COLUMN overtime_end_time TIME NULL');
+  await ensureColumn('ALTER TABLE employee_incomes ADD COLUMN overtime_hours DECIMAL(6,2) NULL');
+  await ensureColumn('ALTER TABLE employee_incomes ADD COLUMN overtime_rate_type VARCHAR(50) NULL');
+  await ensureColumn('ALTER TABLE employee_incomes ADD COLUMN overtime_rate DECIMAL(8,2) NULL');
+  await ensureColumn('ALTER TABLE employee_incomes ADD COLUMN hourly_wage DECIMAL(10,2) NULL');
+  await ensureColumn('ALTER TABLE employee_incomes ADD COLUMN overtime_reason TEXT NULL');
+  await ensureColumn('ALTER TABLE employee_incomes ADD COLUMN repair_reference VARCHAR(255) NULL');
+  await ensureColumn('ALTER TABLE employee_incomes ADD COLUMN license_plate VARCHAR(100) NULL');
+  await ensureColumn('ALTER TABLE employee_incomes ADD COLUMN customer_name VARCHAR(255) NULL');
+  await ensureColumn('ALTER TABLE employee_incomes ADD COLUMN commission_base DECIMAL(12,2) NULL');
+  await ensureColumn('ALTER TABLE employee_incomes ADD COLUMN commission_percent DECIMAL(8,2) NULL');
+  await ensureColumn('ALTER TABLE employee_incomes ADD COLUMN calculation_note TEXT NULL');
+  await ensureColumn('ALTER TABLE employee_incomes ADD COLUMN source_type VARCHAR(100) NULL');
+  await ensureColumn('ALTER TABLE employee_incomes ADD COLUMN source_id VARCHAR(100) NULL');
+  await ensureColumn('ALTER TABLE employee_incomes ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP');
+  await ensureColumn('ALTER TABLE employee_incomes ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
+}
+
 async function ensureAttendanceSettingsTableInternal() {
   await query(`
     CREATE TABLE IF NOT EXISTS attendance_settings (
@@ -366,6 +437,10 @@ export async function ensureLeaveLogsTable() {
   return withEmployeeSchemaEnsureLock(ensureLeaveLogsTableInternal);
 }
 
+export async function ensureEmployeeIncomesTable() {
+  return withEmployeeSchemaEnsureLock(ensureEmployeeIncomesTableInternal);
+}
+
 export async function ensureAttendanceSettingsTable() {
   return withEmployeeSchemaEnsureLock(ensureAttendanceSettingsTableInternal);
 }
@@ -376,6 +451,7 @@ export async function ensureEmployeeStorageTables() {
     await ensureEmployeePositionsTableInternal();
     await ensureAttendanceLogsTableInternal();
     await ensureLeaveLogsTableInternal();
+    await ensureEmployeeIncomesTableInternal();
     await ensureAttendanceSettingsTableInternal();
   });
 }
@@ -523,6 +599,91 @@ export function normalizeLeaveLogInput(body = {}) {
     approver: cleanNullable(body.approver, 255),
     reason: cleanNullable(body.reason, 5000),
     status: cleanString(body.status, 50) || 'รออนุมัติ',
+    createdAt: cleanDateTime(body.createdAt),
+  };
+}
+
+export function normalizeEmployeeIncomeRow(row) {
+  const workDate = formatSqlDate(row.work_date);
+  const overtimeStart = formatSqlTime(row.overtime_start_time);
+  const overtimeEnd = formatSqlTime(row.overtime_end_time);
+  return {
+    id: row.id,
+    employeeId: row.employee_id,
+    employee_id: row.employee_id,
+    employeeCode: row.employee_code || '',
+    type: row.type || '',
+    customType: row.custom_type || '',
+    custom_type: row.custom_type || '',
+    workDate,
+    work_date: workDate,
+    title: row.title || '',
+    detail: row.detail || '',
+    note: row.note || '',
+    amount: Number(row.amount || 0),
+    status: row.status || '',
+    overtimeStart,
+    overtime_start_time: overtimeStart,
+    overtimeEnd,
+    overtime_end_time: overtimeEnd,
+    overtimeHours: row.overtime_hours === null || row.overtime_hours === undefined ? null : Number(row.overtime_hours),
+    overtime_hours: row.overtime_hours === null || row.overtime_hours === undefined ? null : Number(row.overtime_hours),
+    overtimeRateType: row.overtime_rate_type || '',
+    overtime_rate_type: row.overtime_rate_type || '',
+    overtimeRate: row.overtime_rate === null || row.overtime_rate === undefined ? null : Number(row.overtime_rate),
+    overtime_rate: row.overtime_rate === null || row.overtime_rate === undefined ? null : Number(row.overtime_rate),
+    hourlyWage: row.hourly_wage === null || row.hourly_wage === undefined ? null : Number(row.hourly_wage),
+    hourly_wage: row.hourly_wage === null || row.hourly_wage === undefined ? null : Number(row.hourly_wage),
+    overtimeReason: row.overtime_reason || '',
+    overtime_reason: row.overtime_reason || '',
+    repairReference: row.repair_reference || '',
+    repair_reference: row.repair_reference || '',
+    licensePlate: row.license_plate || '',
+    license_plate: row.license_plate || '',
+    customerName: row.customer_name || '',
+    customer_name: row.customer_name || '',
+    commissionBase: row.commission_base === null || row.commission_base === undefined ? null : Number(row.commission_base),
+    commission_base: row.commission_base === null || row.commission_base === undefined ? null : Number(row.commission_base),
+    commissionPercent: row.commission_percent === null || row.commission_percent === undefined ? null : Number(row.commission_percent),
+    commission_percent: row.commission_percent === null || row.commission_percent === undefined ? null : Number(row.commission_percent),
+    calculationNote: row.calculation_note || '',
+    calculation_note: row.calculation_note || '',
+    sourceType: row.source_type || '',
+    source_type: row.source_type || '',
+    sourceId: row.source_id || '',
+    source_id: row.source_id || '',
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
+  };
+}
+
+export function normalizeEmployeeIncomeInput(body = {}) {
+  return {
+    id: cleanString(body.id, 64) || `inc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    employeeId: cleanString(body.employeeId || body.employee_id, 64),
+    type: cleanString(body.type, 100),
+    customType: cleanNullable(body.customType || body.custom_type, 100),
+    workDate: cleanDate(body.workDate || body.work_date || body.date),
+    title: cleanNullable(body.title, 255),
+    detail: cleanNullable(body.detail || body.description, 5000),
+    note: cleanNullable(body.note, 5000),
+    amount: normalizeOptionalNumber(body.amount),
+    status: cleanString(body.status, 50),
+    overtimeStart: cleanTime(body.overtimeStart || body.overtime_start_time),
+    overtimeEnd: cleanTime(body.overtimeEnd || body.overtime_end_time),
+    overtimeHours: normalizeOptionalNumber(body.overtimeHours ?? body.overtime_hours),
+    overtimeRateType: cleanNullable(body.overtimeRateType || body.overtime_rate_type, 50),
+    overtimeRate: normalizeOptionalNumber(body.overtimeRate ?? body.overtime_rate),
+    hourlyWage: normalizeOptionalNumber(body.hourlyWage ?? body.hourly_wage),
+    overtimeReason: cleanNullable(body.overtimeReason || body.overtime_reason, 5000),
+    repairReference: cleanNullable(body.repairReference || body.repair_reference, 255),
+    licensePlate: cleanNullable(body.licensePlate || body.license_plate, 100),
+    customerName: cleanNullable(body.customerName || body.customer_name, 255),
+    commissionBase: normalizeOptionalNumber(body.commissionBase ?? body.commission_base),
+    commissionPercent: normalizeOptionalNumber(body.commissionPercent ?? body.commission_percent),
+    calculationNote: cleanNullable(body.calculationNote || body.calculation_note, 5000),
+    sourceType: cleanNullable(body.sourceType || body.source_type, 100) || 'manual',
+    sourceId: cleanNullable(body.sourceId || body.source_id, 100),
     createdAt: cleanDateTime(body.createdAt),
   };
 }

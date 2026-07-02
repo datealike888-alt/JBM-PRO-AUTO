@@ -3061,20 +3061,18 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
   const [employeePhotoError, setEmployeePhotoError] = useState('');
   const [attendanceForm, setAttendanceForm] = useState(emptyAttendance);
   const [editingAttendanceId, setEditingAttendanceId] = useState('');
-  const [historyFilters, setHistoryFilters] = useState({ day: 'all', month: current.month, year: current.year, employeeId: 'all', position: 'all', status: 'all' });
-  const [clearAttendance, setClearAttendance] = useState({ month: current.month, year: current.year });
+  const [historyFilters, setHistoryFilters] = useState({ day: 'all', month: 'all', year: 'all', employeeId: 'all', position: 'all', status: 'all' });
   const [leaveForm, setLeaveForm] = useState(emptyLeave);
   const [editingLeaveId, setEditingLeaveId] = useState('');
-  const [leaveFilters, setLeaveFilters] = useState({ month: current.month, year: current.year });
-  const [clearLeaves, setClearLeaves] = useState({ month: current.month, year: current.year });
+  const [leaveFilters, setLeaveFilters] = useState({ day: 'all', month: 'all', year: 'all' });
   const [isClearHistoryModalOpen, setIsClearHistoryModalOpen] = useState(false);
   const [isClearingHistory, setIsClearingHistory] = useState(false);
   const [clearHistoryError, setClearHistoryError] = useState('');
   const [incomeForm, setIncomeForm] = useState(emptyIncome);
   const [editingIncomeId, setEditingIncomeId] = useState('');
-  const [incomeFilters, setIncomeFilters] = useState({ day: 'all', month: current.month, year: current.year, employeeId: 'all', type: 'all', status: 'all' });
+  const [incomeFilters, setIncomeFilters] = useState({ day: 'all', month: 'all', year: 'all', employeeId: 'all', type: 'all', status: 'all' });
   const [showIncomeFilters, setShowIncomeFilters] = useState(true);
-  const [summaryFilters, setSummaryFilters] = useState({ day: 'all', month: current.month, year: current.year });
+  const [summaryFilters, setSummaryFilters] = useState({ day: 'all', month: 'all', year: 'all' });
   const [employeeSubTab, setEmployeeSubTab] = useState(initialSubTab);
 
   useEffect(() => {
@@ -3180,6 +3178,7 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
 
   const filteredLeaveLogs = useMemo(() => leaveLogs.filter((log) => {
     const submittedAt = String(log.submittedAt || '');
+    if (leaveFilters.day !== 'all' && submittedAt.slice(8, 10) !== leaveFilters.day) return false;
     if (leaveFilters.month !== 'all' && submittedAt.slice(5, 7) !== leaveFilters.month) return false;
     if (leaveFilters.year !== 'all' && !submittedAt.startsWith(leaveFilters.year)) return false;
     return true;
@@ -3275,7 +3274,11 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
       if (log.employeeId !== employee.id) return false;
       return matchesSummaryDate(log.date);
     });
-    const yearRows = attendanceLogs.filter((log) => log.employeeId === employee.id && String(log.date || '').startsWith(summaryFilters.year));
+    const yearRows = attendanceLogs.filter((log) => {
+      if (log.employeeId !== employee.id) return false;
+      if (summaryFilters.year === 'all') return true;
+      return String(log.date || '').startsWith(summaryFilters.year);
+    });
     const income = incomeSummaryRowMap.get(employee.id) || {};
     const filteredHours = filteredRows.reduce((sum, log) => sum + Number(log.hours || 0), 0);
     return {
@@ -3392,7 +3395,7 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
   };
   const exportAttendanceHistory = () => {
     downloadCsv(
-      `employee-attendance-${filterSegment(historyFilters.year)}-${filterSegment(historyFilters.month)}.csv`,
+      `employee-attendance-${filterSegment(historyFilters.year)}-${filterSegment(historyFilters.month)}-${filterSegment(historyFilters.day)}.csv`,
       [
         { key: 'date', label: 'วันที่' },
         { key: 'employeeCode', label: 'รหัสพนักงาน' },
@@ -3423,7 +3426,7 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
   };
   const exportLeaveReport = () => {
     downloadCsv(
-      `employee-leaves-${filterSegment(leaveFilters.year)}-${filterSegment(leaveFilters.month)}.csv`,
+      `employee-leaves-${filterSegment(leaveFilters.year)}-${filterSegment(leaveFilters.month)}-${filterSegment(leaveFilters.day)}.csv`,
       [
         { key: 'submittedAt', label: 'วันที่ยื่น' },
         { key: 'employeeCode', label: 'รหัสพนักงาน' },
@@ -3455,7 +3458,7 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
   };
   const exportEmployeeIncomes = () => {
     downloadCsv(
-      `employee-incomes-${filterSegment(incomeFilters.year)}-${filterSegment(incomeFilters.month)}.csv`,
+      `employee-incomes-${filterSegment(incomeFilters.year)}-${filterSegment(incomeFilters.month)}-${filterSegment(incomeFilters.day)}.csv`,
       [
         { key: 'workDate', label: 'วันที่' },
         { key: 'employeeCode', label: 'รหัสพนักงาน' },
@@ -3464,7 +3467,9 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
         { key: 'customType', label: 'ประเภทอื่น ๆ' },
         { key: 'overtimeStart', label: 'เวลาเริ่ม' },
         { key: 'overtimeEnd', label: 'เวลาจบ' },
-        { key: 'totalHoursText', label: 'เวลาทั้งหมด' },
+        { key: 'totalHoursText', label: 'เวลารวมทั้งหมด' },
+        { key: 'breakHoursText', label: 'เวลาพัก' },
+        { key: 'normalHoursText', label: 'เวลาทำงานปกติ' },
         { key: 'overtimeHoursText', label: 'โอที' },
         { key: 'amount', label: 'จำนวนเงิน' },
         { key: 'status', label: 'สถานะ' },
@@ -3481,6 +3486,8 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
           overtimeStart: timeText(income.overtimeStart),
           overtimeEnd: timeText(income.overtimeEnd),
           totalHoursText: timeCalc ? `${timeCalc.totalText} (${timeCalc.totalDec} ชม.)` : '-',
+          breakHoursText: timeCalc ? `${timeCalc.breakText} (${timeCalc.breakDec} ชม.)` : '-',
+          normalHoursText: timeCalc ? `${timeCalc.normalText} (${timeCalc.normalDec} ชม.)` : '-',
           overtimeHoursText: timeCalc ? `${timeCalc.extraText} (${timeCalc.extraDec} ชม.)` : '-',
           amount: Number(income.amount || 0),
           status: income.status || '-',
@@ -3768,9 +3775,12 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
   };
 
   const clearAttendanceMonth = async () => {
-    if (!clearAttendance.month || !clearAttendance.year) return;
-    if (!window.confirm(`ยืนยันล้างประวัติตอกเวลาของเดือน ${clearAttendance.month}/${Number(clearAttendance.year) + 543}`)) return;
-    const prefix = `${clearAttendance.year}-${clearAttendance.month}`;
+    if (historyFilters.month === 'all' || historyFilters.year === 'all') {
+      window.alert('กรุณาเลือกเดือนและปีในตัวกรองหลักก่อนล้างประวัติตอกเวลา');
+      return;
+    }
+    if (!window.confirm(`ยืนยันล้างประวัติตอกเวลาของเดือน ${historyFilters.month}/${Number(historyFilters.year) + 543}`)) return;
+    const prefix = `${historyFilters.year}-${historyFilters.month}`;
     try {
       const responses = await Promise.all(
         attendanceLogs
@@ -3949,6 +3959,8 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
       }
       parsedNumbers[field] = parsed.value;
     }
+    const finalTimeCalc = calculateWorkTime(overtimeStart, overtimeEnd);
+    if (finalTimeCalc) parsedNumbers.overtimeHours = Number(finalTimeCalc.extraDec);
 
     const hasOvertimeData = [
       overtimeStart,
@@ -4125,9 +4137,12 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
   };
 
   const clearLeaveMonth = async () => {
-    if (!clearLeaves.month || !clearLeaves.year) return;
-    if (!window.confirm(`ยืนยันล้างตารางใบลาของเดือน ${clearLeaves.month}/${Number(clearLeaves.year) + 543}`)) return;
-    const prefix = `${clearLeaves.year}-${clearLeaves.month}`;
+    if (leaveFilters.month === 'all' || leaveFilters.year === 'all') {
+      window.alert('กรุณาเลือกเดือนและปีในตัวกรองหลักก่อนล้างตารางใบลา');
+      return;
+    }
+    if (!window.confirm(`ยืนยันล้างตารางใบลาของเดือน ${leaveFilters.month}/${Number(leaveFilters.year) + 543}`)) return;
+    const prefix = `${leaveFilters.year}-${leaveFilters.month}`;
     try {
       const responses = await Promise.all(
         leaveLogs
@@ -4450,11 +4465,9 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <h2 className="text-2xl font-extrabold text-slate-950">ประวัติตอกเวลางานย้อนหลังของทีมงาน</h2>
-              <p className="text-base font-bold text-slate-500">กรองและล้างเฉพาะเดือนที่เลือก</p>
+              <p className="text-base font-bold text-slate-500">กรองตามวัน เดือน ปี พนักงาน ตำแหน่ง และสถานะ</p>
             </div>
-            <div className="grid gap-2 sm:grid-cols-4">
-              <select value={clearAttendance.month} onChange={(event) => setClearAttendance({ ...clearAttendance, month: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><MonthOptions /></select>
-              <select value={clearAttendance.year} onChange={(event) => setClearAttendance({ ...clearAttendance, year: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold">{years.map((year) => <option key={year} value={year}>{Number(year) + 543}</option>)}</select>
+            <div className="grid gap-2 sm:grid-cols-2">
               <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 font-extrabold text-emerald-800 hover:bg-emerald-100" onClick={exportAttendanceHistory} type="button"><Download className="h-4 w-4" />Export</button>
               <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 font-extrabold text-rose-700 hover:bg-rose-100" onClick={clearAttendanceMonth} type="button"><Trash2 className="h-4 w-4" />ล้าง</button>
             </div>
@@ -4518,11 +4531,10 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
         <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <h2 className="text-2xl font-extrabold text-slate-950">รายงานสถิติใบลาหยุดงาน</h2>
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+              <select value={leaveFilters.day} onChange={(event) => setLeaveFilters({ ...leaveFilters, day: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><DayOptions /></select>
               <select value={leaveFilters.month} onChange={(event) => setLeaveFilters({ ...leaveFilters, month: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><option value="all">ทุกเดือน</option><MonthOptions /></select>
               <select value={leaveFilters.year} onChange={(event) => setLeaveFilters({ ...leaveFilters, year: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><option value="all">ทุกปี</option>{years.map((year) => <option key={year} value={year}>{Number(year) + 543}</option>)}</select>
-              <select value={clearLeaves.month} onChange={(event) => setClearLeaves({ ...clearLeaves, month: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><MonthOptions /></select>
-              <select value={clearLeaves.year} onChange={(event) => setClearLeaves({ ...clearLeaves, year: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold">{years.map((year) => <option key={year} value={year}>{Number(year) + 543}</option>)}</select>
               <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 font-extrabold text-emerald-800 hover:bg-emerald-100" onClick={exportLeaveReport} type="button"><Download className="h-4 w-4" />Export</button>
               <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 font-extrabold text-rose-700 hover:bg-rose-100" onClick={clearLeaveMonth} type="button"><Trash2 className="h-4 w-4" />ล้าง</button>
             </div>
@@ -4567,8 +4579,8 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
           </div>
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-7">
             <select value={summaryFilters.day} onChange={(event) => setSummaryFilters({ ...summaryFilters, day: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><DayOptions /></select>
-            <select value={summaryFilters.month} onChange={(event) => setSummaryFilters({ ...summaryFilters, month: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><MonthOptions /></select>
-            <select value={summaryFilters.year} onChange={(event) => setSummaryFilters({ ...summaryFilters, year: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold">{years.map((year) => <option key={year} value={year}>{Number(year) + 543}</option>)}</select>
+            <select value={summaryFilters.month} onChange={(event) => setSummaryFilters({ ...summaryFilters, month: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><option value="all">ทุกเดือน</option><MonthOptions /></select>
+            <select value={summaryFilters.year} onChange={(event) => setSummaryFilters({ ...summaryFilters, year: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><option value="all">ทุกปี</option>{years.map((year) => <option key={year} value={year}>{Number(year) + 543}</option>)}</select>
             <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 font-extrabold text-emerald-800 hover:bg-emerald-100" onClick={exportEmployeeSummary} type="button"><Download className="h-4 w-4" />Export สรุปหลัก</button>
             <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 font-extrabold text-emerald-800 hover:bg-emerald-100" onClick={exportAttendanceComparison} type="button"><Download className="h-4 w-4" />Export เข้างาน</button>
             <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 font-extrabold text-emerald-800 hover:bg-emerald-100" onClick={exportEmployeeIncomeSummary} type="button"><Download className="h-4 w-4" />Export รายได้</button>
@@ -4664,10 +4676,24 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
                 
                 <div className="md:col-span-2 grid gap-3 sm:grid-cols-2">
                   <label className="block">
-                    <span className="text-lg font-extrabold text-slate-800">เวลาทั้งหมด</span>
+                    <span className="text-lg font-extrabold text-slate-800">เวลารวมทั้งหมด</span>
                     <div className="mt-2 flex min-h-14 w-full items-center rounded-lg border border-slate-200 bg-slate-100 px-4 text-lg font-bold text-slate-600">
-                      {calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd) ? 
+                      {calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd) ?
                         `${calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd).totalText} (${calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd).totalDec} ชม.)` : '-'}
+                    </div>
+                  </label>
+                  <label className="block">
+                    <span className="text-lg font-extrabold text-slate-800">เวลาพัก</span>
+                    <div className="mt-2 flex min-h-14 w-full items-center rounded-lg border border-slate-200 bg-slate-100 px-4 text-lg font-bold text-slate-600">
+                      {calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd) ?
+                        `${calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd).breakText} (${calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd).breakDec} ชม.)` : '-'}
+                    </div>
+                  </label>
+                  <label className="block">
+                    <span className="text-lg font-extrabold text-slate-800">เวลาทำงานปกติ</span>
+                    <div className="mt-2 flex min-h-14 w-full items-center rounded-lg border border-slate-200 bg-slate-100 px-4 text-lg font-bold text-slate-600">
+                      {calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd) ?
+                        `${calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd).normalText} (${calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd).normalDec} ชม.)` : '-'}
                     </div>
                   </label>
                   <label className="block">
@@ -4736,8 +4762,8 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
           <h2 className="text-2xl font-extrabold text-slate-950">ตารางสรุป</h2>
           <div className="grid gap-2 sm:grid-cols-4">
             <select value={summaryFilters.day} onChange={(event) => setSummaryFilters({ ...summaryFilters, day: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><DayOptions /></select>
-            <select value={summaryFilters.month} onChange={(event) => setSummaryFilters({ ...summaryFilters, month: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><MonthOptions /></select>
-            <select value={summaryFilters.year} onChange={(event) => setSummaryFilters({ ...summaryFilters, year: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold">{years.map((year) => <option key={year} value={year}>{Number(year) + 543}</option>)}</select>
+            <select value={summaryFilters.month} onChange={(event) => setSummaryFilters({ ...summaryFilters, month: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><option value="all">ทุกเดือน</option><MonthOptions /></select>
+            <select value={summaryFilters.year} onChange={(event) => setSummaryFilters({ ...summaryFilters, year: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><option value="all">ทุกปี</option>{years.map((year) => <option key={year} value={year}>{Number(year) + 543}</option>)}</select>
             <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 font-extrabold text-emerald-800 hover:bg-emerald-100" onClick={exportEmployeeSummary} type="button"><Download className="h-4 w-4" />Export</button>
           </div>
         </div>
@@ -4964,28 +4990,38 @@ function IncomeTypeBadge({ type, customType }) {
 
 function calculateWorkTime(startStr, endStr) {
   if (!startStr || !endStr) return null;
-  const [sh, sm] = startStr.split(':').map(Number);
-  const [eh, em] = endStr.split(':').map(Number);
-  if (isNaN(sh) || isNaN(sm) || isNaN(eh) || isNaN(em)) return null;
-  let startMin = sh * 60 + sm;
-  let endMin = eh * 60 + em;
+  const startMin = minutesFromTime(startStr);
+  const rawEndMin = minutesFromTime(endStr);
+  if (startMin === null || rawEndMin === null) return null;
+  let endMin = rawEndMin;
   if (endMin < startMin) endMin += 24 * 60;
-  
+
   const diffMin = endMin - startMin;
-  const totalDec = diffMin / 60;
-  const h = Math.floor(diffMin / 60);
-  const m = diffMin % 60;
-  
-  const extraMin = Math.max(0, diffMin - (8 * 60));
-  const extraDec = extraMin / 60;
-  const eh_ = Math.floor(extraMin / 60);
-  const em_ = extraMin % 60;
+  if (diffMin <= 0) return null;
+  const breakStart = 12 * 60;
+  const breakEnd = 13 * 60;
+  const breakMin = startMin <= breakStart && endMin >= breakEnd ? 60 : 0;
+  const actualWorkMin = Math.max(0, diffMin - breakMin);
+  const normalMin = Math.min(actualWorkMin, 8 * 60);
+  const extraMin = Math.max(0, actualWorkMin - (8 * 60));
+  const formatMinutes = (minutes) => {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return `${hours} ชั่วโมง ${mins} นาที`;
+  };
+  const toHours = (minutes) => Number((minutes / 60).toFixed(2)).toFixed(2);
 
   return {
-    totalText: `${h} ชั่วโมง ${m} นาที`,
-    totalDec: totalDec.toFixed(2),
-    extraText: `${eh_} ชั่วโมง ${em_} นาที`,
-    extraDec: extraDec.toFixed(2),
+    totalText: formatMinutes(diffMin),
+    totalDec: toHours(diffMin),
+    breakText: formatMinutes(breakMin),
+    breakDec: toHours(breakMin),
+    normalText: formatMinutes(normalMin),
+    normalDec: toHours(normalMin),
+    actualWorkText: formatMinutes(actualWorkMin),
+    actualWorkDec: toHours(actualWorkMin),
+    extraText: formatMinutes(extraMin),
+    extraDec: toHours(extraMin),
   };
 }
 
@@ -5004,9 +5040,9 @@ function incomeTimeHours(income = {}) {
   const timeCalc = calculateWorkTime(income.overtimeStart, income.overtimeEnd);
   const storedOvertimeHours = numericOrNull(income.overtimeHours);
   const totalHours = timeCalc ? Number(timeCalc.totalDec) : (storedOvertimeHours || 0);
-  const overtimeHours = storedOvertimeHours !== null
-    ? storedOvertimeHours
-    : (timeCalc ? Number(timeCalc.extraDec) : Math.max(0, totalHours - 8));
+  const overtimeHours = timeCalc
+    ? Number(timeCalc.extraDec)
+    : (storedOvertimeHours !== null ? storedOvertimeHours : Math.max(0, totalHours - 8));
   return {
     totalHours: Number((totalHours || 0).toFixed(2)),
     overtimeHours: Number((overtimeHours || 0).toFixed(2)),
@@ -5027,7 +5063,7 @@ function EmployeeIncomeTable({ rows, onEdit, onDelete }) {
             <th className="p-3">วันที่</th>
             <th className="p-3">พนักงาน</th>
             <th className="p-3">ประเภท</th>
-            <th className="p-3">เวลาทั้งหมด</th>
+            <th className="p-3">เวลารวมทั้งหมด</th>
             <th className="p-3">โอที</th>
             <th className="p-3 text-right">จำนวนเงิน</th>
             <th className="p-3">สถานะ</th>

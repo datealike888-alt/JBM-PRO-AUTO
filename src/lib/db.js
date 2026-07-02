@@ -57,8 +57,26 @@ export async function query(sql, params = []) {
   }
 }
 
+export async function withTransaction(task) {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const result = await task(conn);
+    await conn.commit();
+    return result;
+  } catch (error) {
+    try {
+      await conn.rollback();
+    } catch (rollbackError) {
+      console.error('[db] transaction rollback failed', rollbackError);
+    }
+    throw error;
+  } finally {
+    conn?.release();
+  }
+}
+
 export async function testConnection() {
   const rows = await query('SELECT 1 AS ok');
   return Array.isArray(rows) && Number(rows[0]?.ok || 0) === 1;
 }
-

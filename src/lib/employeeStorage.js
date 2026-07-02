@@ -301,6 +301,8 @@ async function ensureLeaveLogsTableInternal() {
       start_date DATE NULL,
       end_date DATE NULL,
       total_days DECIMAL(5,2) DEFAULT 0,
+      leave_duration_type VARCHAR(50) NOT NULL DEFAULT 'full_day',
+      leave_days DECIMAL(5,2) NOT NULL DEFAULT 1.00,
       reason TEXT NULL,
       approver VARCHAR(255) NULL,
       status VARCHAR(50) DEFAULT 'รออนุมัติ',
@@ -316,8 +318,17 @@ async function ensureLeaveLogsTableInternal() {
   `);
 
   await ensureColumn("ALTER TABLE employee_leaves ADD COLUMN status VARCHAR(50) DEFAULT 'รออนุมัติ'");
+  await ensureColumn("ALTER TABLE employee_leaves ADD COLUMN leave_duration_type VARCHAR(50) NOT NULL DEFAULT 'full_day'");
+  await ensureColumn('ALTER TABLE employee_leaves ADD COLUMN leave_days DECIMAL(5,2) NOT NULL DEFAULT 1.00');
   await ensureColumn('ALTER TABLE employee_leaves ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP');
   await ensureColumn('ALTER TABLE employee_leaves ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
+  await query(`
+    UPDATE employee_leaves
+    SET
+      leave_duration_type = COALESCE(NULLIF(leave_duration_type, ''), 'full_day'),
+      leave_days = COALESCE(NULLIF(leave_days, 0), 1.00)
+    WHERE leave_duration_type IS NULL OR leave_duration_type = '' OR leave_days IS NULL OR leave_days <= 0
+  `).catch(() => {});
 }
 
 async function ensureEmployeeIncomesTableInternal() {
@@ -570,6 +581,8 @@ export function normalizeAttendanceLogInput(body = {}) {
 }
 
 export function normalizeLeaveLogRow(row) {
+  const leaveDurationType = cleanString(row.leave_duration_type || row.leaveDurationType || row.durationType, 50) || 'full_day';
+  const leaveDays = normalizeNumber(row.leave_days ?? row.leaveDays ?? 1, 1);
   return {
     id: row.id,
     employeeId: row.employee_id,
@@ -577,7 +590,12 @@ export function normalizeLeaveLogRow(row) {
     type: row.leave_type || '',
     startDate: formatSqlDate(row.start_date),
     endDate: formatSqlDate(row.end_date),
-    totalDays: Number(row.total_days || 0),
+    durationType: leaveDurationType,
+    leaveDurationType,
+    leave_duration_type: leaveDurationType,
+    leaveDays,
+    leave_days: leaveDays,
+    totalDays: leaveDays,
     approver: row.approver || '',
     reason: row.reason || '',
     status: row.status || 'รออนุมัติ',
@@ -596,6 +614,8 @@ export function normalizeLeaveLogInput(body = {}) {
     startDate: cleanDate(body.startDate),
     endDate: cleanDate(body.endDate),
     totalDays: Math.max(0, normalizeNumber(body.totalDays, 0)),
+    durationType: cleanString(body.durationType || body.leaveDurationType || body.leave_duration_type, 50) || 'full_day',
+    leaveDays: Math.max(0, normalizeNumber(body.leaveDays ?? body.leave_days ?? body.totalDays, 1)),
     approver: cleanNullable(body.approver, 255),
     reason: cleanNullable(body.reason, 5000),
     status: cleanString(body.status, 50) || 'รออนุมัติ',

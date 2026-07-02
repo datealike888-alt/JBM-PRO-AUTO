@@ -12,6 +12,12 @@ import { insertAuditLogSafe } from '../../../lib/auditLog';
 import { requirePermission } from '../../../lib/adminPermissions';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
+const LEAVE_DURATION_DAYS = {
+  full_day: 1,
+  half_morning: 0.5,
+  half_afternoon: 0.5,
+};
+const LEAVE_DURATION_TYPES = new Set([...Object.keys(LEAVE_DURATION_DAYS), 'custom']);
 
 function json(data, init = {}) {
   return new Response(JSON.stringify(data), {
@@ -50,6 +56,25 @@ function buildWhere(url) {
   };
 }
 
+function validateLeaveDuration(log) {
+  const durationType = LEAVE_DURATION_TYPES.has(log.durationType) ? log.durationType : 'full_day';
+  const rawDays = durationType === 'custom' ? log.leaveDays : LEAVE_DURATION_DAYS[durationType];
+  const leaveDays = Number(rawDays);
+
+  if (!Number.isFinite(leaveDays) || leaveDays <= 0) {
+    return { error: 'จำนวนวันที่ลาต้องเป็นตัวเลขมากกว่า 0' };
+  }
+
+  if (durationType !== 'custom' && leaveDays !== LEAVE_DURATION_DAYS[durationType]) {
+    return { error: 'จำนวนวันที่ลาไม่ตรงกับรูปแบบการลา' };
+  }
+
+  return {
+    durationType,
+    leaveDays: Number(leaveDays.toFixed(2)),
+  };
+}
+
 export async function GET(request) {
   try {
     const authResult = await requirePermission(request, 'employees.leave');
@@ -58,8 +83,8 @@ export async function GET(request) {
 
     const where = buildWhere(new URL(request.url));
     const rows = await query(
-      `SELECT el.id, el.employee_id, e.employee_code, el.leave_type, el.start_date, el.end_date, el.total_days, el.approver,
-              el.reason, el.status, el.created_at, el.updated_at
+      `SELECT el.id, el.employee_id, e.employee_code, el.leave_type, el.start_date, el.end_date, el.total_days,
+              el.leave_duration_type, el.leave_days, el.approver, el.reason, el.status, el.created_at, el.updated_at
        FROM employee_leaves el
        LEFT JOIN employees e ON e.id = el.employee_id
        ${where.clause}
@@ -92,11 +117,16 @@ export async function POST(request) {
     if (!log.employeeId || !log.type || !log.startDate || !log.endDate) {
       return json({ error: 'employeeId, type, startDate and endDate are required' }, { status: 400 });
     }
+    const duration = validateLeaveDuration(log);
+    if (duration.error) return json({ error: duration.error }, { status: 400 });
+    log.durationType = duration.durationType;
+    log.leaveDays = duration.leaveDays;
+    log.totalDays = duration.leaveDays;
 
     await ensureLeaveLogsTable();
     const beforeRows = await query(
-      `SELECT el.id, el.employee_id, e.employee_code, el.leave_type, el.start_date, el.end_date, el.total_days, el.approver,
-              el.reason, el.status, el.created_at, el.updated_at
+      `SELECT el.id, el.employee_id, e.employee_code, el.leave_type, el.start_date, el.end_date, el.total_days,
+              el.leave_duration_type, el.leave_days, el.approver, el.reason, el.status, el.created_at, el.updated_at
        FROM employee_leaves el
        LEFT JOIN employees e ON e.id = el.employee_id
        WHERE el.id = ?
@@ -106,14 +136,16 @@ export async function POST(request) {
     const previousLog = Array.isArray(beforeRows) && beforeRows.length ? normalizeLeaveLogRow(beforeRows[0]) : null;
     await query(
       `INSERT INTO employee_leaves (
-        id, employee_id, leave_type, start_date, end_date, total_days, reason, approver, status, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+        id, employee_id, leave_type, start_date, end_date, total_days, leave_duration_type, leave_days, reason, approver, status, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
       ON DUPLICATE KEY UPDATE
         employee_id = VALUES(employee_id),
         leave_type = VALUES(leave_type),
         start_date = VALUES(start_date),
         end_date = VALUES(end_date),
         total_days = VALUES(total_days),
+        leave_duration_type = VALUES(leave_duration_type),
+        leave_days = VALUES(leave_days),
         reason = VALUES(reason),
         approver = VALUES(approver),
         status = VALUES(status)`,
@@ -124,6 +156,8 @@ export async function POST(request) {
         log.startDate,
         log.endDate,
         log.totalDays,
+        log.durationType,
+        log.leaveDays,
         log.reason,
         log.approver,
         log.status,
@@ -132,8 +166,8 @@ export async function POST(request) {
     );
 
     const rows = await query(
-      `SELECT el.id, el.employee_id, e.employee_code, el.leave_type, el.start_date, el.end_date, el.total_days, el.approver,
-              el.reason, el.status, el.created_at, el.updated_at
+      `SELECT el.id, el.employee_id, e.employee_code, el.leave_type, el.start_date, el.end_date, el.total_days,
+              el.leave_duration_type, el.leave_days, el.approver, el.reason, el.status, el.created_at, el.updated_at
        FROM employee_leaves el
        LEFT JOIN employees e ON e.id = el.employee_id
        WHERE el.id = ?
@@ -172,8 +206,8 @@ export async function DELETE(request) {
 
     await ensureLeaveLogsTable();
     const rows = await query(
-      `SELECT el.id, el.employee_id, e.employee_code, el.leave_type, el.start_date, el.end_date, el.total_days, el.approver,
-              el.reason, el.status, el.created_at, el.updated_at
+      `SELECT el.id, el.employee_id, e.employee_code, el.leave_type, el.start_date, el.end_date, el.total_days,
+              el.leave_duration_type, el.leave_days, el.approver, el.reason, el.status, el.created_at, el.updated_at
        FROM employee_leaves el
        LEFT JOIN employees e ON e.id = el.employee_id
        WHERE el.id = ?

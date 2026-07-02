@@ -67,6 +67,7 @@ const EMPLOYEE_POSITIONS_API_URL = '/api/employee-positions';
 const EMPLOYEE_ATTENDANCE_API_URL = '/api/employee-attendance';
 const EMPLOYEE_LEAVES_API_URL = '/api/employee-leaves';
 const EMPLOYEE_INCOMES_API_URL = '/api/employee-incomes';
+const EMPLOYEE_STATS_CLEAR_HISTORY_API_URL = '/api/employees/stats/clear-history';
 const ATTENDANCE_SETTINGS_API_URL = '/api/attendance-settings';
 const AUDIT_LOGS_API_URL = '/api/audit-logs';
 const DATABASE_CONNECTION_ERROR_MESSAGE = 'เชื่อมต่อฐานข้อมูลไม่ได้ กรุณาลองใหม่';
@@ -117,6 +118,17 @@ const DEFAULT_EMPLOYEE_POSITIONS = ['เจ้าของอู่', 'ผู้
 const OTHER_EMPLOYEE_POSITION = 'อื่นๆ';
 const ATTENDANCE_STATUS_KEYS = ['มาทำงาน', 'สายเช้า', 'สายบ่าย', 'สายเช้า+บ่าย', 'ขาดงาน', 'ลาป่วย', 'ลากิจ', 'ลาพักร้อน'];
 const LEAVE_TYPES = ['ลาป่วย', 'ลากิจ', 'ลาพักร้อน'];
+const LEAVE_DURATION_DAY_VALUES = {
+  full_day: 1,
+  half_morning: 0.5,
+  half_afternoon: 0.5,
+};
+const LEAVE_DURATION_TYPE_LABELS = {
+  full_day: 'เต็มวัน',
+  half_morning: 'ครึ่งวันเช้า',
+  half_afternoon: 'ครึ่งวันบ่าย',
+  custom: 'กำหนดเอง',
+};
 const EMPLOYEE_INCOME_TYPES = ['โอที', 'ค่าคอมมิชชั่น', 'โบนัส', 'เบี้ยขยัน', 'อื่น ๆ'];
 const EMPLOYEE_INCOME_STATUSES = ['รอบันทึก', 'บันทึกแล้ว', 'จ่ายแล้ว', 'ยกเลิก'];
 const OVERTIME_RATE_TYPES = ['มาตรฐาน', '1.5 เท่า', '2 เท่า', 'กำหนดเอง'];
@@ -434,7 +446,10 @@ function canViewEmployeeIncomes(adminProfile) {
 function normalizeAttendanceSettings(settings = {}) {
   return {
     ...DEFAULT_ATTENDANCE_SETTINGS,
-    ...Object.fromEntries(Object.entries(settings || {}).map(([key, value]) => [key, normalizeTimeInput(value)])),
+    ...Object.fromEntries(Object.entries(settings || {}).map(([key, value]) => {
+      const normalized = normalizeTimeInput(value);
+      return [key, normalized || DEFAULT_ATTENDANCE_SETTINGS[key] || ''];
+    })),
   };
 }
 
@@ -581,33 +596,39 @@ function optionalNumberText(value, suffix = '') {
 }
 
 function normalizeTimeInput(value) {
-  const cleaned = String(value || '').replace(/[^\d:]/g, '');
-  if (!cleaned) return '';
-  if (cleaned.includes(':')) {
-    const [rawHour = '', rawMinute = ''] = cleaned.split(':');
-    const hour = rawHour.replace(/\D/g, '').slice(0, 2);
-    const minute = rawMinute.replace(/\D/g, '').slice(0, 2);
-    let normalized = hour;
-    if (cleaned.includes(':')) normalized += ':';
-    if (minute) normalized += minute;
-    if (/^\d{1,2}:\d{2}$/.test(normalized) && minutesFromTime(normalized) !== null) return timeText(normalized);
-    return normalized.slice(0, 5);
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  if (/[^0-9:.\s]/.test(text)) return null;
+
+  const buildTime = (rawHour, rawMinute = '00') => {
+    if (!/^\d{1,2}$/.test(rawHour) || !/^\d{1,2}$/.test(rawMinute)) return null;
+    const candidate = `${rawHour.padStart(2, '0')}:${rawMinute.padStart(2, '0')}`;
+    return minutesFromTime(candidate) !== null ? candidate : null;
+  };
+
+  if (/[.: \t]/.test(text)) {
+    const parts = text.split(/[.: \t]+/).filter(Boolean);
+    if (parts.length === 0) return '';
+    if (parts.length > 2) return null;
+    return buildTime(parts[0], parts[1] || '00');
   }
 
-  const digits = cleaned.replace(/\D/g, '').slice(0, 4);
-  if (digits.length <= 2) return digits;
-  if (digits.length === 3) return `${digits.slice(0, 1).padStart(2, '0')}:${digits.slice(1)}`;
-  return `${digits.slice(0, 2)}:${digits.slice(2, 4)}`;
+  if (!/^\d{1,4}$/.test(text)) return null;
+  if (text.length <= 2) return buildTime(text, '00');
+  if (text.length === 3) {
+    const candidates = [
+      buildTime(text.slice(0, 1), text.slice(1)),
+      buildTime(text.slice(0, 2), `${text.slice(2)}0`),
+    ];
+    return candidates.find(Boolean) || null;
+  }
+  return buildTime(text.slice(0, 2), text.slice(2));
 }
 
 function finalizeTimeInput(value) {
   const normalized = normalizeTimeInput(value);
-  if (!normalized) return '';
-  if (/^\d{1,2}$/.test(normalized)) {
-    const withMinutes = `${normalized.padStart(2, '0')}:00`;
-    return minutesFromTime(withMinutes) !== null ? withMinutes : normalized;
-  }
-  if (/^\d{1,2}:\d{2}$/.test(normalized) && minutesFromTime(normalized) !== null) return timeText(normalized);
+  if (normalized === '') return '';
+  if (normalized === null) return null;
   return normalized;
 }
 
@@ -670,6 +691,21 @@ function daysInDateRange(startDate, endDate) {
   return Array.from({ length: count }, (_, index) => addDays(startDate, index));
 }
 
+function normalizeLeaveDurationType(value) {
+  return Object.prototype.hasOwnProperty.call(LEAVE_DURATION_TYPE_LABELS, value) ? value : 'full_day';
+}
+
+function resolveLeaveDays(durationType, value) {
+  const normalizedType = normalizeLeaveDurationType(durationType);
+  if (normalizedType !== 'custom') return LEAVE_DURATION_DAY_VALUES[normalizedType] || 1;
+  const number = Number.parseFloat(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(number) && number > 0 ? Number(number.toFixed(2)) : 0;
+}
+
+function leaveDurationTypeLabel(value) {
+  return LEAVE_DURATION_TYPE_LABELS[normalizeLeaveDurationType(value)] || LEAVE_DURATION_TYPE_LABELS.full_day;
+}
+
 function normalizeFinancialTransaction(transaction = {}) {
   return {
     ...emptyFinancialTransaction,
@@ -715,6 +751,29 @@ function normalizeEmployeeIncome(income = {}) {
     sourceId: income.sourceId || income.source_id || '',
     createdAt: income.createdAt || income.created_at || null,
     updatedAt: income.updatedAt || income.updated_at || null,
+  };
+}
+
+function normalizeEmployeeLeave(log = {}) {
+  const durationType = normalizeLeaveDurationType(log.leave_duration_type || log.leaveDurationType || log.durationType);
+  const leaveDays = resolveLeaveDays(durationType, log.leave_days ?? log.leaveDays ?? 1) || 1;
+  return {
+    id: log.id || '',
+    employeeId: log.employeeId || log.employee_id || '',
+    employeeCode: log.employeeCode || log.employee_code || '',
+    type: LEAVE_TYPES.includes(log.type || log.leave_type) ? (log.type || log.leave_type) : LEAVE_TYPES[0],
+    startDate: String(log.startDate || log.start_date || '').slice(0, 10),
+    endDate: String(log.endDate || log.end_date || log.startDate || log.start_date || '').slice(0, 10),
+    leave_duration_type: durationType,
+    leaveDays,
+    leave_days: leaveDays,
+    totalDays: leaveDays,
+    approver: log.approver || '',
+    reason: log.reason || '',
+    status: log.status || 'approved',
+    submittedAt: String(log.submittedAt || log.createdAt || log.created_at || '').slice(0, 10),
+    createdAt: log.createdAt || log.created_at || null,
+    updatedAt: log.updatedAt || log.updated_at || null,
   };
 }
 
@@ -2062,8 +2121,8 @@ function AdminApp() {
       group: 'ระบบพนักงาน',
       items: [
         canSeeEmployeeManagement && ['shift-duty', 'จัดการพนักงาน', UserCheck],
-        canSeeEmployeeManagement && ['employee-summary', 'สรุปสถิติพนักงาน', ClipboardList],
         canSeeEmployeeIncomes && ['employee-incomes', 'รายได้พนักงาน', Wallet],
+        canSeeEmployeeManagement && ['employee-summary', 'สรุปสถิติพนักงาน', ClipboardList],
       ].filter(Boolean)
     },
     {
@@ -2950,7 +3009,7 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
   const canAccessEmployeeManagement = canViewEmployeeManagement(adminProfile);
   const canAccessEmployeeIncomes = canViewEmployeeIncomes(adminProfile);
   const emptyEmployee = { id: '', code: '', status: EMPLOYEE_STATUSES[0], firstName: '', lastName: '', nickname: '', position: DEFAULT_EMPLOYEE_POSITIONS[4], photo_url: '', photoUrl: '' };
-  const emptyLeave = { employeeId: '', type: LEAVE_TYPES[0], startDate: today, endDate: today, approver: '', reason: '' };
+  const emptyLeave = { employeeId: '', type: LEAVE_TYPES[0], startDate: today, endDate: today, leave_duration_type: 'full_day', leave_days: '1', approver: '', reason: '' };
   const emptyIncome = {
     employeeId: '',
     type: EMPLOYEE_INCOME_TYPES[0],
@@ -3008,6 +3067,9 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
   const [editingLeaveId, setEditingLeaveId] = useState('');
   const [leaveFilters, setLeaveFilters] = useState({ month: current.month, year: current.year });
   const [clearLeaves, setClearLeaves] = useState({ month: current.month, year: current.year });
+  const [isClearHistoryModalOpen, setIsClearHistoryModalOpen] = useState(false);
+  const [isClearingHistory, setIsClearingHistory] = useState(false);
+  const [clearHistoryError, setClearHistoryError] = useState('');
   const [incomeForm, setIncomeForm] = useState(emptyIncome);
   const [editingIncomeId, setEditingIncomeId] = useState('');
   const [incomeFilters, setIncomeFilters] = useState({ day: 'all', month: current.month, year: current.year, employeeId: 'all', type: 'all', status: 'all' });
@@ -3055,7 +3117,7 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
       const nextPositions = (positionsData.positions || []).map((position) => position.name).filter(Boolean);
       setPositions(Array.from(new Set([...DEFAULT_EMPLOYEE_POSITIONS, ...nextPositions])));
       setAttendanceLogs(attendanceData.logs || []);
-      setLeaveLogs(leavesData.logs || []);
+      setLeaveLogs((leavesData.logs || []).map(normalizeEmployeeLeave));
       setEmployeeIncomes((incomesData.incomes || []).map(normalizeEmployeeIncome));
       const nextSettings = normalizeAttendanceSettings(settingsData.settings || DEFAULT_ATTENDANCE_SETTINGS);
       setAttendanceSettings(nextSettings);
@@ -3206,7 +3268,8 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
   const visibleIncomeSummaryRows = useMemo(() => incomeSummaryRows.filter((row) => Number(row.incomeRecordCount || 0) > 0), [incomeSummaryRows]);
   const incomeSummaryRowMap = useMemo(() => new Map(incomeSummaryRows.map((row) => [row.employee.id, row])), [incomeSummaryRows]);
 
-  const leaveDays = countLeaveDays(leaveForm.startDate, leaveForm.endDate);
+  const leaveDurationType = normalizeLeaveDurationType(leaveForm.leave_duration_type);
+  const leaveDays = resolveLeaveDays(leaveDurationType, leaveForm.leave_days);
   const summaryRows = useMemo(() => employees.map((employee) => {
     const filteredRows = attendanceLogs.filter((log) => {
       if (log.employeeId !== employee.id) return false;
@@ -3234,9 +3297,8 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
     const counts = ATTENDANCE_STATUS_KEYS.reduce((acc, status) => ({ ...acc, [status]: rows.filter((log) => log.status === status).length }), {});
     leaveRows.forEach((log) => {
       if (!LEAVE_TYPES.includes(log.type)) return;
-      daysInDateRange(log.startDate, log.endDate).forEach((date) => {
-        if (matchesSummaryDate(date)) counts[log.type] = Number(counts[log.type] || 0) + 1;
-      });
+      const matchesDateRange = daysInDateRange(log.startDate, log.endDate).some((date) => matchesSummaryDate(date));
+      if (matchesDateRange) counts[log.type] = Number(counts[log.type] || 0) + Number(log.leave_days || log.leaveDays || 1);
     });
     return {
       employee,
@@ -3253,11 +3315,11 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
         { key: 'position', label: 'ตำแหน่ง' },
         { key: 'filteredDays', label: 'จำนวนวันลงเวลา' },
         { key: 'monthHours', label: 'ชั่วโมงตามตัวกรอง' },
-        { key: 'attendanceOvertimeHours', label: 'ชั่วโมงเกิน 8 ชม. จากลงเวลา' },
+        { key: 'attendanceOvertimeHours', label: 'โอทีจากลงเวลา' },
         { key: 'yearHours', label: 'ชั่วโมงตลอดปี' },
         { key: 'incomeRecordCount', label: 'จำนวนรายการรายได้' },
         { key: 'incomeTotalHours', label: 'ชั่วโมงรวมจากรายได้' },
-        { key: 'incomeOvertimeHours', label: 'ชั่วโมงเกิน 8 ชม. จากรายได้' },
+        { key: 'incomeOvertimeHours', label: 'โอทีจากรายได้' },
         { key: 'incomeTotalAmount', label: 'จำนวนเงินรวมจากรายได้' },
         { key: 'status', label: 'สถานะพนักงาน' },
       ],
@@ -3307,7 +3369,7 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
         { key: 'position', label: 'ตำแหน่ง' },
         { key: 'incomeRecordCount', label: 'จำนวนรายการ' },
         { key: 'incomeTotalHours', label: 'ชั่วโมงรวม' },
-        { key: 'incomeOvertimeHours', label: 'ชั่วโมงเกิน 8 ชม. รวม' },
+        { key: 'incomeOvertimeHours', label: 'โอทีรวม' },
         { key: 'incomeTotalAmount', label: 'จำนวนเงินรวม' },
         { key: 'incomeTypeSummary', label: 'แยกตามประเภท' },
         { key: 'incomeStatusSummary', label: 'แยกตามสถานะ' },
@@ -3369,6 +3431,7 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
         { key: 'type', label: 'ประเภทลา' },
         { key: 'startDate', label: 'ตั้งแต่วันที่' },
         { key: 'endDate', label: 'ถึงวันที่' },
+        { key: 'durationType', label: 'รูปแบบการลา' },
         { key: 'totalDays', label: 'รวมวัน' },
         { key: 'approver', label: 'ผู้อนุมัติ' },
         { key: 'reason', label: 'สาเหตุ' },
@@ -3382,7 +3445,8 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
           type: log.type || '-',
           startDate: dateText(log.startDate),
           endDate: dateText(log.endDate),
-          totalDays: Number(log.totalDays || 0),
+          durationType: leaveDurationTypeLabel(log.leave_duration_type),
+          totalDays: Number(log.leave_days || log.leaveDays || 1),
           approver: log.approver || '-',
           reason: log.reason || '-',
         };
@@ -3401,7 +3465,7 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
         { key: 'overtimeStart', label: 'เวลาเริ่ม' },
         { key: 'overtimeEnd', label: 'เวลาจบ' },
         { key: 'totalHoursText', label: 'เวลาทั้งหมด' },
-        { key: 'overtimeHoursText', label: 'เวลาเกิน 8 ชม.' },
+        { key: 'overtimeHoursText', label: 'โอที' },
         { key: 'amount', label: 'จำนวนเงิน' },
         { key: 'status', label: 'สถานะ' },
         { key: 'note', label: 'หมายเหตุ' },
@@ -3736,6 +3800,10 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
     const nextLeave = {
       id: editingLeaveId || `leave-${Date.now()}`,
       ...leaveForm,
+      leave_duration_type: leaveDurationType,
+      leaveDays,
+      leave_days: leaveDays,
+      durationType: leaveDurationType,
       employeeCode: employee?.code || '',
       totalDays: leaveDays,
       submittedAt: editingLeaveId ? (leaveLogs.find((log) => log.id === editingLeaveId)?.submittedAt || today) : today,
@@ -3770,6 +3838,8 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
       type: leave.type || LEAVE_TYPES[0],
       startDate: String(leave.startDate || today).slice(0, 10),
       endDate: String(leave.endDate || leave.startDate || today).slice(0, 10),
+      leave_duration_type: normalizeLeaveDurationType(leave.leave_duration_type || leave.durationType),
+      leave_days: String(leave.leave_days ?? leave.leaveDays ?? 1),
       approver: leave.approver || '',
       reason: leave.reason || '',
     });
@@ -4009,8 +4079,7 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
   };
 
   const updateAttendanceSetting = (field, value) => {
-    const nextValue = normalizeTimeInput(value);
-    setAttendanceSettings((settings) => ({ ...settings, [field]: nextValue }));
+    setAttendanceSettings((settings) => ({ ...settings, [field]: value }));
     const formFieldMap = {
       morningStart: 'morningIn',
       lunchOut: 'lunchOut',
@@ -4018,12 +4087,13 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
       workEnd: 'eveningOut',
     };
     if (formFieldMap[field]) {
-      setAttendanceForm((form) => ({ ...form, [formFieldMap[field]]: nextValue }));
+      setAttendanceForm((form) => ({ ...form, [formFieldMap[field]]: value }));
     }
   };
 
-  const finalizeAttendanceSetting = async (field) => {
-    const nextValue = finalizeTimeInput(attendanceSettings[field]);
+  const finalizeAttendanceSetting = async (field, value = attendanceSettings[field]) => {
+    const nextValue = finalizeTimeInput(value);
+    if (!isValidTimeValue(nextValue)) return;
     const nextSettings = { ...attendanceSettings, [field]: nextValue };
     setAttendanceSettings(nextSettings);
     const formFieldMap = {
@@ -4073,6 +4143,25 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
     } catch (error) {
       console.error('[employee] clear leaves failed', error);
       window.alert(databaseErrorMessage(error, 'ล้างตารางใบลาไม่สำเร็จ'));
+    }
+  };
+
+  const clearEmployeeStatsHistory = async () => {
+    setClearHistoryError('');
+    setIsClearingHistory(true);
+    try {
+      const response = await fetch(EMPLOYEE_STATS_CLEAR_HISTORY_API_URL, {
+        method: 'DELETE',
+        headers: authHeaders(),
+      });
+      if (!response.ok) throw await readApiError(response, 'ล้างประวัติสถิติพนักงานไม่สำเร็จ');
+      await loadEmployeeData();
+      setIsClearHistoryModalOpen(false);
+    } catch (error) {
+      console.error('[employee] clear stats history failed', error);
+      setClearHistoryError(databaseErrorMessage(error, 'ล้างประวัติสถิติพนักงานไม่สำเร็จ'));
+    } finally {
+      setIsClearingHistory(false);
     }
   };
 
@@ -4302,12 +4391,12 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
           </div>
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-          <EmployeeTimeInput label="เวลาเข้างานช่วงเช้า" value={attendanceSettings.morningStart} onChange={(value) => updateAttendanceSetting('morningStart', value)} onBlur={() => finalizeAttendanceSetting('morningStart')} />
-          <EmployeeTimeInput label="เริ่มนับสายช่วงเช้า" value={attendanceSettings.morningLateAfter} onChange={(value) => updateAttendanceSetting('morningLateAfter', value)} onBlur={() => finalizeAttendanceSetting('morningLateAfter')} />
-          <EmployeeTimeInput label="เวลาออกพักเที่ยง" value={attendanceSettings.lunchOut} onChange={(value) => updateAttendanceSetting('lunchOut', value)} onBlur={() => finalizeAttendanceSetting('lunchOut')} />
-          <EmployeeTimeInput label="เวลาเข้างานช่วงบ่าย" value={attendanceSettings.afternoonStart} onChange={(value) => updateAttendanceSetting('afternoonStart', value)} onBlur={() => finalizeAttendanceSetting('afternoonStart')} />
-          <EmployeeTimeInput label="เริ่มนับสายช่วงบ่าย" value={attendanceSettings.afternoonLateAfter} onChange={(value) => updateAttendanceSetting('afternoonLateAfter', value)} onBlur={() => finalizeAttendanceSetting('afternoonLateAfter')} />
-          <EmployeeTimeInput label="เวลาออกงานเย็น" value={attendanceSettings.workEnd} onChange={(value) => updateAttendanceSetting('workEnd', value)} onBlur={() => finalizeAttendanceSetting('workEnd')} />
+          <EmployeeTimeInput label="เวลาเข้างานช่วงเช้า" value={attendanceSettings.morningStart} onChange={(value) => updateAttendanceSetting('morningStart', value)} onBlur={(value) => finalizeAttendanceSetting('morningStart', value)} />
+          <EmployeeTimeInput label="เริ่มนับสายช่วงเช้า" value={attendanceSettings.morningLateAfter} onChange={(value) => updateAttendanceSetting('morningLateAfter', value)} onBlur={(value) => finalizeAttendanceSetting('morningLateAfter', value)} />
+          <EmployeeTimeInput label="เวลาออกพักเที่ยง" value={attendanceSettings.lunchOut} onChange={(value) => updateAttendanceSetting('lunchOut', value)} onBlur={(value) => finalizeAttendanceSetting('lunchOut', value)} />
+          <EmployeeTimeInput label="เวลาเข้างานช่วงบ่าย" value={attendanceSettings.afternoonStart} onChange={(value) => updateAttendanceSetting('afternoonStart', value)} onBlur={(value) => finalizeAttendanceSetting('afternoonStart', value)} />
+          <EmployeeTimeInput label="เริ่มนับสายช่วงบ่าย" value={attendanceSettings.afternoonLateAfter} onChange={(value) => updateAttendanceSetting('afternoonLateAfter', value)} onBlur={(value) => finalizeAttendanceSetting('afternoonLateAfter', value)} />
+          <EmployeeTimeInput label="เวลาออกงานเย็น" value={attendanceSettings.workEnd} onChange={(value) => updateAttendanceSetting('workEnd', value)} onBlur={(value) => finalizeAttendanceSetting('workEnd', value)} />
         </div>
       </div>
       <div className="grid gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
@@ -4317,10 +4406,10 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
             <EmployeeSelect label="เลือกพนักงาน" value={attendanceForm.employeeId} employees={activeEmployees} onChange={(value) => setAttendanceForm({ ...attendanceForm, employeeId: value })} />
             <EmployeeInput label="วันที่" type="date" value={attendanceForm.date} onChange={(value) => setAttendanceForm({ ...attendanceForm, date: value })} />
             <div className="grid gap-3 sm:grid-cols-2">
-              <EmployeeTimeInput disabled={!attendanceRequiresWorkTimes} label="เวลาเข้าเช้า" value={attendanceForm.morningIn} onChange={(value) => setAttendanceForm({ ...attendanceForm, morningIn: value })} onBlur={() => setAttendanceForm((form) => ({ ...form, morningIn: finalizeTimeInput(form.morningIn) }))} />
-              <EmployeeTimeInput disabled={!attendanceRequiresWorkTimes} label="เวลาออกพักเที่ยง" value={attendanceForm.lunchOut} onChange={(value) => setAttendanceForm({ ...attendanceForm, lunchOut: value })} onBlur={() => setAttendanceForm((form) => ({ ...form, lunchOut: finalizeTimeInput(form.lunchOut) }))} />
-              <EmployeeTimeInput disabled={!attendanceRequiresWorkTimes} label="เวลากลับจากพัก" value={attendanceForm.afternoonIn} onChange={(value) => setAttendanceForm({ ...attendanceForm, afternoonIn: value })} onBlur={() => setAttendanceForm((form) => ({ ...form, afternoonIn: finalizeTimeInput(form.afternoonIn) }))} />
-              <EmployeeTimeInput disabled={!attendanceRequiresWorkTimes} label="เวลาออกงานเย็น" value={attendanceForm.eveningOut} onChange={(value) => setAttendanceForm({ ...attendanceForm, eveningOut: value })} onBlur={() => setAttendanceForm((form) => ({ ...form, eveningOut: finalizeTimeInput(form.eveningOut) }))} />
+              <EmployeeTimeInput disabled={!attendanceRequiresWorkTimes} label="เวลาเข้าเช้า" value={attendanceForm.morningIn} onChange={(value) => setAttendanceForm({ ...attendanceForm, morningIn: value })} onBlur={(value) => setAttendanceForm((form) => ({ ...form, morningIn: value }))} />
+              <EmployeeTimeInput disabled={!attendanceRequiresWorkTimes} label="เวลาออกพักเที่ยง" value={attendanceForm.lunchOut} onChange={(value) => setAttendanceForm({ ...attendanceForm, lunchOut: value })} onBlur={(value) => setAttendanceForm((form) => ({ ...form, lunchOut: value }))} />
+              <EmployeeTimeInput disabled={!attendanceRequiresWorkTimes} label="เวลากลับจากพัก" value={attendanceForm.afternoonIn} onChange={(value) => setAttendanceForm({ ...attendanceForm, afternoonIn: value })} onBlur={(value) => setAttendanceForm((form) => ({ ...form, afternoonIn: value }))} />
+              <EmployeeTimeInput disabled={!attendanceRequiresWorkTimes} label="เวลาออกงานเย็น" value={attendanceForm.eveningOut} onChange={(value) => setAttendanceForm({ ...attendanceForm, eveningOut: value })} onBlur={(value) => setAttendanceForm((form) => ({ ...form, eveningOut: value }))} />
             </div>
             <label className="block">
               <span className="text-lg font-extrabold text-slate-800">สถานะ</span>
@@ -4393,7 +4482,27 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
             <label className="block"><span className="text-lg font-extrabold text-slate-800">ประเภทสิทธิ์การลา</span><select value={leaveForm.type} onChange={(event) => setLeaveForm({ ...leaveForm, type: event.target.value })} className="mt-2 min-h-14 w-full rounded-lg border border-slate-300 bg-white px-4 text-lg font-bold">{LEAVE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
             <EmployeeInput label="ตั้งแต่วันที่" type="date" value={leaveForm.startDate} onChange={(value) => setLeaveForm({ ...leaveForm, startDate: value })} />
             <EmployeeInput label="ถึงวันที่" type="date" value={leaveForm.endDate} onChange={(value) => setLeaveForm({ ...leaveForm, endDate: value })} />
-            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-xl font-extrabold text-blue-900">รวม {leaveDays} วัน</div>
+            <label className="block">
+              <span className="text-lg font-extrabold text-slate-800">รูปแบบการลา</span>
+              <select
+                value={leaveDurationType}
+                onChange={(event) => {
+                  const durationType = normalizeLeaveDurationType(event.target.value);
+                  setLeaveForm({
+                    ...leaveForm,
+                    leave_duration_type: durationType,
+                    leave_days: durationType === 'custom' ? leaveForm.leave_days : String(resolveLeaveDays(durationType, leaveForm.leave_days)),
+                  });
+                }}
+                className="mt-2 min-h-14 w-full rounded-lg border border-slate-300 bg-white px-4 text-lg font-bold"
+              >
+                {Object.entries(LEAVE_DURATION_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </label>
+            {leaveDurationType === 'custom' && (
+              <EmployeeInput label="จำนวนวันที่ลา" type="number" step="0.5" value={leaveForm.leave_days} onChange={(value) => setLeaveForm({ ...leaveForm, leave_days: value })} placeholder="เช่น 2.5" />
+            )}
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-xl font-extrabold text-blue-900">รวม {leaveDays || 0} วัน</div>
             <EmployeeInput label="แอดมินผู้อนุมัติ" value={leaveForm.approver} onChange={(value) => setLeaveForm({ ...leaveForm, approver: value })} />
             <label className="block"><span className="text-lg font-extrabold text-slate-800">สาเหตุและความจำเป็น</span><textarea value={leaveForm.reason} onChange={(event) => setLeaveForm({ ...leaveForm, reason: event.target.value })} className="mt-2 min-h-28 w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-lg text-slate-950" /></label>
             <div className={`grid gap-2 ${editingLeaveId ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
@@ -4420,18 +4529,33 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
           </div>
           <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
             <table className="w-full min-w-[1080px] text-left text-base">
-              <thead className="bg-slate-100 text-sm font-extrabold text-slate-600"><tr><th className="p-3">วันที่ยื่น</th><th className="p-3">พนักงาน</th><th className="p-3">ประเภทลา</th><th className="p-3">ตั้งแต่วันที่</th><th className="p-3">ถึงวันที่</th><th className="p-3">รวมวัน</th><th className="p-3">ผู้อนุมัติ</th><th className="p-3">สาเหตุ</th><th className="p-3 text-right">จัดการ</th></tr></thead>
+              <thead className="bg-slate-100 text-sm font-extrabold text-slate-600"><tr><th className="p-3">วันที่ยื่น</th><th className="p-3">พนักงาน</th><th className="p-3">ประเภทลา</th><th className="p-3">ตั้งแต่วันที่</th><th className="p-3">ถึงวันที่</th><th className="p-3">รูปแบบการลา</th><th className="p-3">รวมวัน</th><th className="p-3">ผู้อนุมัติ</th><th className="p-3">สาเหตุ</th><th className="p-3 text-right">จัดการ</th></tr></thead>
               <tbody className="divide-y divide-slate-200">
                 {filteredLeaveLogs.map((log) => {
                   const employee = employeeMap.get(log.employeeId) || {};
-                  return <tr key={log.id} className="hover:bg-slate-50"><td className="p-3 font-bold">{dateText(log.submittedAt)}</td><td className="p-3 font-extrabold">{employeeFullName(employee)}</td><td className="p-3"><AttendanceStatusBadge status={log.type} /></td><td className="p-3">{dateText(log.startDate)}</td><td className="p-3">{dateText(log.endDate)}</td><td className="p-3 font-extrabold text-blue-800">{log.totalDays}</td><td className="p-3">{log.approver || '-'}</td><td className="max-w-[260px] break-words p-3">{log.reason || '-'}</td><td className="p-3"><div className="flex justify-end gap-2"><button className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 font-extrabold text-blue-800 hover:bg-blue-100" onClick={() => editLeave(log)} type="button"><Edit3 className="h-4 w-4" />แก้ไข</button><button className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-3 font-extrabold text-rose-700 hover:bg-rose-100" onClick={() => deleteLeave(log)} type="button"><Trash2 className="h-4 w-4" />ลบ</button></div></td></tr>;
+                  return <tr key={log.id} className="hover:bg-slate-50"><td className="p-3 font-bold">{dateText(log.submittedAt)}</td><td className="p-3 font-extrabold">{employeeFullName(employee)}</td><td className="p-3"><AttendanceStatusBadge status={log.type} /></td><td className="p-3">{dateText(log.startDate)}</td><td className="p-3">{dateText(log.endDate)}</td><td className="p-3 font-bold">{leaveDurationTypeLabel(log.leave_duration_type)}</td><td className="p-3 font-extrabold text-blue-800">{log.leave_days || log.leaveDays || 1}</td><td className="p-3">{log.approver || '-'}</td><td className="max-w-[260px] break-words p-3">{log.reason || '-'}</td><td className="p-3"><div className="flex justify-end gap-2"><button className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 font-extrabold text-blue-800 hover:bg-blue-100" onClick={() => editLeave(log)} type="button"><Edit3 className="h-4 w-4" />แก้ไข</button><button className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-3 font-extrabold text-rose-700 hover:bg-rose-100" onClick={() => deleteLeave(log)} type="button"><Trash2 className="h-4 w-4" />ลบ</button></div></td></tr>;
                 })}
-                {filteredLeaveLogs.length === 0 && <tr><td className="p-8 text-center text-slate-500" colSpan={9}>ยังไม่มีใบลา</td></tr>}
+                {filteredLeaveLogs.length === 0 && <tr><td className="p-8 text-center text-slate-500" colSpan={10}>ยังไม่มีใบลา</td></tr>}
               </tbody>
             </table>
           </div>
         </div>
       </div>
+      )}
+
+      {isClearHistoryModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-slate-950/50 p-0 sm:items-center sm:p-4">
+          <div className="w-full max-w-[calc(100vw-1rem)] rounded-t-2xl bg-white p-6 shadow-2xl sm:max-w-xl sm:rounded-2xl sm:p-8" role="dialog" aria-modal="true">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-rose-100"><Trash2 className="h-8 w-8 text-rose-600" /></div>
+            <h2 className="mt-4 text-center text-2xl font-extrabold text-slate-900">ยืนยันการล้างประวัติสถิติพนักงานทั้งหมด?</h2>
+            <p className="mt-2 text-center text-lg font-bold text-slate-600">การดำเนินการนี้จะลบประวัติลงเวลา ใบลา และรายได้พนักงานทั้งหมด คุณไม่สามารถกู้คืนข้อมูลเหล่านี้ได้หลังจากที่ลบไปแล้ว กรุณา Export เป็น CSV ไว้ก่อนลบ</p>
+            {clearHistoryError && <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-center font-extrabold text-rose-800">{clearHistoryError}</p>}
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
+              <button className="inline-flex min-h-14 flex-1 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-6 text-xl font-extrabold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50" onClick={() => setIsClearHistoryModalOpen(false)} disabled={isClearingHistory} type="button">ยกเลิก</button>
+              <button className="inline-flex min-h-14 flex-1 items-center justify-center gap-2 rounded-lg bg-rose-600 px-6 text-xl font-extrabold text-white shadow-sm hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-rose-400" onClick={clearEmployeeStatsHistory} disabled={isClearingHistory} type="button"><Trash2 className="h-6 w-6" />{isClearingHistory ? 'กำลังลบข้อมูล...' : 'ยืนยันล้างประวัติสถิติทั้งหมด'}</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {employeeSubTab === 'summary' && (
@@ -4441,13 +4565,14 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
             <h2 className="text-3xl font-extrabold text-slate-950">สรุปสถิติพนักงาน</h2>
             <p className="mt-1 text-base font-bold text-slate-500">รวมข้อมูลพนักงาน การลงเวลา และรายได้พนักงานตามตัวกรองเดียวกัน</p>
           </div>
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-7">
             <select value={summaryFilters.day} onChange={(event) => setSummaryFilters({ ...summaryFilters, day: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><DayOptions /></select>
             <select value={summaryFilters.month} onChange={(event) => setSummaryFilters({ ...summaryFilters, month: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><MonthOptions /></select>
             <select value={summaryFilters.year} onChange={(event) => setSummaryFilters({ ...summaryFilters, year: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold">{years.map((year) => <option key={year} value={year}>{Number(year) + 543}</option>)}</select>
             <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 font-extrabold text-emerald-800 hover:bg-emerald-100" onClick={exportEmployeeSummary} type="button"><Download className="h-4 w-4" />Export สรุปหลัก</button>
             <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 font-extrabold text-emerald-800 hover:bg-emerald-100" onClick={exportAttendanceComparison} type="button"><Download className="h-4 w-4" />Export เข้างาน</button>
             <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 font-extrabold text-emerald-800 hover:bg-emerald-100" onClick={exportEmployeeIncomeSummary} type="button"><Download className="h-4 w-4" />Export รายได้</button>
+            <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 font-extrabold text-rose-700 hover:bg-rose-100" onClick={() => { setClearHistoryError(''); setIsClearHistoryModalOpen(true); }} type="button"><Trash2 className="h-4 w-4" />ล้างประวัติ</button>
           </div>
         </div>
 
@@ -4455,7 +4580,7 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-sm font-bold text-slate-500">พนักงานทั้งหมด</p><p className="mt-1 text-3xl font-extrabold text-slate-950">{summaryRows.length}</p></div>
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-sm font-bold text-slate-500">จำนวนวันลงเวลา</p><p className="mt-1 text-3xl font-extrabold text-slate-950">{summaryRows.reduce((sum, row) => sum + row.filteredDays, 0)}</p></div>
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm"><p className="text-sm font-bold text-emerald-700">ชั่วโมงรวม</p><p className="mt-1 text-3xl font-extrabold text-emerald-900">{hourText(summaryRows.reduce((sum, row) => sum + Number(row.monthHours || 0), 0))}</p></div>
-          <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 shadow-sm"><p className="text-sm font-bold text-blue-700">ชั่วโมงเกิน 8 ชม.</p><p className="mt-1 text-3xl font-extrabold text-blue-900">{hourText(summaryRows.reduce((sum, row) => sum + Number(row.attendanceOvertimeHours || 0) + Number(row.incomeOvertimeHours || 0), 0))}</p></div>
+          <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 shadow-sm"><p className="text-sm font-bold text-blue-700">โอที</p><p className="mt-1 text-3xl font-extrabold text-blue-900">{hourText(summaryRows.reduce((sum, row) => sum + Number(row.attendanceOvertimeHours || 0) + Number(row.incomeOvertimeHours || 0), 0))}</p></div>
           <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-4 shadow-sm"><p className="text-sm font-bold text-cyan-700">จำนวนเงินรายได้รวม</p><p className="mt-1 text-3xl font-extrabold text-cyan-950">฿{money(summaryRows.reduce((sum, row) => sum + Number(row.incomeTotalAmount || 0), 0))}</p></div>
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-sm font-bold text-slate-500">รายการรายได้</p><p className="mt-1 text-3xl font-extrabold text-slate-950">{summaryRows.reduce((sum, row) => sum + Number(row.incomeRecordCount || 0), 0)}</p></div>
         </div>
@@ -4464,7 +4589,7 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
           <h3 className="text-xl font-extrabold text-slate-950">ตารางสรุปพนักงานรายคน</h3>
           <div className="mt-4 max-h-[520px] overflow-x-auto overflow-y-auto rounded-lg border border-slate-200">
             <table className="w-full min-w-[1420px] text-left text-base">
-              <thead className="sticky top-0 z-10 bg-slate-100 text-sm font-extrabold text-slate-600 shadow-sm"><tr><th className="p-3">รหัสพนักงาน</th><th className="p-3">ชื่อ-นามสกุล</th><th className="p-3">ชื่อเล่น</th><th className="p-3">ตำแหน่ง</th><th className="p-3 text-right">วันลงเวลา</th><th className="p-3 text-right">ชั่วโมงตามตัวกรอง</th><th className="p-3 text-right">ชั่วโมงเกิน 8 ชม.</th><th className="p-3 text-right">ชั่วโมงตลอดปี</th><th className="p-3 text-right">รายการรายได้</th><th className="p-3 text-right">ชั่วโมงรายได้</th><th className="p-3 text-right">โอทีจากรายได้</th><th className="p-3 text-right">จำนวนเงินรวม</th><th className="p-3">สถานะพนักงาน</th></tr></thead>
+              <thead className="sticky top-0 z-10 bg-slate-100 text-sm font-extrabold text-slate-600 shadow-sm"><tr><th className="p-3">รหัสพนักงาน</th><th className="p-3">ชื่อ-นามสกุล</th><th className="p-3">ชื่อเล่น</th><th className="p-3">ตำแหน่ง</th><th className="p-3 text-right">วันลงเวลา</th><th className="p-3 text-right">ชั่วโมงตามตัวกรอง</th><th className="p-3 text-right">โอทีจากลงเวลา</th><th className="p-3 text-right">ชั่วโมงตลอดปี</th><th className="p-3 text-right">รายการรายได้</th><th className="p-3 text-right">ชั่วโมงรายได้</th><th className="p-3 text-right">โอทีจากรายได้</th><th className="p-3 text-right">จำนวนเงินรวม</th><th className="p-3">สถานะพนักงาน</th></tr></thead>
               <tbody className="divide-y divide-slate-200">{summaryRows.length > 0 ? summaryRows.map((row) => <tr key={row.employee.id} className="hover:bg-slate-50"><td className="p-3 font-mono font-extrabold">{row.employee.code || '-'}</td><td className="p-3 font-bold">{employeeFullName(row.employee)}</td><td className="p-3">{row.employee.nickname || '-'}</td><td className="p-3">{row.employee.position || '-'}</td><td className="p-3 text-right font-extrabold">{row.filteredDays}</td><td className="p-3 text-right font-extrabold text-emerald-700">{hourText(row.monthHours)}</td><td className="p-3 text-right font-extrabold text-blue-700">{hourText(row.attendanceOvertimeHours)}</td><td className="p-3 text-right font-extrabold text-blue-900">{hourText(row.yearHours)}</td><td className="p-3 text-right font-extrabold">{row.incomeRecordCount}</td><td className="p-3 text-right font-extrabold">{hourText(row.incomeTotalHours)}</td><td className="p-3 text-right font-extrabold text-blue-700">{hourText(row.incomeOvertimeHours)}</td><td className="p-3 text-right font-extrabold text-emerald-700">฿{money(row.incomeTotalAmount)}</td><td className="p-3"><EmployeeStatusBadge status={row.employee.status} /></td></tr>) : <tr><td colSpan={13} className="p-8 text-center font-bold text-slate-500">ยังไม่มีข้อมูลสรุปพนักงาน</td></tr>}</tbody>
             </table>
           </div>
@@ -4484,7 +4609,7 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
           <h3 className="text-xl font-extrabold text-slate-950">ตารางสรุปรายได้/เวลา</h3>
           <div className="mt-4 max-h-[520px] overflow-x-auto overflow-y-auto rounded-lg border border-slate-200">
             <table className="w-full min-w-[1200px] text-left text-base">
-              <thead className="sticky top-0 z-10 bg-slate-100 text-sm font-extrabold text-slate-600 shadow-sm"><tr><th className="p-3">รหัสพนักงาน</th><th className="p-3">พนักงาน</th><th className="p-3">ตำแหน่ง</th><th className="p-3 text-right">จำนวนรายการ</th><th className="p-3 text-right">เวลาทั้งหมด</th><th className="p-3 text-right">เวลาเกิน 8 ชม.</th><th className="p-3 text-right">จำนวนเงิน</th><th className="p-3">ประเภท</th><th className="p-3">สถานะ</th></tr></thead>
+              <thead className="sticky top-0 z-10 bg-slate-100 text-sm font-extrabold text-slate-600 shadow-sm"><tr><th className="p-3">รหัสพนักงาน</th><th className="p-3">พนักงาน</th><th className="p-3">ตำแหน่ง</th><th className="p-3 text-right">จำนวนรายการ</th><th className="p-3 text-right">เวลาทั้งหมด</th><th className="p-3 text-right">โอที</th><th className="p-3 text-right">จำนวนเงิน</th><th className="p-3">ประเภท</th><th className="p-3">สถานะ</th></tr></thead>
               <tbody className="divide-y divide-slate-200">{visibleIncomeSummaryRows.length > 0 ? visibleIncomeSummaryRows.map((row) => <tr key={row.employee.id} className="hover:bg-slate-50"><td className="p-3 font-mono font-extrabold">{row.employee.code || '-'}</td><td className="p-3 font-bold">{employeeFullName(row.employee)} <span className="font-normal text-slate-500">({row.employee.nickname || '-'})</span></td><td className="p-3">{row.employee.position || '-'}</td><td className="p-3 text-right font-extrabold">{row.incomeRecordCount}</td><td className="p-3 text-right font-extrabold">{hourText(row.incomeTotalHours)}</td><td className="p-3 text-right font-extrabold text-blue-700">{hourText(row.incomeOvertimeHours)}</td><td className="p-3 text-right font-extrabold text-emerald-700">฿{money(row.incomeTotalAmount)}</td><td className="max-w-[260px] break-words p-3">{row.incomeTypeSummary}</td><td className="max-w-[240px] break-words p-3">{row.incomeStatusSummary}</td></tr>) : <tr><td colSpan={9} className="p-8 text-center font-bold text-slate-500">ยังไม่มีข้อมูลรายได้พนักงาน</td></tr>}</tbody>
             </table>
           </div>
@@ -4546,7 +4671,7 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
                     </div>
                   </label>
                   <label className="block">
-                    <span className="text-lg font-extrabold text-slate-800">เวลาเกิน 8 ชม.</span>
+                    <span className="text-lg font-extrabold text-slate-800">โอที</span>
                     <div className="mt-2 flex min-h-14 w-full items-center rounded-lg border border-slate-200 bg-slate-100 px-4 text-lg font-bold text-slate-600">
                       {calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd) ? 
                         `${calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd).extraText} (${calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd).extraDec} ชม.)` : '-'}
@@ -4672,6 +4797,24 @@ function EmployeeInput({ label, value, onChange, type = 'text', placeholder = ''
 }
 
 function EmployeeTimeInput({ label, value, onChange, onBlur, disabled = false }) {
+  const [draftValue, setDraftValue] = useState(value || '');
+  const [error, setError] = useState('');
+  const [isFocused, setIsFocused] = useState(false);
+  const displayValue = isFocused ? draftValue : (value || '');
+
+  const commitValue = () => {
+    const nextValue = finalizeTimeInput(displayValue);
+    if (nextValue === null) {
+      setError('รูปแบบเวลาไม่ถูกต้อง กรุณากรอกเวลา เช่น 09:00');
+      return false;
+    }
+    setError('');
+    setDraftValue(nextValue);
+    onChange(nextValue);
+    if (onBlur) onBlur(nextValue);
+    return true;
+  };
+
   return (
     <label className="block">
       <span className="text-lg font-extrabold text-slate-800">{label}</span>
@@ -4680,16 +4823,30 @@ function EmployeeTimeInput({ label, value, onChange, onBlur, disabled = false })
         inputMode="numeric"
         maxLength={5}
         disabled={disabled}
-        value={value || ''}
-        onBlur={(event) => {
-          const nextValue = finalizeTimeInput(event.target.value);
-          onChange(nextValue);
-          if (onBlur) onBlur(nextValue);
+        value={displayValue}
+        onBlur={() => {
+          const committed = commitValue();
+          if (committed) setIsFocused(false);
         }}
-        onChange={(event) => onChange(normalizeTimeInput(event.target.value))}
+        onChange={(event) => {
+          setDraftValue(event.target.value);
+          setError('');
+        }}
+        onFocus={() => {
+          if (!isFocused) setDraftValue(value || '');
+          setIsFocused(true);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            commitValue();
+          }
+        }}
         placeholder="09:00"
-        className="mt-2 min-h-14 w-full rounded-lg border border-slate-300 bg-white px-4 font-mono text-lg text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100 disabled:bg-slate-100 disabled:text-slate-400"
+        aria-invalid={error ? 'true' : 'false'}
+        className={`mt-2 min-h-14 w-full rounded-lg border bg-white px-4 font-mono text-lg text-slate-950 outline-none focus:ring-4 disabled:bg-slate-100 disabled:text-slate-400 ${error ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-100' : 'border-slate-300 focus:border-blue-600 focus:ring-blue-100'}`}
       />
+      {error && <p className="mt-2 text-sm font-extrabold text-rose-700">{error}</p>}
     </label>
   );
 }
@@ -4871,7 +5028,7 @@ function EmployeeIncomeTable({ rows, onEdit, onDelete }) {
             <th className="p-3">พนักงาน</th>
             <th className="p-3">ประเภท</th>
             <th className="p-3">เวลาทั้งหมด</th>
-            <th className="p-3">เวลาเกิน 8 ชม.</th>
+            <th className="p-3">โอที</th>
             <th className="p-3 text-right">จำนวนเงิน</th>
             <th className="p-3">สถานะ</th>
             <th className="p-3">หมายเหตุ</th>

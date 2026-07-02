@@ -205,6 +205,8 @@ CREATE TABLE IF NOT EXISTS employee_leaves (
   start_date DATE NULL,
   end_date DATE NULL,
   total_days DECIMAL(5,2) DEFAULT 0,
+  leave_duration_type VARCHAR(50) NOT NULL DEFAULT 'full_day',
+  leave_days DECIMAL(5,2) NOT NULL DEFAULT 1.00,
   reason TEXT NULL,
   approver VARCHAR(255) NULL,
   status VARCHAR(50) DEFAULT 'รออนุมัติ',

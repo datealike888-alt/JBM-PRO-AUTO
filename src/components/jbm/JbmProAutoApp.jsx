@@ -2213,8 +2213,8 @@ function AdminApp() {
   const allAdminNav = adminNavGroups.flatMap((g) => g.items);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col lg:flex-row">
-      <div className="lg:flex lg:flex-row w-full">
+    <div className="min-h-screen overflow-x-hidden bg-slate-50 flex flex-col lg:flex-row">
+      <div className="min-w-0 w-full lg:flex lg:flex-row">
         {/* Sidebar */}
         <aside className={`fixed inset-y-0 left-0 z-40 w-[280px] max-w-[86vw] transform overflow-y-auto border-r border-slate-800 bg-slate-950 text-slate-300 transition-all duration-300 lg:static lg:max-w-none lg:translate-x-0 ${mobileMenu ? 'translate-x-0' : '-translate-x-full'}`}>
           <div className="flex h-16 items-center justify-between border-b border-slate-900 px-5 bg-slate-950">
@@ -2268,7 +2268,7 @@ function AdminApp() {
         </aside>
 
         {/* Main Panel */}
-        <main className="min-h-screen min-w-0 flex-1 flex flex-col">
+        <main className="min-h-screen min-w-0 max-w-full flex-1 flex flex-col overflow-x-hidden">
           {/* Top Bar */}
           <div className="sticky top-0 z-20 flex min-h-16 items-center justify-between border-b border-slate-200/80 bg-white/95 backdrop-blur-md px-4 sm:px-6 shadow-sm">
             <button className="rounded-xl border border-slate-200 p-2 text-slate-700 hover:bg-slate-50 lg:hidden" onClick={() => setMobileMenu(true)} type="button" aria-label="เปิดเมนู">
@@ -2286,7 +2286,7 @@ function AdminApp() {
           </div>
 
           {/* Content Wrapper */}
-          <div className="flex-1 space-y-6 p-4 sm:p-6 bg-slate-50">
+          <div className="min-w-0 max-w-full flex-1 space-y-6 overflow-hidden bg-slate-50 p-4 sm:p-6">
             {activeTab === 'dashboard' && <Dashboard stats={stats} vehicles={vehicles} stockProducts={stockProducts} paymentDebts={paymentDebts} statusFilter={dashboardStatusFilter} setStatusFilter={setDashboardStatusFilter} hasPermission={hasPermission} adminProfile={adminProfile} />}
             {activeTab === 'form' && <VehicleForm initial={editing || emptyVehicle} onSave={saveVehicle} onCancel={() => setActiveTab('dashboard')} />}
             {activeTab === 'shift-duty' && <ShiftDutyPage adminProfile={adminProfile} hasPermission={hasPermission} />}
@@ -3055,21 +3055,25 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
   const [employeeIncomes, setEmployeeIncomes] = useState([]);
   const [employeeDataError, setEmployeeDataError] = useState('');
   const [employeeForm, setEmployeeForm] = useState(emptyEmployee);
+  const [isEmployeeFormOpen, setIsEmployeeFormOpen] = useState(false);
   const [customPosition, setCustomPosition] = useState('');
   const [detailEmployee, setDetailEmployee] = useState(null);
   const [employeePhotoUploading, setEmployeePhotoUploading] = useState(false);
   const [employeePhotoError, setEmployeePhotoError] = useState('');
   const [attendanceForm, setAttendanceForm] = useState(emptyAttendance);
   const [editingAttendanceId, setEditingAttendanceId] = useState('');
+  const [isAttendanceFormOpen, setIsAttendanceFormOpen] = useState(false);
   const [historyFilters, setHistoryFilters] = useState({ day: 'all', month: 'all', year: 'all', employeeId: 'all', position: 'all', status: 'all' });
   const [leaveForm, setLeaveForm] = useState(emptyLeave);
   const [editingLeaveId, setEditingLeaveId] = useState('');
+  const [isLeaveFormOpen, setIsLeaveFormOpen] = useState(false);
   const [leaveFilters, setLeaveFilters] = useState({ day: 'all', month: 'all', year: 'all' });
   const [isClearHistoryModalOpen, setIsClearHistoryModalOpen] = useState(false);
   const [isClearingHistory, setIsClearingHistory] = useState(false);
   const [clearHistoryError, setClearHistoryError] = useState('');
   const [incomeForm, setIncomeForm] = useState(emptyIncome);
   const [editingIncomeId, setEditingIncomeId] = useState('');
+  const [isIncomeFormOpen, setIsIncomeFormOpen] = useState(false);
   const [incomeFilters, setIncomeFilters] = useState({ day: 'all', month: 'all', year: 'all', employeeId: 'all', type: 'all', status: 'all' });
   const [showIncomeFilters, setShowIncomeFilters] = useState(true);
   const [summaryFilters, setSummaryFilters] = useState({ day: 'all', month: 'all', year: 'all' });
@@ -3581,6 +3585,7 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
     });
     setEmployeeForm(emptyEmployee);
     setCustomPosition('');
+    setIsEmployeeFormOpen(false);
     await loadEmployeeData();
   };
 
@@ -3588,12 +3593,14 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
     setEmployeeForm(normalizeEmployee(employee));
     setCustomPosition('');
     setEmployeePhotoError('');
+    setIsEmployeeFormOpen(true);
   };
 
   const cancelEmployeeEdit = () => {
     setEmployeeForm(emptyEmployee);
     setCustomPosition('');
     setEmployeePhotoError('');
+    setIsEmployeeFormOpen(false);
   };
 
   const deleteEmployee = async (employee) => {
@@ -3721,6 +3728,7 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
       });
       setAttendanceForm((form) => ({ ...emptyAttendance, employeeId: form.employeeId, date: form.date }));
       setEditingAttendanceId('');
+      setIsAttendanceFormOpen(false);
       await loadEmployeeData();
     } catch (error) {
       console.error('[employee] save attendance failed', error);
@@ -3741,11 +3749,13 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
       note: log.note || '',
     });
     setEditingAttendanceId(log.id);
+    setIsAttendanceFormOpen(true);
   };
 
   const cancelAttendanceEdit = () => {
     setAttendanceForm(emptyAttendance);
     setEditingAttendanceId('');
+    setIsAttendanceFormOpen(false);
   };
 
   const deleteAttendance = async (log) => {
@@ -3835,6 +3845,7 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
       });
       setLeaveForm((form) => ({ ...emptyLeave, employeeId: form.employeeId }));
       setEditingLeaveId('');
+      setIsLeaveFormOpen(false);
       await loadEmployeeData();
     } catch (error) {
       console.error('[employee] save leave failed', error);
@@ -3854,11 +3865,13 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
       reason: leave.reason || '',
     });
     setEditingLeaveId(leave.id);
+    setIsLeaveFormOpen(true);
   };
 
   const cancelLeaveEdit = () => {
     setLeaveForm(emptyLeave);
     setEditingLeaveId('');
+    setIsLeaveFormOpen(false);
   };
 
   const deleteLeave = async (leave) => {
@@ -4022,6 +4035,7 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
       });
       setIncomeForm((form) => ({ ...emptyIncome, employeeId: form.employeeId, workDate: form.workDate }));
       setEditingIncomeId('');
+      setIsIncomeFormOpen(false);
       await loadEmployeeData();
     } catch (error) {
       console.error('[employee] save income failed', error);
@@ -4057,11 +4071,13 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
       sourceId: income.sourceId || '',
     });
     setEditingIncomeId(income.id);
+    setIsIncomeFormOpen(true);
   };
 
   const cancelIncomeEdit = () => {
     setIncomeForm(emptyIncome);
     setEditingIncomeId('');
+    setIsIncomeFormOpen(false);
   };
 
   const deleteIncome = async (income) => {
@@ -4266,16 +4282,37 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
       )}
 
       {employeeSubTab === 'employees' && (
-      <div className="grid gap-5 xl:grid-cols-[340px_minmax(0,1fr)]">
-        <form onSubmit={saveEmployee} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-2xl font-extrabold text-slate-950">{isEditingEmployee ? 'แก้ไขข้อมูลพนักงาน' : 'เพิ่มพนักงานใหม่'}</h2>
-          <div className="mt-4 grid gap-3">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-lg font-extrabold text-slate-800">รูปพนักงาน</p>
-              <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
+      <div className="min-w-0 space-y-5">
+        <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-2xl font-extrabold text-slate-950">ตารางรายชื่อพนักงาน</h2>
+            <p className="text-base font-bold text-slate-500">จัดการรายชื่อและสถานะพนักงานจากตารางหลัก</p>
+          </div>
+          <button
+            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 font-extrabold text-white hover:bg-blue-800"
+            onClick={() => {
+              setEmployeeForm(emptyEmployee);
+              setCustomPosition('');
+              setEmployeePhotoError('');
+              setIsEmployeeFormOpen(true);
+            }}
+            type="button"
+          >
+            <Plus className="h-4 w-4" />
+            เพิ่มพนักงาน
+          </button>
+        </div>
+
+        {isEmployeeFormOpen && (
+        <CompactCrudModal title={isEditingEmployee ? 'แก้ไขข้อมูลพนักงาน' : 'เพิ่มพนักงานใหม่'} onClose={cancelEmployeeEdit} maxWidth="sm:max-w-[680px] lg:max-w-[760px]">
+        <form onSubmit={saveEmployee}>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 sm:col-span-2">
+              <p className="text-sm font-semibold text-slate-800">รูปพนักงาน</p>
+              <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center">
                 <EmployeeAvatar employee={employeeForm} size="lg" />
                 <div className="grid flex-1 gap-2">
-                  <label className="inline-flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 text-base font-extrabold text-white hover:bg-blue-800">
+                  <label className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 text-sm font-extrabold text-white hover:bg-blue-800">
                     <Upload className="h-5 w-5" />
                     {employeePhotoUploading ? 'กำลังอัปโหลด...' : (employeeForm.photo_url ? 'เปลี่ยนรูปพนักงาน' : 'อัปโหลดรูปพนักงาน')}
                     <input
@@ -4291,7 +4328,7 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
                   </label>
                   {employeeForm.photo_url && (
                     <button
-                      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-white px-4 text-base font-extrabold text-rose-700 hover:bg-rose-50"
+                      className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-white px-4 text-sm font-extrabold text-rose-700 hover:bg-rose-50"
                       onClick={() => {
                         setEmployeeForm((form) => ({ ...form, photo_url: '', photoUrl: '' }));
                         setEmployeePhotoError('');
@@ -4308,8 +4345,8 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
             </div>
             <EmployeeInput label="รหัสพนักงาน" value={employeeForm.code} onChange={(value) => setEmployeeForm({ ...employeeForm, code: value })} />
             <label className="block">
-              <span className="text-lg font-extrabold text-slate-800">สถานะพนักงาน</span>
-              <select value={employeeForm.status} onChange={(event) => setEmployeeForm({ ...employeeForm, status: event.target.value })} className="mt-2 min-h-14 w-full rounded-lg border border-slate-300 bg-white px-4 text-lg font-bold text-slate-950">
+              <span className="text-sm font-semibold text-slate-800">สถานะพนักงาน</span>
+              <select value={employeeForm.status} onChange={(event) => setEmployeeForm({ ...employeeForm, status: event.target.value })} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100">
                 {EMPLOYEE_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
               </select>
             </label>
@@ -4317,8 +4354,8 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
             <EmployeeInput label="นามสกุล" value={employeeForm.lastName} onChange={(value) => setEmployeeForm({ ...employeeForm, lastName: value })} />
             <EmployeeInput label="ชื่อเล่น" value={employeeForm.nickname} onChange={(value) => setEmployeeForm({ ...employeeForm, nickname: value })} />
             <label className="block">
-              <span className="text-lg font-extrabold text-slate-800">ตำแหน่งงาน</span>
-              <select value={employeeForm.position} onChange={(event) => setEmployeeForm({ ...employeeForm, position: event.target.value })} className="mt-2 min-h-14 w-full rounded-lg border border-slate-300 bg-white px-4 text-lg font-bold text-slate-950">
+              <span className="text-sm font-semibold text-slate-800">ตำแหน่งงาน</span>
+              <select value={employeeForm.position} onChange={(event) => setEmployeeForm({ ...employeeForm, position: event.target.value })} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100">
                 {positions.map((position) => <option key={position} value={position}>{position}</option>)}
                 <option value={OTHER_EMPLOYEE_POSITION}>{OTHER_EMPLOYEE_POSITION}</option>
               </select>
@@ -4327,9 +4364,9 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
               <EmployeeInput label="ระบุตำแหน่งงาน" value={customPosition} onChange={setCustomPosition} placeholder="พิมพ์ตำแหน่งงานใหม่" />
             )}
             {customPositions.length > 0 && (
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                <p className="text-lg font-extrabold text-slate-800">จัดการตำแหน่งงานที่เพิ่มเอง</p>
-                <div className="mt-3 flex flex-wrap gap-2">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 sm:col-span-2">
+                <p className="text-sm font-semibold text-slate-800">จัดการตำแหน่งงานที่เพิ่มเอง</p>
+                <div className="mt-2 flex flex-wrap gap-2">
                   {customPositions.map((position) => (
                     <span key={position} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700">
                       {position}
@@ -4341,15 +4378,17 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
                 </div>
               </div>
             )}
-            <div className={`grid gap-2 ${isEditingEmployee ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
-              <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 text-lg font-extrabold text-white hover:bg-blue-800" type="submit"><Save className="h-5 w-5" />{isEditingEmployee ? 'Update พนักงาน' : 'Create พนักงาน'}</button>
+            <div className={`sticky bottom-0 -mx-5 -mb-5 mt-1 grid gap-2 border-t border-slate-200 bg-white px-5 py-4 sm:col-span-2 sm:flex sm:justify-end`}>
+              <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 text-sm font-extrabold text-white hover:bg-blue-800" type="submit"><Save className="h-4 w-4" />{isEditingEmployee ? 'บันทึกการแก้ไข' : 'เพิ่มพนักงาน'}</button>
               {isEditingEmployee && (
-                <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-5 text-lg font-extrabold text-rose-700 hover:bg-rose-100" onClick={() => deleteEmployee(employeeForm)} type="button"><Trash2 className="h-5 w-5" />Delete พนักงาน</button>
+                <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-5 text-sm font-extrabold text-rose-700 hover:bg-rose-100" onClick={() => deleteEmployee(employeeForm)} type="button"><Trash2 className="h-4 w-4" />ลบพนักงาน</button>
               )}
-              <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg border border-slate-300 px-5 text-lg font-extrabold text-slate-700 hover:bg-slate-50" onClick={cancelEmployeeEdit} type="button"><X className="h-5 w-5" />{isEditingEmployee ? 'Cancel' : 'Clear'}</button>
+              <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 px-5 text-sm font-extrabold text-slate-700 hover:bg-slate-50" onClick={cancelEmployeeEdit} type="button"><X className="h-4 w-4" />{isEditingEmployee ? 'ยกเลิก' : 'ล้างข้อมูล'}</button>
             </div>
           </div>
         </form>
+        </CompactCrudModal>
+        )}
 
         <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="text-2xl font-extrabold text-slate-950">ตารางรายชื่อพนักงาน</h2>
@@ -4414,52 +4453,55 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
           <EmployeeTimeInput label="เวลาออกงานเย็น" value={attendanceSettings.workEnd} onChange={(value) => updateAttendanceSetting('workEnd', value)} onBlur={(value) => finalizeAttendanceSetting('workEnd', value)} />
         </div>
       </div>
-      <div className="grid gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
-        <form onSubmit={saveAttendance} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-2xl font-extrabold text-slate-950">บันทึกเวลาเข้างาน</h2>
-          <div className="mt-4 grid gap-3">
-            <EmployeeSelect label="เลือกพนักงาน" value={attendanceForm.employeeId} employees={activeEmployees} onChange={(value) => setAttendanceForm({ ...attendanceForm, employeeId: value })} />
-            <EmployeeInput label="วันที่" type="date" value={attendanceForm.date} onChange={(value) => setAttendanceForm({ ...attendanceForm, date: value })} />
-            <div className="grid gap-3 sm:grid-cols-2">
-              <EmployeeTimeInput disabled={!attendanceRequiresWorkTimes} label="เวลาเข้าเช้า" value={attendanceForm.morningIn} onChange={(value) => setAttendanceForm({ ...attendanceForm, morningIn: value })} onBlur={(value) => setAttendanceForm((form) => ({ ...form, morningIn: value }))} />
-              <EmployeeTimeInput disabled={!attendanceRequiresWorkTimes} label="เวลาออกพักเที่ยง" value={attendanceForm.lunchOut} onChange={(value) => setAttendanceForm({ ...attendanceForm, lunchOut: value })} onBlur={(value) => setAttendanceForm((form) => ({ ...form, lunchOut: value }))} />
-              <EmployeeTimeInput disabled={!attendanceRequiresWorkTimes} label="เวลากลับจากพัก" value={attendanceForm.afternoonIn} onChange={(value) => setAttendanceForm({ ...attendanceForm, afternoonIn: value })} onBlur={(value) => setAttendanceForm((form) => ({ ...form, afternoonIn: value }))} />
-              <EmployeeTimeInput disabled={!attendanceRequiresWorkTimes} label="เวลาออกงานเย็น" value={attendanceForm.eveningOut} onChange={(value) => setAttendanceForm({ ...attendanceForm, eveningOut: value })} onBlur={(value) => setAttendanceForm((form) => ({ ...form, eveningOut: value }))} />
+      <div className="min-w-0 space-y-5">
+        {isAttendanceFormOpen && (
+        <CompactCrudModal title={editingAttendanceId ? 'แก้ไขเวลาเข้างาน' : 'บันทึกเวลาเข้างาน'} onClose={cancelAttendanceEdit} maxWidth="sm:max-w-[720px] lg:max-w-[860px]">
+        <form onSubmit={saveAttendance}>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <EmployeeSelect label="เลือกพนักงาน" value={attendanceForm.employeeId} employees={activeEmployees} onChange={(value) => setAttendanceForm({ ...attendanceForm, employeeId: value })} />
             </div>
+            <EmployeeInput label="วันที่" type="date" value={attendanceForm.date} onChange={(value) => setAttendanceForm({ ...attendanceForm, date: value })} />
             <label className="block">
-              <span className="text-lg font-extrabold text-slate-800">สถานะ</span>
-              <select value={attendanceForm.method} onChange={(event) => setAttendanceForm({ ...attendanceForm, method: event.target.value })} className="mt-2 min-h-14 w-full rounded-lg border border-slate-300 bg-white px-4 text-lg font-bold text-slate-950">
+              <span className="text-sm font-semibold text-slate-800">สถานะ</span>
+              <select value={attendanceForm.method} onChange={(event) => setAttendanceForm({ ...attendanceForm, method: event.target.value })} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100">
                 <option value="auto">มาทำงาน/สาย (คำนวณจากเวลา)</option>
                 <option value="มาทำงาน">มาทำงาน</option>
                 <option value="ขาดงาน">ขาดงาน</option>
                 {LEAVE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
               </select>
             </label>
-            <label className="block">
-              <span className="text-lg font-extrabold text-slate-800">หมายเหตุ</span>
+            <EmployeeTimeInput disabled={!attendanceRequiresWorkTimes} label="เวลาเข้าเช้า" value={attendanceForm.morningIn} onChange={(value) => setAttendanceForm({ ...attendanceForm, morningIn: value })} onBlur={(value) => setAttendanceForm((form) => ({ ...form, morningIn: value }))} />
+            <EmployeeTimeInput disabled={!attendanceRequiresWorkTimes} label="เวลาออกพักเที่ยง" value={attendanceForm.lunchOut} onChange={(value) => setAttendanceForm({ ...attendanceForm, lunchOut: value })} onBlur={(value) => setAttendanceForm((form) => ({ ...form, lunchOut: value }))} />
+            <EmployeeTimeInput disabled={!attendanceRequiresWorkTimes} label="เวลากลับจากพัก" value={attendanceForm.afternoonIn} onChange={(value) => setAttendanceForm({ ...attendanceForm, afternoonIn: value })} onBlur={(value) => setAttendanceForm((form) => ({ ...form, afternoonIn: value }))} />
+            <EmployeeTimeInput disabled={!attendanceRequiresWorkTimes} label="เวลาออกงานเย็น" value={attendanceForm.eveningOut} onChange={(value) => setAttendanceForm({ ...attendanceForm, eveningOut: value })} onBlur={(value) => setAttendanceForm((form) => ({ ...form, eveningOut: value }))} />
+            <label className="block sm:col-span-2">
+              <span className="text-sm font-semibold text-slate-800">หมายเหตุ</span>
               <textarea
                 value={attendanceForm.note || ''}
                 onChange={(event) => setAttendanceForm({ ...attendanceForm, note: event.target.value })}
                 placeholder="หมายเหตุ เช่น มาทำงานปกติ แต่ลืมลงเวลากลับ / กลับจริง 18:10 / หัวหน้างานยืนยันแล้ว"
-                className="mt-2 min-h-28 w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-lg text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
+                className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
               />
             </label>
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
-              <div className="flex flex-wrap items-center gap-2 text-base font-extrabold text-emerald-800">
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 sm:col-span-2">
+              <div className="flex flex-wrap items-center gap-2 text-sm font-extrabold text-emerald-800">
                 <span>สถานะที่จะบันทึก:</span>
                 <AttendanceStatusBadge status={attendancePreviewStatus} />
               </div>
-              <p className="text-base font-bold text-emerald-700">ชั่วโมงทำงานรวม {attendancePreviewHours} ชั่วโมง</p>
+              <p className="text-sm font-bold text-emerald-700">ชั่วโมงทำงานรวม {attendancePreviewHours} ชั่วโมง</p>
             </div>
-            <div className={`grid gap-2 ${editingAttendanceId ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
-              <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 text-lg font-extrabold text-white hover:bg-blue-800" type="submit"><Save className="h-5 w-5" />{editingAttendanceId ? 'Update เวลา' : 'Create เวลา'}</button>
+            <div className="sticky bottom-0 -mx-5 -mb-5 mt-1 grid gap-2 border-t border-slate-200 bg-white px-5 py-4 sm:col-span-2 sm:flex sm:justify-end">
+              <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 text-sm font-extrabold text-white hover:bg-blue-800" type="submit"><Save className="h-4 w-4" />{editingAttendanceId ? 'บันทึกการแก้ไข' : 'บันทึกเวลา'}</button>
               {editingAttendanceId && editingAttendance && (
-                <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-5 text-lg font-extrabold text-rose-700 hover:bg-rose-100" onClick={() => deleteAttendance(editingAttendance)} type="button"><Trash2 className="h-5 w-5" />Delete เวลา</button>
+                <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-5 text-sm font-extrabold text-rose-700 hover:bg-rose-100" onClick={() => deleteAttendance(editingAttendance)} type="button"><Trash2 className="h-4 w-4" />ลบเวลา</button>
               )}
-              <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg border border-slate-300 px-5 text-lg font-extrabold text-slate-700 hover:bg-slate-50" onClick={cancelAttendanceEdit} type="button"><X className="h-5 w-5" />{editingAttendanceId ? 'Cancel' : 'Clear'}</button>
+              <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 px-5 text-sm font-extrabold text-slate-700 hover:bg-slate-50" onClick={cancelAttendanceEdit} type="button"><X className="h-4 w-4" />{editingAttendanceId ? 'ยกเลิก' : 'ล้างข้อมูล'}</button>
             </div>
           </div>
         </form>
+        </CompactCrudModal>
+        )}
 
         <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -4467,7 +4509,19 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
               <h2 className="text-2xl font-extrabold text-slate-950">ประวัติตอกเวลางานย้อนหลังของทีมงาน</h2>
               <p className="text-base font-bold text-slate-500">กรองตามวัน เดือน ปี พนักงาน ตำแหน่ง และสถานะ</p>
             </div>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-3">
+              <button
+                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 font-extrabold text-white hover:bg-blue-800"
+                onClick={() => {
+                  setAttendanceForm(emptyAttendance);
+                  setEditingAttendanceId('');
+                  setIsAttendanceFormOpen(true);
+                }}
+                type="button"
+              >
+                <Plus className="h-4 w-4" />
+                บันทึกเวลา
+              </button>
               <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 font-extrabold text-emerald-800 hover:bg-emerald-100" onClick={exportAttendanceHistory} type="button"><Download className="h-4 w-4" />Export</button>
               <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 font-extrabold text-rose-700 hover:bg-rose-100" onClick={clearAttendanceMonth} type="button"><Trash2 className="h-4 w-4" />ล้าง</button>
             </div>
@@ -4487,16 +4541,17 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
       )}
 
       {employeeSubTab === 'leaves' && (
-      <div className="grid gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
-        <form onSubmit={saveLeave} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-2xl font-extrabold text-slate-950">การลา</h2>
-          <div className="mt-4 grid gap-3">
+      <div className="min-w-0 space-y-5">
+        {isLeaveFormOpen && (
+        <CompactCrudModal title={editingLeaveId ? 'แก้ไขใบลา' : 'เพิ่มใบลา'} onClose={cancelLeaveEdit} maxWidth="sm:max-w-[680px] lg:max-w-[760px]">
+        <form onSubmit={saveLeave}>
+          <div className="grid gap-4 sm:grid-cols-2">
             <EmployeeSelect label="เลือกพนักงานผู้ลา" value={leaveForm.employeeId} employees={employees} onChange={(value) => setLeaveForm({ ...leaveForm, employeeId: value })} />
-            <label className="block"><span className="text-lg font-extrabold text-slate-800">ประเภทสิทธิ์การลา</span><select value={leaveForm.type} onChange={(event) => setLeaveForm({ ...leaveForm, type: event.target.value })} className="mt-2 min-h-14 w-full rounded-lg border border-slate-300 bg-white px-4 text-lg font-bold">{LEAVE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
+            <label className="block"><span className="text-sm font-semibold text-slate-800">ประเภทสิทธิ์การลา</span><select value={leaveForm.type} onChange={(event) => setLeaveForm({ ...leaveForm, type: event.target.value })} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100">{LEAVE_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
             <EmployeeInput label="ตั้งแต่วันที่" type="date" value={leaveForm.startDate} onChange={(value) => setLeaveForm({ ...leaveForm, startDate: value })} />
             <EmployeeInput label="ถึงวันที่" type="date" value={leaveForm.endDate} onChange={(value) => setLeaveForm({ ...leaveForm, endDate: value })} />
             <label className="block">
-              <span className="text-lg font-extrabold text-slate-800">รูปแบบการลา</span>
+              <span className="text-sm font-semibold text-slate-800">รูปแบบการลา</span>
               <select
                 value={leaveDurationType}
                 onChange={(event) => {
@@ -4507,7 +4562,7 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
                     leave_days: durationType === 'custom' ? leaveForm.leave_days : String(resolveLeaveDays(durationType, leaveForm.leave_days)),
                   });
                 }}
-                className="mt-2 min-h-14 w-full rounded-lg border border-slate-300 bg-white px-4 text-lg font-bold"
+                className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
               >
                 {Object.entries(LEAVE_DURATION_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
@@ -4515,23 +4570,37 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
             {leaveDurationType === 'custom' && (
               <EmployeeInput label="จำนวนวันที่ลา" type="number" step="0.5" value={leaveForm.leave_days} onChange={(value) => setLeaveForm({ ...leaveForm, leave_days: value })} placeholder="เช่น 2.5" />
             )}
-            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-xl font-extrabold text-blue-900">รวม {leaveDays || 0} วัน</div>
+            <div className="flex min-h-10 items-center rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm font-extrabold text-blue-900">รวม {leaveDays || 0} วัน</div>
             <EmployeeInput label="แอดมินผู้อนุมัติ" value={leaveForm.approver} onChange={(value) => setLeaveForm({ ...leaveForm, approver: value })} />
-            <label className="block"><span className="text-lg font-extrabold text-slate-800">สาเหตุและความจำเป็น</span><textarea value={leaveForm.reason} onChange={(event) => setLeaveForm({ ...leaveForm, reason: event.target.value })} className="mt-2 min-h-28 w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-lg text-slate-950" /></label>
-            <div className={`grid gap-2 ${editingLeaveId ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
-              <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 text-lg font-extrabold text-white hover:bg-blue-800" type="submit"><Save className="h-5 w-5" />{editingLeaveId ? 'Update ใบลา' : 'Create ใบลา'}</button>
+            <label className="block sm:col-span-2"><span className="text-sm font-semibold text-slate-800">สาเหตุและความจำเป็น</span><textarea value={leaveForm.reason} onChange={(event) => setLeaveForm({ ...leaveForm, reason: event.target.value })} className="mt-1.5 min-h-24 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100" /></label>
+            <div className="sticky bottom-0 -mx-5 -mb-5 mt-1 grid gap-2 border-t border-slate-200 bg-white px-5 py-4 sm:col-span-2 sm:flex sm:justify-end">
+              <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 text-sm font-extrabold text-white hover:bg-blue-800" type="submit"><Save className="h-4 w-4" />{editingLeaveId ? 'บันทึกการแก้ไข' : 'เพิ่มใบลา'}</button>
               {editingLeaveId && editingLeave && (
-                <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-5 text-lg font-extrabold text-rose-700 hover:bg-rose-100" onClick={() => deleteLeave(editingLeave)} type="button"><Trash2 className="h-5 w-5" />Delete ใบลา</button>
+                <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-5 text-sm font-extrabold text-rose-700 hover:bg-rose-100" onClick={() => deleteLeave(editingLeave)} type="button"><Trash2 className="h-4 w-4" />ลบใบลา</button>
               )}
-              <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg border border-slate-300 px-5 text-lg font-extrabold text-slate-700 hover:bg-slate-50" onClick={cancelLeaveEdit} type="button"><X className="h-5 w-5" />{editingLeaveId ? 'Cancel' : 'Clear'}</button>
+              <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 px-5 text-sm font-extrabold text-slate-700 hover:bg-slate-50" onClick={cancelLeaveEdit} type="button"><X className="h-4 w-4" />{editingLeaveId ? 'ยกเลิก' : 'ล้างข้อมูล'}</button>
             </div>
           </div>
         </form>
+        </CompactCrudModal>
+        )}
 
         <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <h2 className="text-2xl font-extrabold text-slate-950">รายงานสถิติใบลาหยุดงาน</h2>
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+              <button
+                className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 font-extrabold text-white hover:bg-blue-800"
+                onClick={() => {
+                  setLeaveForm(emptyLeave);
+                  setEditingLeaveId('');
+                  setIsLeaveFormOpen(true);
+                }}
+                type="button"
+              >
+                <Plus className="h-4 w-4" />
+                เพิ่มใบลา
+              </button>
               <select value={leaveFilters.day} onChange={(event) => setLeaveFilters({ ...leaveFilters, day: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><DayOptions /></select>
               <select value={leaveFilters.month} onChange={(event) => setLeaveFilters({ ...leaveFilters, month: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><option value="all">ทุกเดือน</option><MonthOptions /></select>
               <select value={leaveFilters.year} onChange={(event) => setLeaveFilters({ ...leaveFilters, year: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 font-bold"><option value="all">ทุกปี</option>{years.map((year) => <option key={year} value={year}>{Number(year) + 543}</option>)}</select>
@@ -4637,20 +4706,31 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
             <p className="text-base font-bold text-slate-500">บันทึก กรอง และส่งออกข้อมูลรายได้พนักงาน</p>
           </div>
           <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
-            <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 font-extrabold text-white hover:bg-blue-800" onClick={cancelIncomeEdit} type="button"><Plus className="h-4 w-4" />เพิ่มรายได้</button>
+            <button
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 font-extrabold text-white hover:bg-blue-800"
+              onClick={() => {
+                setIncomeForm(emptyIncome);
+                setEditingIncomeId('');
+                setIsIncomeFormOpen(true);
+              }}
+              type="button"
+            >
+              <Plus className="h-4 w-4" />
+              เพิ่มรายได้
+            </button>
             <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 font-extrabold text-slate-700 hover:bg-slate-50" onClick={() => setShowIncomeFilters((value) => !value)} type="button"><Search className="h-4 w-4" />ฟิลเตอร์</button>
             <button className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 font-extrabold text-emerald-800 hover:bg-emerald-100" onClick={exportEmployeeIncomes} type="button"><Download className="h-4 w-4" />Export CSV</button>
           </div>
         </div>
 
-        <div className="grid gap-5 xl:grid-cols-[430px_minmax(0,1fr)]">
-          <form onSubmit={saveIncome} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-2xl font-extrabold text-slate-950">{editingIncomeId ? 'แก้ไขรายได้พนักงาน' : 'เพิ่มรายได้พนักงาน'}</h2>
-          <div className="mt-4 grid gap-3">
+        {isIncomeFormOpen && (
+        <CompactCrudModal title={editingIncomeId ? 'แก้ไขรายได้พนักงาน' : 'เพิ่มรายได้พนักงาน'} onClose={cancelIncomeEdit} maxWidth="sm:max-w-[720px] lg:max-w-[900px]">
+        <form onSubmit={saveIncome}>
+          <div className="grid gap-4 sm:grid-cols-2">
             <EmployeeSelect label="พนักงาน" value={incomeForm.employeeId} employees={employees} onChange={(value) => updateIncomeForm('employeeId', value)} />
             <label className="block">
-              <span className="text-lg font-extrabold text-slate-800">ประเภท</span>
-              <select value={incomeForm.type} onChange={(event) => updateIncomeForm('type', event.target.value)} className="mt-2 min-h-14 w-full rounded-lg border border-slate-300 bg-white px-4 text-lg font-bold text-slate-950">
+              <span className="text-sm font-semibold text-slate-800">ประเภท</span>
+              <select value={incomeForm.type} onChange={(event) => updateIncomeForm('type', event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100">
                 {EMPLOYEE_INCOME_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
               </select>
             </label>
@@ -4660,45 +4740,45 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
             <EmployeeInput label="วันที่" type="date" value={incomeForm.workDate} onChange={(value) => updateIncomeForm('workDate', value)} />
             <EmployeeInput label="จำนวนเงิน" type="number" step="0.01" value={incomeForm.amount} onChange={(value) => updateIncomeForm('amount', value)} placeholder="0.00" />
             <label className="block">
-              <span className="text-lg font-extrabold text-slate-800">สถานะ</span>
-              <select value={incomeForm.status} onChange={(event) => updateIncomeForm('status', event.target.value)} className="mt-2 min-h-14 w-full rounded-lg border border-slate-300 bg-white px-4 text-lg font-bold text-slate-950">
+              <span className="text-sm font-semibold text-slate-800">สถานะ</span>
+              <select value={incomeForm.status} onChange={(event) => updateIncomeForm('status', event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100">
                 {EMPLOYEE_INCOME_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
               </select>
             </label>
 
             <EmployeeInput label="หมายเหตุ (ไม่บังคับ)" value={incomeForm.note} onChange={(value) => updateIncomeForm('note', value)} placeholder="กรอกเพิ่มเติมได้" />
 
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <p className="text-lg font-extrabold text-slate-800">เวลา <span className="text-sm font-bold text-slate-500">ไม่บังคับ</span></p>
-              <div className="mt-3 grid gap-3 sm:grid-cols-1 md:grid-cols-2">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 sm:col-span-2">
+              <p className="text-sm font-semibold text-slate-800">เวลา <span className="font-bold text-slate-500">ไม่บังคับ</span></p>
+              <div className="mt-3 grid gap-4 sm:grid-cols-2">
                 <EmployeeTimeInput label="เวลาเริ่ม" value={incomeForm.overtimeStart} onChange={(value) => updateIncomeForm('overtimeStart', value)} />
                 <EmployeeTimeInput label="เวลาจบ" value={incomeForm.overtimeEnd} onChange={(value) => updateIncomeForm('overtimeEnd', value)} />
                 
-                <div className="md:col-span-2 grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-3 sm:col-span-2 sm:grid-cols-2">
                   <label className="block">
-                    <span className="text-lg font-extrabold text-slate-800">เวลารวมทั้งหมด</span>
-                    <div className="mt-2 flex min-h-14 w-full items-center rounded-lg border border-slate-200 bg-slate-100 px-4 text-lg font-bold text-slate-600">
+                    <span className="text-sm font-semibold text-slate-800">เวลารวมทั้งหมด</span>
+                    <div className="mt-1.5 flex min-h-10 w-full items-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-600">
                       {calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd) ?
                         `${calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd).totalText} (${calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd).totalDec} ชม.)` : '-'}
                     </div>
                   </label>
                   <label className="block">
-                    <span className="text-lg font-extrabold text-slate-800">เวลาพัก</span>
-                    <div className="mt-2 flex min-h-14 w-full items-center rounded-lg border border-slate-200 bg-slate-100 px-4 text-lg font-bold text-slate-600">
+                    <span className="text-sm font-semibold text-slate-800">เวลาพัก</span>
+                    <div className="mt-1.5 flex min-h-10 w-full items-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-600">
                       {calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd) ?
                         `${calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd).breakText} (${calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd).breakDec} ชม.)` : '-'}
                     </div>
                   </label>
                   <label className="block">
-                    <span className="text-lg font-extrabold text-slate-800">เวลาทำงานปกติ</span>
-                    <div className="mt-2 flex min-h-14 w-full items-center rounded-lg border border-slate-200 bg-slate-100 px-4 text-lg font-bold text-slate-600">
+                    <span className="text-sm font-semibold text-slate-800">เวลาทำงานปกติ</span>
+                    <div className="mt-1.5 flex min-h-10 w-full items-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-600">
                       {calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd) ?
                         `${calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd).normalText} (${calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd).normalDec} ชม.)` : '-'}
                     </div>
                   </label>
                   <label className="block">
-                    <span className="text-lg font-extrabold text-slate-800">โอที</span>
-                    <div className="mt-2 flex min-h-14 w-full items-center rounded-lg border border-slate-200 bg-slate-100 px-4 text-lg font-bold text-slate-600">
+                    <span className="text-sm font-semibold text-slate-800">โอที</span>
+                    <div className="mt-1.5 flex min-h-10 w-full items-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-600">
                       {calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd) ? 
                         `${calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd).extraText} (${calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd).extraDec} ชม.)` : '-'}
                     </div>
@@ -4707,15 +4787,17 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
               </div>
             </div>
 
-            <div className={`grid gap-2 ${editingIncomeId ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
-              <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 text-lg font-extrabold text-white hover:bg-blue-800" type="submit"><Save className="h-5 w-5" />{editingIncomeId ? 'บันทึกการแก้ไข' : 'บันทึกรายได้'}</button>
+            <div className="sticky bottom-0 -mx-5 -mb-5 mt-1 grid gap-2 border-t border-slate-200 bg-white px-5 py-4 sm:col-span-2 sm:flex sm:justify-end">
+              <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 text-sm font-extrabold text-white hover:bg-blue-800" type="submit"><Save className="h-4 w-4" />{editingIncomeId ? 'บันทึกการแก้ไข' : 'บันทึกรายได้'}</button>
               {editingIncomeId && editingIncome && (
-                <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-5 text-lg font-extrabold text-rose-700 hover:bg-rose-100" onClick={() => deleteIncome(editingIncome)} type="button"><Trash2 className="h-5 w-5" />ลบรายได้</button>
+                <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-5 text-sm font-extrabold text-rose-700 hover:bg-rose-100" onClick={() => deleteIncome(editingIncome)} type="button"><Trash2 className="h-4 w-4" />ลบรายได้</button>
               )}
-              <button className="inline-flex min-h-14 items-center justify-center gap-2 rounded-lg border border-slate-300 px-5 text-lg font-extrabold text-slate-700 hover:bg-slate-50" onClick={cancelIncomeEdit} type="button"><X className="h-5 w-5" />{editingIncomeId ? 'ยกเลิก' : 'ล้างฟอร์ม'}</button>
+              <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 px-5 text-sm font-extrabold text-slate-700 hover:bg-slate-50" onClick={cancelIncomeEdit} type="button"><X className="h-4 w-4" />{editingIncomeId ? 'ยกเลิก' : 'ล้างฟอร์ม'}</button>
             </div>
           </div>
         </form>
+        </CompactCrudModal>
+        )}
 
         <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="grid gap-3 md:grid-cols-4">
@@ -4751,7 +4833,6 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
           </div>
           )}
           <EmployeeIncomeTable rows={filteredIncomes} onEdit={editIncome} onDelete={deleteIncome} />
-        </div>
         </div>
       </div>
       )}
@@ -4813,11 +4894,29 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
   );
 }
 
+function CompactCrudModal({ title, onClose, children, maxWidth = 'sm:max-w-[720px] lg:max-w-[900px]' }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto overflow-x-hidden bg-slate-950/50 p-4">
+      <div className={`mx-auto flex max-h-[88vh] w-full max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ${maxWidth}`} role="dialog" aria-modal="true">
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-5 py-3">
+          <h2 className="text-xl font-extrabold text-slate-950">{title}</h2>
+          <button className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50" onClick={onClose} type="button" aria-label="ปิด">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="min-h-0 overflow-y-auto p-5">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function EmployeeInput({ label, value, onChange, type = 'text', placeholder = '', step }) {
   return (
     <label className="block">
-      <span className="text-lg font-extrabold text-slate-800">{label}</span>
-      <input type={type} step={step} value={value || ''} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="mt-2 min-h-14 w-full rounded-lg border border-slate-300 bg-white px-4 text-lg text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
+      <span className="text-sm font-semibold text-slate-800">{label}</span>
+      <input type={type} step={step} value={value || ''} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
     </label>
   );
 }
@@ -4843,7 +4942,7 @@ function EmployeeTimeInput({ label, value, onChange, onBlur, disabled = false })
 
   return (
     <label className="block">
-      <span className="text-lg font-extrabold text-slate-800">{label}</span>
+      <span className="text-sm font-semibold text-slate-800">{label}</span>
       <input
         type="text"
         inputMode="numeric"
@@ -4870,7 +4969,7 @@ function EmployeeTimeInput({ label, value, onChange, onBlur, disabled = false })
         }}
         placeholder="09:00"
         aria-invalid={error ? 'true' : 'false'}
-        className={`mt-2 min-h-14 w-full rounded-lg border bg-white px-4 font-mono text-lg text-slate-950 outline-none focus:ring-4 disabled:bg-slate-100 disabled:text-slate-400 ${error ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-100' : 'border-slate-300 focus:border-blue-600 focus:ring-blue-100'}`}
+        className={`mt-1.5 h-10 w-full rounded-lg border bg-white px-3 font-mono text-sm text-slate-950 outline-none focus:ring-4 disabled:bg-slate-100 disabled:text-slate-400 ${error ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-100' : 'border-slate-300 focus:border-blue-600 focus:ring-blue-100'}`}
       />
       {error && <p className="mt-2 text-sm font-extrabold text-rose-700">{error}</p>}
     </label>
@@ -4880,8 +4979,8 @@ function EmployeeTimeInput({ label, value, onChange, onBlur, disabled = false })
 function EmployeeSelect({ label, value, employees, onChange }) {
   return (
     <label className="block">
-      <span className="text-lg font-extrabold text-slate-800">{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)} className="mt-2 min-h-14 w-full rounded-lg border border-slate-300 bg-white px-4 text-lg font-bold text-slate-950">
+      <span className="text-sm font-semibold text-slate-800">{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100">
         <option value="">เลือกพนักงาน</option>
         {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.code} - {employeeFullName(employee)} ({employee.nickname || '-'})</option>)}
       </select>

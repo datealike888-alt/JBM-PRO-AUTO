@@ -1,5 +1,5 @@
 import { getAuthorizedAdminFromRequest, isAuthorizedAdminRequest } from '../../../lib/adminAuth';
-import { requireAnyPermission, requirePermission } from '../../../lib/adminPermissions';
+import { requireAnyPermission, requirePermission, requireDashboardReadPermission } from '../../../lib/adminPermissions';
 import { insertAuditLogSafe } from '../../../lib/auditLog';
 import {
   cleanString,
@@ -14,10 +14,13 @@ function json(data, init = {}) {
 
 export async function GET(request) {
   try {
-    const authResult = await requireAnyPermission(request, ['paymentDebts.view', 'finance.view']);
+    const url = new URL(request.url);
+    const wantsDashboardData = url.searchParams.get('dashboard') === '1';
+    const authResult = wantsDashboardData
+      ? await requireDashboardReadPermission(request)
+      : await requireAnyPermission(request, ['paymentDebts.view', 'finance.view']);
     if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
     await ensurePaymentDebtTables();
-    const url = new URL(request.url);
     const debts = await getPaymentDebts({
       search: cleanString(url.searchParams.get('search'), 100),
       status: cleanString(url.searchParams.get('status'), 64),
@@ -32,6 +35,18 @@ export async function GET(request) {
       due_today_count: openDebts.filter((debt) => debt.due_date === today).length,
       overdue_count: openDebts.filter((debt) => debt.due_date && debt.due_date < today).length,
     };
+    if (wantsDashboardData) {
+      const dashboardDebts = debts.map((debt) => ({
+        id: debt.id,
+        customer_name: debt.customer_name,
+        total_amount: debt.total_amount,
+        paid_amount: debt.paid_amount,
+        balance_amount: debt.balance_amount,
+        status: debt.status,
+        due_date: debt.due_date,
+      }));
+      return json({ success: true, debts: dashboardDebts, summary }, { status: 200, headers: { 'Cache-Control': 'no-store' } });
+    }
     return json({ success: true, debts, summary }, { status: 200, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     console.error('[payment-debts] GET failed', error);

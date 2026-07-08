@@ -8,7 +8,7 @@ import {
 } from '../../../../lib/stockStorage';
 import { getAuthorizedAdminFromRequest } from '../../../../lib/adminAuth';
 import { insertAuditLogSafe } from '../../../../lib/auditLog';
-import { requirePermission, requireAnyPermission } from '../../../../lib/adminPermissions';
+import { requirePermission, requireAnyPermission, requireDashboardReadPermission } from '../../../../lib/adminPermissions';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
@@ -50,10 +50,26 @@ function buildWhere(url) {
 
 export async function GET(request) {
   try {
-    const authResult = await requirePermission(request, 'stock.view');
+    const url = new URL(request.url);
+    const wantsDashboardData = url.searchParams.get('dashboard') === '1';
+    const authResult = wantsDashboardData
+      ? await requireDashboardReadPermission(request)
+      : await requirePermission(request, 'stock.view');
     if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
     await ensureStockProductsTable();
-    const where = buildWhere(new URL(request.url));
+    const where = buildWhere(url);
+    if (wantsDashboardData) {
+      const rows = await query(
+        `SELECT
+           sp.id, sp.code, sp.product_code, sp.name, sp.product_name, sp.category,
+           sp.price, sp.quantity, sp.reorder_point, sp.min_stock, sp.status, sp.created_at
+         FROM stock_products sp
+         ${where.clause}
+         ORDER BY sp.created_at DESC`,
+        where.params
+      );
+      return json({ success: true, products: rows.map(normalizeStockProductRow) }, { status: 200, headers: { 'Cache-Control': 'no-store' } });
+    }
     const rows = await query(
       `SELECT sp.*, sc.name AS category_name
        FROM stock_products sp

@@ -1690,6 +1690,7 @@ function AdminApp() {
   const [stockCategories, setStockCategories] = useState(INITIAL_STOCK_CATEGORIES);
   const [stockMovements, setStockMovements] = useState(INITIAL_STOCK_MOVEMENTS);
   const [stockMovementError, setStockMovementError] = useState('');
+  const [dashboardErrors, setDashboardErrors] = useState({});
   const activeTab = active;
 
       const hasPermission = useCallback((permissionKey) => {
@@ -1708,6 +1709,14 @@ function AdminApp() {
   }, [adminProfile]);
 
   const headers = useCallback(() => ({}), []);
+  const setDashboardLoadError = useCallback((source, error) => {
+    setDashboardErrors((current) => {
+      const next = { ...current };
+      if (error) next[source] = error?.message || String(error);
+      else delete next[source];
+      return next;
+    });
+  }, []);
   const setActiveTab = useCallback((key) => {
     setActive(key);
     setMobileMenu(false);
@@ -1753,60 +1762,85 @@ function AdminApp() {
     setPasswordInput('');
     setLoginError('');
     setVehicles([]);
+    setPaymentDebts([]);
+    setStockProducts(INITIAL_STOCK_PRODUCTS);
+    setStockCategories(INITIAL_STOCK_CATEGORIES);
+    setStockMovements(INITIAL_STOCK_MOVEMENTS);
+    setDashboardErrors({});
     setActive('dashboard');
     setMobileMenu(false);
   }, [headers]);
 
-  const loadVehicles = useCallback(async () => {
+  const loadVehicles = useCallback(async (dashboardOnly = false) => {
     if (!token) return;
     setLoading(true);
     try {
-      const response = await fetch(`${API_URL}?admin=1`, { headers: headers() });
+      const response = await fetch(`${API_URL}?admin=1${dashboardOnly ? '&dashboard=1' : ''}`, { headers: headers() });
       const data = await response.json().catch(() => []);
       if (!response.ok) throw new Error(data?.error || 'load failed');
       setVehicles((Array.isArray(data) ? data : []).map(normalizeVehicle));
+      if (dashboardOnly) setDashboardLoadError('vehicles', null);
     } catch (error) {
       console.error('[admin] load vehicles failed', error);
+      if (dashboardOnly) setDashboardLoadError('vehicles', error);
       setVehicles([]);
     } finally {
       setLoading(false);
     }
-  }, [headers, token]);
+  }, [headers, setDashboardLoadError, token]);
 
   useEffect(() => {
     if (!adminProfile) return;
     if (hasPermission('vehicles.view') || hasPermission('repair.view') || hasPermission('calendar.view') || hasPermission('dashboard.all')) {
-      loadVehicles();
+      loadVehicles(false);
+    } else if (hasPermission('dashboard.view')) {
+      loadVehicles(true);
     } else {
       setVehicles([]);
     }
   }, [loadVehicles, adminProfile, hasPermission]);
 
-  const loadPaymentDebts = useCallback(async () => {
+  const loadPaymentDebts = useCallback(async (dashboardOnly = false) => {
     if (!token) return;
     try {
-      const response = await fetch(PAYMENT_DEBTS_API_URL, { headers: headers() });
+      const response = await fetch(`${PAYMENT_DEBTS_API_URL}${dashboardOnly ? '?dashboard=1' : ''}`, { headers: headers() });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || 'load failed');
       setPaymentDebts((Array.isArray(data.debts) ? data.debts : []).map(normalizePaymentDebt));
+      if (dashboardOnly) setDashboardLoadError('paymentDebts', null);
     } catch (error) {
       console.error('[admin] load payment debts failed', error);
+      if (dashboardOnly) setDashboardLoadError('paymentDebts', error);
       setPaymentDebts([]);
     }
-  }, [headers, token]);
+  }, [headers, setDashboardLoadError, token]);
 
   useEffect(() => {
     if (!adminProfile) return;
     if (hasPermission('paymentDebts.view') || hasPermission('finance.view') || hasPermission('dashboard.all')) {
-      loadPaymentDebts();
+      loadPaymentDebts(false);
+    } else if (hasPermission('dashboard.view')) {
+      loadPaymentDebts(true);
     } else {
       setPaymentDebts([]);
     }
   }, [loadPaymentDebts, adminProfile, hasPermission]);
 
-  const loadStockData = useCallback(async () => {
+  const loadStockData = useCallback(async (dashboardOnly = false) => {
     if (!token) return;
     try {
+      if (dashboardOnly) {
+        const response = await fetch(`${STOCK_PRODUCTS_API_URL}?dashboard=1`, { headers: headers() });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data?.error || 'load failed');
+        setStockProducts((data.products || []).map(normalizeStockProduct));
+        setStockCategories(INITIAL_STOCK_CATEGORIES);
+        setStockMovements(INITIAL_STOCK_MOVEMENTS);
+        setStockMovementError('');
+        setDashboardLoadError('stock', null);
+        return;
+      }
+
       const results = await Promise.allSettled([
         fetch(STOCK_CATEGORIES_API_URL, { headers: headers() }).then(async r => {
           if (!r.ok) throw await readApiError(r, 'โหลดหมวดหมู่สินค้าไม่สำเร็จ');
@@ -1851,19 +1885,23 @@ function AdminApp() {
       }
       const failedResult = results.find((result) => result.status === 'rejected');
       setStockMovementError(failedResult ? databaseErrorMessage(failedResult.reason) : '');
+      setDashboardLoadError('stock', failedResult ? failedResult.reason : null);
     } catch (error) {
       console.error('[admin] load stock data failed', error);
       setStockCategories(INITIAL_STOCK_CATEGORIES);
       setStockProducts(INITIAL_STOCK_PRODUCTS);
       setStockMovements(INITIAL_STOCK_MOVEMENTS);
       setStockMovementError(databaseErrorMessage(error));
+      if (dashboardOnly) setDashboardLoadError('stock', error);
     }
-  }, [headers, token]);
+  }, [headers, setDashboardLoadError, token]);
 
   useEffect(() => {
     if (!adminProfile) return;
     if (hasPermission('stock.view') || hasPermission('dashboard.all')) {
-      loadStockData();
+      loadStockData(false);
+    } else if (hasPermission('dashboard.view')) {
+      loadStockData(true);
     } else {
       setStockCategories(INITIAL_STOCK_CATEGORIES);
       setStockProducts(INITIAL_STOCK_PRODUCTS);
@@ -2088,6 +2126,7 @@ function AdminApp() {
     return vehicles.filter(isInShop).filter((vehicle) => matchesVehicle(vehicle, inShopQuery));
   }, [inShopQuery, vehicles]);
 
+  const dashboardError = Object.values(dashboardErrors).filter(Boolean).join(' | ');
   const canSeeEmployeeManagement = canViewEmployeeManagement(adminProfile);
   const canSeeEmployeeIncomes = canViewEmployeeIncomes(adminProfile);
 
@@ -2287,7 +2326,7 @@ function AdminApp() {
 
           {/* Content Wrapper */}
           <div className="min-w-0 max-w-full flex-1 space-y-6 overflow-hidden bg-slate-50 p-4 sm:p-6">
-            {activeTab === 'dashboard' && <Dashboard stats={stats} vehicles={vehicles} stockProducts={stockProducts} paymentDebts={paymentDebts} statusFilter={dashboardStatusFilter} setStatusFilter={setDashboardStatusFilter} hasPermission={hasPermission} adminProfile={adminProfile} />}
+            {activeTab === 'dashboard' && <Dashboard stats={stats} vehicles={vehicles} stockProducts={stockProducts} paymentDebts={paymentDebts} statusFilter={dashboardStatusFilter} setStatusFilter={setDashboardStatusFilter} hasPermission={hasPermission} adminProfile={adminProfile} dashboardError={dashboardError} />}
             {activeTab === 'form' && <VehicleForm initial={editing || emptyVehicle} onSave={saveVehicle} onCancel={() => setActiveTab('dashboard')} />}
             {activeTab === 'shift-duty' && <ShiftDutyPage adminProfile={adminProfile} hasPermission={hasPermission} />}
             {activeTab === 'employee-summary' && <ShiftDutyPage adminProfile={adminProfile} hasPermission={hasPermission} initialSubTab="summary" showEmployeeTabs={false} />}
@@ -5225,7 +5264,7 @@ function StockSummaryCard({ title, value, className }) {
   );
 }
 
-function Dashboard({ stats, vehicles, stockProducts, paymentDebts = [], statusFilter, setStatusFilter, hasPermission, adminProfile }) {
+function Dashboard({ stats, vehicles, stockProducts, paymentDebts = [], statusFilter, setStatusFilter, hasPermission, adminProfile, dashboardError = '' }) {
   const today = dateInputValue(new Date());
   const monthRange = chartRange('month');
   const monthVehicles = vehicles.filter((vehicle) => inChartRange(dateKey(vehicle), monthRange));
@@ -5280,6 +5319,12 @@ function Dashboard({ stats, vehicles, stockProducts, paymentDebts = [], statusFi
           อัปเดตล่าสุด: {new Date().toLocaleDateString('th-TH')} {new Date().toLocaleTimeString('th-TH').slice(0, 5)} น.
         </div>
       </div>
+
+      {dashboardError && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900">
+          Dashboard data load failed: {dashboardError}
+        </div>
+      )}
 
       <div>
         <h3 className="text-sm font-extrabold text-slate-400 uppercase tracking-wider mb-3">สถานะรถในร้าน (คลิกเพื่อกรองรายการด้านล่าง)</h3>

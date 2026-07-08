@@ -46,7 +46,13 @@ async function saveVehicleWithRouteId(request, context) {
 
   const id = await getRouteId(context);
   if (!id) return json({ error: 'Missing id' }, { status: 400 });
-  const rows = await query('SELECT * FROM vehicles WHERE id = ? LIMIT 1', [id]).catch(() => []);
+  let rows;
+  try {
+    rows = await query('SELECT * FROM vehicles WHERE id = ? LIMIT 1', [id]);
+  } catch (error) {
+    console.error('[vehicles/[id]] load existing vehicle failed', error);
+    return json({ error: 'Vehicle lookup failed' }, { status: 500 });
+  }
   const existing = Array.isArray(rows) && rows.length ? rows[0] : {};
   const headers = new Headers(request.headers);
   headers.delete('content-length');

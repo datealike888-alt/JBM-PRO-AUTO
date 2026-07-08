@@ -479,6 +479,10 @@ export function hasAnyPermission(permissions, permissionKeys = []) {
   return permissionKeys.some((key) => permissions.includes(key));
 }
 
+export async function requireDashboardReadPermission(request) {
+  return requirePermission(request, 'dashboard.view');
+}
+
 // ---------------------------------------------------------------------------
 // API Permission Middleware
 // ---------------------------------------------------------------------------

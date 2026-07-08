@@ -2,7 +2,7 @@ import { isAuthorizedAdminRequest } from '../../../lib/adminAuth';
 import { query } from '../../../lib/db';
 import { getAuthorizedAdminFromRequest } from '../../../lib/adminAuth';
 import { insertAuditLogSafe } from '../../../lib/auditLog';
-import { requirePermission, requireAnyPermission } from '../../../lib/adminPermissions';
+import { requirePermission, requireAnyPermission, requireDashboardReadPermission } from '../../../lib/adminPermissions';
 import { v2 as cloudinary } from 'cloudinary';
 import fs from 'fs/promises';
 import path from 'path';
@@ -374,11 +374,15 @@ export async function GET(request) {
     await ensureVehiclesTable();
     const url = new URL(request.url);
     const wantsAdminData = url.searchParams.get('admin') === '1';
+    const wantsDashboardData = url.searchParams.get('dashboard') === '1';
     const wantsSummary = url.searchParams.get('summary') === '1';
     const wantsInShop = url.searchParams.get('in_shop') === '1';
     const status = cleanString(url.searchParams.get('status'), 64);
 
-    if (wantsAdminData || wantsSummary || wantsInShop || status) {
+    if (wantsDashboardData) {
+      const authResult = await requireDashboardReadPermission(request);
+      if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
+    } else if (wantsAdminData || wantsSummary || wantsInShop || status) {
       const authResult = await requirePermission(request, 'vehicles.view');
       if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
     }
@@ -412,7 +416,7 @@ export async function GET(request) {
       }, { status: 200, headers: { 'Cache-Control': 'no-store' } });
     }
 
-    if (wantsAdminData || wantsInShop || status) {
+    if (wantsAdminData || wantsDashboardData || wantsInShop || status) {
       const dateWhere = buildDateWhere(url);
       const filters = [];
       const params = [];
@@ -425,6 +429,17 @@ export async function GET(request) {
         params.push(normalizeStatus(status));
       }
       const where = filters.length ? `WHERE ${filters.join(' AND ')}` : 'WHERE 1=1';
+      if (wantsDashboardData) {
+        const rows = await query(
+          `SELECT
+             id, invoice_number, license_plate, owner_name, brand, model, status,
+             repair_cost, booking_date, estimated_completion_date, created_at
+           FROM vehicles ${where}${dateWhere.clause}
+           ORDER BY COALESCE(booking_date, estimated_completion_date, created_at) DESC, created_at DESC LIMIT 1000`,
+          [...params, ...dateWhere.params]
+        );
+        return json(rows.map(normalizeRow), { status: 200, headers: { 'Cache-Control': 'no-store' } });
+      }
       const rows = await query(
         `SELECT * FROM vehicles ${where}${dateWhere.clause}
          ORDER BY COALESCE(booking_date, estimated_completion_date, created_at) DESC, created_at DESC LIMIT 1000`,

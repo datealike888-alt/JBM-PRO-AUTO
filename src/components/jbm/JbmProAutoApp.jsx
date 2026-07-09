@@ -46,11 +46,14 @@ import {
   Settings,
   ShieldCheck,
   Trash2,
+  TrendingUp,
   Upload,
   UserCheck,
   Wallet,
   Wrench,
   X,
+  AlertTriangle,
+  BarChart3,
 } from 'lucide-react';
 import RolesManagement from './RolesManagement';
 
@@ -111,8 +114,10 @@ const MODEL_OPTIONS = {
 const OTHER_OPTION = 'อื่นๆ';
 const BASE_YEAR = 2023;
 const CURRENT_YEAR = new Date().getFullYear();
-const REPORT_YEARS = Array.from({ length: CURRENT_YEAR + 10 - BASE_YEAR + 1 }, (_, index) => BASE_YEAR + index);
-const REPORT_YEAR_RANGE_LABEL = `${BASE_YEAR + 543}-${CURRENT_YEAR + 10 + 543}`;
+const BASE_END_YEAR_BE = 2579;
+const REPORT_END_YEAR = Math.max(BASE_END_YEAR_BE - 543, CURRENT_YEAR + 1);
+const REPORT_YEARS = Array.from({ length: REPORT_END_YEAR - BASE_YEAR + 1 }, (_, index) => BASE_YEAR + index);
+const REPORT_YEAR_RANGE_LABEL = `${BASE_YEAR + 543}-${REPORT_END_YEAR + 543}`;
 const EMPLOYEE_STATUSES = ['ทำงานอยู่', 'พักงาน', 'ลาออก'];
 const DEFAULT_EMPLOYEE_POSITIONS = ['เจ้าของอู่', 'ผู้จัดการ', 'พนักงานบัญชี', 'พนักงานสต๊อก', 'ช่าง'];
 const OTHER_EMPLOYEE_POSITION = 'อื่นๆ';
@@ -317,6 +322,9 @@ const emptyFinancialTransaction = {
   payment_method: 'เงินสด',
   description: '',
   amount: '',
+  cost_amount: '',
+  vat_amount: '',
+  profit_amount: '',
 };
 
 const emptyPaymentDebt = {
@@ -360,11 +368,26 @@ const emptyStockCategory = {
   is_active: true,
 };
 
+function normalizeMoneyInput(value, { emptyAsNull = false } = {}) {
+  const text = String(value ?? '').trim();
+  if (!text) return emptyAsNull ? null : 0;
+  const amount = Number.parseFloat(text.replace(/,/g, '').replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(amount) ? amount : null;
+}
+
+function moneyNumber(value) {
+  return normalizeMoneyInput(value) ?? 0;
+}
+
 function money(value) {
-  return Number(value || 0).toLocaleString('th-TH', {
+  return moneyNumber(value).toLocaleString('th-TH', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+function formatCurrency(value) {
+  return money(value);
 }
 
 function dateText(value) {
@@ -717,6 +740,9 @@ function normalizeFinancialTransaction(transaction = {}) {
     payment_method: transaction.payment_method || 'เงินสด',
     description: transaction.description || '',
     amount: transaction.amount ?? '',
+    cost_amount: transaction.cost_amount ?? '',
+    vat_amount: transaction.vat_amount ?? '',
+    profit_amount: transaction.profit_amount ?? '',
     receipt_image_url: transaction.receipt_image_url || '',
   };
 }
@@ -1257,7 +1283,7 @@ function CustomerSearch() {
             <p className="mt-1.5 text-base font-semibold leading-relaxed text-slate-500">กรอกข้อมูลสำหรับค้นหา เพื่อตรวจสอบขั้นตอนการทำงานล่าสุด</p>
           </div>
         </div>
-        
+
         <form onSubmit={submit} className="grid gap-3 sm:grid-cols-[1fr_auto]">
           <div className="relative">
             <input
@@ -1386,7 +1412,7 @@ function HomePage() {
         >
           {/* Subtle gold decoration bar */}
           <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-600 via-amber-400 to-red-600" />
-          
+
           <div className="mx-auto w-full max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
             <div className="max-w-4xl space-y-6 text-white">
               <h1 className="max-w-5xl text-4xl font-extrabold leading-[1.15] tracking-tight sm:text-5xl lg:text-6xl text-white">
@@ -1439,7 +1465,7 @@ function HomePage() {
                 <h2 className="text-3xl font-extrabold leading-tight text-slate-950 sm:text-4xl">
                   ติดตามทุกความคืบหน้าของรถยนต์คุณได้ง่าย ๆ ตลอด 24 ชม.
                 </h2>
-                <div 
+                <div
                   className="group overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-100 shadow-lg transition duration-300 hover:shadow-xl relative cursor-pointer aspect-[16/10] flex items-center justify-center"
                   onClick={() => setSelectedImage({ src: '/images/jbm-public/ccc.webp', title: 'บรรยากาศอู่ซ่อมรถยุโรป JBM PRO AUTO', alt: 'บรรยากาศอู่ซ่อมรถยุโรป JBM PRO AUTO' })}
                 >
@@ -1518,7 +1544,7 @@ function HomePage() {
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
               {serviceGuides.map(({ src, title, desc, alt }) => (
                 <article key={src} className="group overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-md transition-all duration-300 hover:shadow-lg hover:-translate-y-1 flex flex-col">
-                  <div 
+                  <div
                     className="overflow-hidden aspect-[16/9] relative cursor-pointer bg-slate-100 flex items-center justify-center"
                     onClick={() => setSelectedImage({ src, title, alt })}
                   >
@@ -1551,7 +1577,7 @@ function HomePage() {
               <p className="text-slate-300 text-lg leading-relaxed max-w-xl">
                 หากคุณมีข้อสงสัยเกี่ยวกับงานซ่อม ต้องการประเมินราคาเบื้องต้น หรือต้องการจองคิวซ่อมบำรุง สามารถติดต่อทีมงาน JBM PRO AUTO ผ่านช่องทางต่างๆ ด้านล่างนี้ได้ทันที
               </p>
-              
+
               <div className="space-y-4 text-base sm:text-lg leading-7 text-slate-200 pt-2">
                 <p className="flex gap-4 items-start">
                   <MapPin className="mt-1 h-5 w-5 shrink-0 text-yellow-300 stroke-[2]" />
@@ -1608,7 +1634,7 @@ function HomePage() {
 
       {/* Lightbox Modal */}
       {selectedImage && (
-        <div 
+        <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 transition-opacity duration-300"
           onClick={() => setSelectedImage(null)}
         >
@@ -1622,9 +1648,9 @@ function HomePage() {
             >
               <X className="w-6 h-6" />
             </button>
-            
+
             {/* Image Container */}
-            <div 
+            <div
               className="relative w-full h-full flex items-center justify-center"
               onClick={(e) => e.stopPropagation()}
             >
@@ -2081,9 +2107,7 @@ function AdminApp() {
     await loadStockData();
   }, [headers, loadStockData, stockCategories]);
 
-  const clearStockSampleData = useCallback(() => {
-    alert('ปิดการล้างข้อมูลสต็อกอัตโนมัติแล้ว กรุณาจัดการผ่านฐานข้อมูลหรือ API ทีละรายการ');
-  }, []);
+
 
   const stats = useMemo(() => {
     const finalRows = vehicles.filter(isFinal);
@@ -2249,7 +2273,8 @@ function AdminApp() {
       </div>
     );
   }
-  const allAdminNav = adminNavGroups.flatMap((g) => g.items);
+
+  const allAdminNav = adminNavGroups.flatMap((g) => g.items);
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-slate-50 flex flex-col lg:flex-row">
@@ -2267,7 +2292,7 @@ function AdminApp() {
               <X className="h-6 w-6" />
             </button>
           </div>
-          
+
           <div className="px-4 py-3 bg-slate-950/80 border-b border-slate-900/50 flex items-center gap-3">
             <div className="h-9 w-9 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 text-sm font-extrabold">
               AD
@@ -2371,7 +2396,7 @@ function AdminApp() {
             {activeTab === 'finance' && <FinancialAdmin headers={headers} onOpenPaymentDebts={() => setActiveTab('paymentDebts')} hasPermission={hasPermission} />}
             {activeTab === 'cashReserve' && <CashReserveAdmin headers={headers} hasPermission={hasPermission} />}
             {activeTab === 'paymentDebts' && <PaymentDebtAdmin headers={headers} onBack={() => setActiveTab('finance')} hasPermission={hasPermission} />}
-            {activeTab === 'charts' && <ManagementDashboard vehicles={vehicles} stockProducts={stockProducts} hasPermission={hasPermission} />}
+            {activeTab === 'charts' && <ManagementDashboard headers={headers} hasPermission={hasPermission} />}
             {activeTab === 'roles' && <RolesManagement headers={headers} adminProfile={adminProfile} hasPermission={hasPermission} />}
           </div>
         </main>
@@ -2538,8 +2563,12 @@ function StockProductPage({ products, categories, movements, movementError, onAd
                   <th className="p-4">สินค้า</th>
                   <th className="p-4">หมวดหมู่</th>
                   <th className="p-4">รถที่รองรับ</th>
-                  <th className="p-4 text-right">ราคา</th>
-                  <th className="p-4 text-center">คงเหลือ</th>
+                  <th className="p-4 text-right">รายรับ</th>
+                <th className="p-4 text-right">รายจ่าย</th>
+                <th className="p-4 text-right">ต้นทุน</th>
+                <th className="p-4 text-right">VAT</th>
+                <th className="p-4 text-right">ยอดคงเหลือ</th>
+                <th className="p-4 text-center">คงเหลือ</th>
                   <th className="p-4 text-center">สถานะ</th>
                   <th className="p-4 text-right">จัดการ</th>
                 </tr>
@@ -2594,7 +2623,7 @@ function StockProductPage({ products, categories, movements, movementError, onAd
                 })}
                 {filteredProducts.length === 0 && (
                   <tr>
-                    <td className="p-8 text-center text-slate-500" colSpan={8}>
+                    <td className="p-8 text-center text-slate-500" colSpan={12}>
                       {products.length === 0 ? 'ยังไม่มีสินค้าในสต็อก' : 'ไม่พบสินค้าในสต็อกจากตัวกรองนี้'}
                     </td>
                   </tr>
@@ -2733,8 +2762,8 @@ function StockMovementHistory({ movements, errorMessage }) {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <select 
-            value={periodFilter} 
+          <select
+            value={periodFilter}
             onChange={e => setPeriodFilter(e.target.value)}
             className="rounded-lg border border-slate-300 px-3 py-2 text-base font-bold text-slate-700 outline-none focus:border-blue-500"
           >
@@ -2833,10 +2862,10 @@ function StockProductModal({ product, categories, onClose, onSave }) {
       setError('กรุณากรอกรหัสสินค้าและชื่อสินค้า');
       return;
     }
-    
+
     setSaving(true);
     setError('');
-    
+
     try {
       let finalImageUrl = form.image_url;
       if (selectedFile) {
@@ -2856,12 +2885,12 @@ function StockProductModal({ product, categories, onClose, onSave }) {
         throw new Error('รูปแบบรูปภาพไม่ถูกต้อง กรุณาอัปโหลดใหม่');
       }
 
-      await onSave({ 
-        ...form, 
-        image_url: finalImageUrl, 
-        quantity: Math.max(0, Number(form.quantity || 0)), 
-        reorder_point: Math.max(0, Number(form.reorder_point || 0)), 
-        price: Math.max(0, Number(form.price || 0)) 
+      await onSave({
+        ...form,
+        image_url: finalImageUrl,
+        quantity: Math.max(0, Number(form.quantity || 0)),
+        reorder_point: Math.max(0, Number(form.reorder_point || 0)),
+        price: Math.max(0, Number(form.price || 0))
       });
     } catch (err) {
       setError(databaseErrorMessage(err, 'บันทึกไม่สำเร็จ'));
@@ -4792,7 +4821,7 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
               <div className="mt-3 grid gap-4 sm:grid-cols-2">
                 <EmployeeTimeInput label="เวลาเริ่ม" value={incomeForm.overtimeStart} onChange={(value) => updateIncomeForm('overtimeStart', value)} />
                 <EmployeeTimeInput label="เวลาจบ" value={incomeForm.overtimeEnd} onChange={(value) => updateIncomeForm('overtimeEnd', value)} />
-                
+
                 <div className="grid gap-3 sm:col-span-2 sm:grid-cols-2">
                   <label className="block">
                     <span className="text-sm font-semibold text-slate-800">เวลารวมทั้งหมด</span>
@@ -4818,7 +4847,7 @@ function ShiftDutyPage({ adminProfile, initialSubTab = 'dashboard', showEmployee
                   <label className="block">
                     <span className="text-sm font-semibold text-slate-800">โอที</span>
                     <div className="mt-1.5 flex min-h-10 w-full items-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-600">
-                      {calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd) ? 
+                      {calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd) ?
                         `${calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd).extraText} (${calculateWorkTime(incomeForm.overtimeStart, incomeForm.overtimeEnd).extraDec} ชม.)` : '-'}
                     </div>
                   </label>
@@ -5282,7 +5311,7 @@ function Dashboard({ stats, vehicles, stockProducts, paymentDebts = [], statusFi
   const outOfStockProducts = stockProducts.filter((item) => stockStatus(item) === 'หมดสต็อก');
   const lowStockProducts = stockProducts.filter((item) => stockStatus(item) === 'ใกล้หมด');
   const latestVehicles = [...vehicles].sort((a, b) => String(b.created_at || b.booking_date || '').localeCompare(String(a.created_at || a.booking_date || ''))).slice(0, 10);
-  
+
   const topCards = [
     { title: 'รถค้างในร้าน', value: `${stats.inShop} คัน`, icon: <Wrench />, tone: 'rose', filter: 'inShop' },
     { title: 'จองคิว', value: `${stats.booking} คัน`, icon: <ClipboardList />, tone: 'pink', filter: DEFAULT_STATUS },
@@ -5602,19 +5631,19 @@ function BookingCalendar({ vehicles }) {
     return vehicles.filter((vehicle) => vehicle && vehicle.status === DEFAULT_STATUS);
   }, [vehicles]);
   const selectedDayVehicles = useMemo(() => bookingVehiclesForDate(bookingRows, selectedDate), [bookingRows, selectedDate]);
-  
+
   const gridCells = useMemo(() => {
     const calendarDaysStr = daysInMonth(year, month);
     // Parse using local time to avoid timezone shift
     const [y, m] = [parseInt(year, 10), parseInt(month, 10)];
     const firstDay = new Date(y, m - 1, 1);
     let startDayOfWeek = firstDay.getDay() === 0 ? 6 : firstDay.getDay() - 1; // 0=Mon, 6=Sun
-    
+
     const cells = [];
     for (let i = 0; i < startDayOfWeek; i++) {
       cells.push({ empty: true, id: `empty-start-${i}` });
     }
-    
+
     calendarDaysStr.forEach((date) => {
       cells.push({
         empty: false,
@@ -5623,7 +5652,7 @@ function BookingCalendar({ vehicles }) {
         vehicles: bookingVehiclesForDate(bookingRows, date),
       });
     });
-    
+
     let endCount = 0;
     while (cells.length % 7 !== 0) {
       cells.push({ empty: true, id: `empty-end-${endCount++}` });
@@ -5672,7 +5701,7 @@ function BookingCalendar({ vehicles }) {
           </select>
         </div>
       </div>
-      
+
       <div className="mt-4 flex-1 min-w-0">
         <div className="grid grid-cols-7 gap-1 sm:gap-2 text-center text-[10px] sm:text-sm font-extrabold text-slate-500 uppercase tracking-wide mb-1 sm:mb-2 shrink-0">
           <div className="pb-1 sm:pb-2">จันทร์</div>
@@ -5688,23 +5717,23 @@ function BookingCalendar({ vehicles }) {
             if (cell.empty) {
               return <div key={cell.id} className="rounded-lg bg-slate-50/50 border border-slate-100 min-h-[60px] sm:min-h-[100px]" />;
             }
-            
+
             const hasBookings = cell.vehicles.length > 0;
             const previewLimit = 3;
             const mobilePreviewVehicles = cell.vehicles.slice(0, previewLimit);
             const isToday = cell.date === todayStr;
             const isWeekend = index % 7 === 5 || index % 7 === 6;
             const isSelected = cell.date === selectedDate;
-            
+
             return (
               <button
                 type="button"
-                key={cell.id} 
+                key={cell.id}
                 onClick={() => selectCalendarDate(cell.date)}
                 className={`flex flex-col rounded-lg border p-1 sm:p-2 min-h-[72px] sm:min-h-[128px] min-w-0 overflow-hidden text-left transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                   isSelected ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' :
-                  isToday ? 'border-blue-400 bg-blue-50/30 ring-1 ring-blue-400' : 
-                  hasBookings ? 'border-indigo-200 bg-indigo-50/40' : 
+                  isToday ? 'border-blue-400 bg-blue-50/30 ring-1 ring-blue-400' :
+                  hasBookings ? 'border-indigo-200 bg-indigo-50/40' :
                   isWeekend ? 'border-slate-100 bg-slate-50 hover:bg-slate-100' : 'border-slate-200 bg-white hover:bg-slate-50'
                 }`}
               >
@@ -5718,7 +5747,7 @@ function BookingCalendar({ vehicles }) {
                     </span>
                   )}
                 </div>
-                
+
                 <div className="flex-1 flex flex-col gap-0.5 sm:gap-1 min-w-0 overflow-hidden">
                   {hasBookings ? (
                     <>
@@ -5873,270 +5902,160 @@ const CHART_FILTERS = [
   ['custom', 'กำหนดเอง'],
 ];
 
-function ManagementDashboard({ vehicles, stockProducts, hasPermission = () => false }) {
-  const [filter, setFilter] = useState('month');
-  const [customStart, setCustomStart] = useState(dateInputValue(new Date()));
-  const [customEnd, setCustomEnd] = useState(dateInputValue(new Date()));
-  const [revenuePeriod, setRevenuePeriod] = useState('day');
-  const [vehiclePeriod, setVehiclePeriod] = useState('day');
-  const range = useMemo(() => chartRange(filter, customStart, customEnd), [customEnd, customStart, filter]);
-  const currentMonth = useMemo(() => chartRange('month'), []);
-  const currentYear = useMemo(() => chartRange('year'), []);
-  const previousMonth = useMemo(() => previousMonthRange(), []);
-  const filteredVehicles = useMemo(() => vehicles.filter((vehicle) => inChartRange(dateKey(vehicle), range)), [range, vehicles]);
-  const monthVehicles = useMemo(() => vehicles.filter((vehicle) => inChartRange(dateKey(vehicle), currentMonth)), [currentMonth, vehicles]);
-  const yearVehicles = useMemo(() => vehicles.filter((vehicle) => inChartRange(dateKey(vehicle), currentYear)), [currentYear, vehicles]);
-  const todayRange = useMemo(() => chartRange('today'), []);
-  const todayVehicles = useMemo(() => vehicles.filter((vehicle) => inChartRange(dateKey(vehicle), todayRange)), [todayRange, vehicles]);
-  const stockSummary = useMemo(() => stockChartSummary(stockProducts), [stockProducts]);
-  const revenueRows = useMemo(() => buildRevenueChartRows(vehicles, range, revenuePeriod), [range, revenuePeriod, vehicles]);
-  const statusRows = useMemo(() => buildStatusChartRows(vehicles, range, vehiclePeriod), [range, vehiclePeriod, vehicles]);
-  const brandRows = useMemo(() => buildBrandRows(vehicles, range), [range, vehicles]);
-  const brandRevenueRows = useMemo(() => buildBrandRows(vehicles, range, true), [range, vehicles]);
-  const rangeRevenue = filteredVehicles.reduce((sum, vehicle) => sum + chartVehicleRevenue(vehicle), 0);
-  const monthRevenue = monthVehicles.reduce((sum, vehicle) => sum + chartVehicleRevenue(vehicle), 0);
-  const previousRevenue = vehicles.filter((vehicle) => inChartRange(dateKey(vehicle), previousMonth)).reduce((sum, vehicle) => sum + chartVehicleRevenue(vehicle), 0);
-  const revenueDiff = monthRevenue - previousRevenue;
-  const revenuePercent = previousRevenue > 0 ? (revenueDiff / previousRevenue) * 100 : (monthRevenue > 0 ? 100 : 0);
-  const todayProfit = todayVehicles.reduce((sum, vehicle) => sum + chartVehicleRevenue(vehicle) - chartVehiclePartsCost(vehicle), 0);
-  const monthProfit = monthVehicles.reduce((sum, vehicle) => sum + chartVehicleRevenue(vehicle) - chartVehiclePartsCost(vehicle), 0);
-  const yearProfit = yearVehicles.reduce((sum, vehicle) => sum + chartVehicleRevenue(vehicle) - chartVehiclePartsCost(vehicle), 0);
-  const monthClosed = monthVehicles.filter(isFinal).length;
-  const stockPieRows = [
-    { name: 'สินค้าใกล้หมด', value: stockSummary.lowStock, color: '#f59e0b' },
-    { name: 'สินค้าหมดสต็อก', value: stockSummary.outOfStock, color: '#e11d48' },
-    { name: 'สินค้าอื่น', value: Math.max(stockSummary.totalItems - stockSummary.lowStock - stockSummary.outOfStock, 0), color: '#2563eb' },
-  ];
 
-  const inShopPieRows = useMemo(() => [
-    { name: 'รถค้างในร้าน', value: vehicles.filter(isInShop).length, color: '#f59e0b' },
-    { name: 'รถปิดงานแล้ว', value: vehicles.filter(v => normalizeVehicleStatus(v.status) === CLOSED_STATUS).length, color: '#10b981' },
-  ], [vehicles]);
+function ManagementDashboard({ headers = () => ({}), hasPermission = () => false }) {
+  const labels = useMemo(() => ({
+    title: '\u0e23\u0e32\u0e22\u0e07\u0e32\u0e19 / \u0e01\u0e23\u0e32\u0e1f',
+    income: '\u0e23\u0e32\u0e22\u0e23\u0e31\u0e1a',
+    expense: '\u0e23\u0e32\u0e22\u0e08\u0e48\u0e32\u0e22',
+    cost: '\u0e15\u0e49\u0e19\u0e17\u0e38\u0e19',
+    balance: '\u0e22\u0e2d\u0e14\u0e04\u0e07\u0e40\u0e2b\u0e25\u0e37\u0e2d',
+    profit: '\u0e01\u0e33\u0e44\u0e23',
+    loss: '\u0e02\u0e32\u0e14\u0e17\u0e38\u0e19',
+    allDays: '\u0e17\u0e38\u0e01\u0e27\u0e31\u0e19',
+    allMonths: '\u0e17\u0e38\u0e01\u0e40\u0e14\u0e37\u0e2d\u0e19',
+    allYears: '\u0e17\u0e38\u0e01\u0e1b\u0e35',
+    chart: '\u0e01\u0e23\u0e32\u0e1f\u0e01\u0e32\u0e23\u0e40\u0e07\u0e34\u0e19',
+    loading: '\u0e01\u0e33\u0e25\u0e31\u0e07\u0e42\u0e2b\u0e25\u0e14...',
+    empty: '\u0e44\u0e21\u0e48\u0e21\u0e35\u0e02\u0e49\u0e2d\u0e21\u0e39\u0e25\u0e2a\u0e33\u0e2b\u0e23\u0e31\u0e1a\u0e41\u0e2a\u0e14\u0e07\u0e01\u0e23\u0e32\u0e1f',
+    annual: '\u0e2a\u0e23\u0e38\u0e1b\u0e23\u0e32\u0e22\u0e1b\u0e35 \u0e1e.\u0e28.',
+    loadError: '\u0e42\u0e2b\u0e25\u0e14\u0e02\u0e49\u0e2d\u0e21\u0e39\u0e25\u0e01\u0e23\u0e32\u0e1f\u0e01\u0e32\u0e23\u0e40\u0e07\u0e34\u0e19\u0e44\u0e21\u0e48\u0e2a\u0e33\u0e40\u0e23\u0e47\u0e08',
+  }), []);
+  const [transactions, setTransactions] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [filters, setFilters] = useState({ day: 'all', month: 'all', year: 'all' });
 
-  const [employeesData, setEmployeesData] = useState([]);
-  const [attendanceData, setAttendanceData] = useState([]);
-    useEffect(() => {
-    if (!hasPermission || (!hasPermission('employees.view') && !hasPermission('dashboard.employee') && !hasPermission('dashboard.all'))) return;
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const transRes = await fetch(FINANCIAL_API_URL, { headers: headers() });
+      const transData = await transRes.json().catch(() => ({}));
 
-    const token = window.localStorage.getItem('jbm_admin_token') || '';
-    const headers = { 'Content-Type': 'application/json' };
-    if (token) headers.Authorization = `Bearer ${token}`;
-    
-    fetch('/api/employees', { headers })
-      .then(r => r.ok ? r.json() : {})
-      .then(d => { if (d && d.employees) setEmployeesData(d.employees); })
-      .catch(() => {});
+      if (!transRes.ok) throw new Error(transData?.error || labels.loadError);
+      setTransactions((Array.isArray(transData.transactions) ? transData.transactions : []).map(normalizeFinancialTransaction));
+    } catch (loadError) {
+      setError(loadError.message || labels.loadError);
+      setTransactions([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [headers, labels.loadError]);
 
-    fetch('/api/employee-attendance', { headers })
-      .then(r => r.ok ? r.json() : {})
-      .then(d => { if (d && d.logs) setAttendanceData(d.logs); })
-      .catch(() => {});
-  }, [hasPermission]);
+  useEffect(() => {
+    if (hasPermission('reports.view') || hasPermission('finance.view') || hasPermission('dashboard.all')) loadData();
+    else {
+      setTransactions([]);
+    }
+  }, [hasPermission, loadData]);
 
-  const employeeStatusRows = useMemo(() => {
-    const counts = (employeesData || []).reduce((acc, emp) => {
-      acc[emp.status] = (acc[emp.status] || 0) + 1;
-      return acc;
-    }, {});
-    if (Object.keys(counts).length === 0) return [];
-    return Object.keys(counts).map(status => ({
-      name: status || 'ไม่ระบุ',
-      value: counts[status],
-      color: status === 'ทำงานอยู่' ? '#10b981' : '#f43f5e'
-    }));
-  }, [employeesData]);
+  const matchesFilters = useCallback((transaction) => {
+    const key = financialDateKey(transaction);
+    if (!key) return false;
+    if (filters.year !== 'all' && !key.startsWith(filters.year)) return false;
+    if (filters.month !== 'all' && key.slice(5, 7) !== filters.month) return false;
+    if (filters.day !== 'all' && key.slice(8, 10) !== filters.day) return false;
+    return true;
+  }, [filters]);
 
-  const attendanceStatusRows = useMemo(() => {
-    const currentMonthPrefix = dateInputValue(new Date()).slice(0, 7);
-    const counts = (attendanceData || []).filter(log => String(log.date || '').startsWith(currentMonthPrefix)).reduce((acc, log) => {
-      acc[log.status] = (acc[log.status] || 0) + 1;
-      return acc;
-    }, {});
-    if (Object.keys(counts).length === 0) return [];
-    return Object.keys(counts).map(status => ({
-      name: status || 'ไม่ระบุ',
-      value: counts[status],
-      color: status === 'มาทำงาน' ? '#10b981' : (status === 'ขาดงาน' ? '#f43f5e' : '#f59e0b')
-    }));
-  }, [attendanceData]);
+  const calculate = useCallback((rows) => {
+    const income = rows.filter((row) => row.type === 'income').reduce((sum, row) => sum + moneyNumber(row.amount), 0);
+    const expense = rows.filter((row) => row.type === 'expense').reduce((sum, row) => sum + moneyNumber(row.amount), 0);
+    const cost = rows.reduce((sum, row) => sum + moneyNumber(row.cost_amount), 0);
+    const vat = rows.reduce((sum, row) => sum + moneyNumber(row.vat_amount), 0);
+    const profit = rows.reduce((sum, row) => sum + moneyNumber(row.profit_amount), 0);
+    const balance = income - expense - cost - vat;
+    return { income, expense, cost, vat, balance, profit, loss: balance < 0 ? Math.abs(balance) : 0 };
+  }, []);
+
+  const filteredTransactions = useMemo(() => transactions.filter(matchesFilters), [matchesFilters, transactions]);
+  const summary = useMemo(() => calculate(filteredTransactions), [calculate, filteredTransactions]);
+  const chartRows = useMemo(() => {
+    const rows = new Map();
+    filteredTransactions.forEach((transaction) => {
+      const date = financialDateKey(transaction);
+      const label = filters.day !== 'all' ? date : filters.month !== 'all' ? date : filters.year !== 'all' ? date.slice(0, 7) : date.slice(0, 4);
+      const current = rows.get(label) || { label, income: 0, expense: 0, cost: 0, vat: 0, profit: 0, loss: 0 };
+      const amount = moneyNumber(transaction.amount);
+      if (transaction.type === 'income') current.income += amount;
+      if (transaction.type === 'expense') current.expense += amount;
+      current.cost += moneyNumber(transaction.cost_amount);
+      current.vat += moneyNumber(transaction.vat_amount);
+      current.profit += moneyNumber(transaction.profit_amount);
+      const balance = current.income - current.expense - current.cost - current.vat;
+      current.loss = balance < 0 ? Math.abs(balance) : 0;
+      rows.set(label, current);
+    });
+    return Array.from(rows.values()).sort((a, b) => String(a.label).localeCompare(String(b.label)));
+  }, [filteredTransactions, filters]);
+
+
+  const annualRows = useMemo(() => REPORT_YEARS.map((year) => ({ year, ...calculate(transactions.filter((row) => financialDateKey(row).startsWith(String(year)))) })), [calculate, transactions]);
+  const baht = String.fromCharCode(3647);
 
   return (
     <section className="space-y-5">
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-          <div>
-            <h2 className="text-3xl font-extrabold text-slate-950">Management Dashboard</h2>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {CHART_FILTERS.map(([key, label]) => (
-              <button key={key} className={`min-h-11 rounded-lg px-4 text-lg font-extrabold ${filter === key ? 'bg-blue-700 text-white' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`} onClick={() => setFilter(key)} type="button">
-                {label}
-              </button>
-            ))}
+          <div><h2 className="text-3xl font-extrabold text-slate-950">{labels.title}</h2></div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <select value={filters.day} onChange={(event) => setFilters({ ...filters, day: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 text-lg font-bold"><option value="all">{labels.allDays}</option>{Array.from({ length: 31 }, (_, index) => String(index + 1).padStart(2, '0')).map((day) => <option key={day} value={day}>{day}</option>)}</select>
+            <select value={filters.month} onChange={(event) => setFilters({ ...filters, month: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 text-lg font-bold"><option value="all">{labels.allMonths}</option>{MONTHS_TH.map((month, index) => <option key={month} value={String(index + 1).padStart(2, '0')}>{month}</option>)}</select>
+            <select value={filters.year} onChange={(event) => setFilters({ ...filters, year: event.target.value })} className="min-h-12 rounded-lg border border-slate-300 bg-white px-3 text-lg font-bold"><option value="all">{labels.allYears}</option>{REPORT_YEARS.map((year) => <option key={year} value={String(year)}>{year + 543}</option>)}</select>
           </div>
         </div>
-        {filter === 'custom' && (
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <input className="min-h-12 rounded-lg border border-slate-300 px-4 text-lg font-bold text-slate-800" type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} />
-            <input className="min-h-12 rounded-lg border border-slate-300 px-4 text-lg font-bold text-slate-800" type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} />
-          </div>
-        )}
+        {error && <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-lg font-bold text-rose-700">{error}</p>}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <ManagementKpi title="รายได้เดือนนี้" value={`฿${money(monthRevenue)}`} tone="blue" />
-        <ManagementKpi title="กำไรเดือนนี้" value={`฿${money(monthProfit)}`} tone={monthProfit >= 0 ? 'emerald' : 'rose'} />
-        <ManagementKpi title="รถเข้าซ่อมเดือนนี้" value={`${monthVehicles.length} คัน`} tone="slate" />
-        <ManagementKpi title="รถปิดงานเดือนนี้" value={`${monthClosed} คัน`} tone="emerald" />
-        <ManagementKpi title="มูลค่าสต็อกคงเหลือ" value={`฿${money(stockSummary.totalValue)}`} tone="amber" />
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+        <ManagementKpi title={labels.income} value={baht + money(summary.income)} tone="emerald" />
+        <ManagementKpi title={labels.expense} value={baht + money(summary.expense)} tone="rose" />
+        <ManagementKpi title={labels.cost} value={baht + money(summary.cost)} tone="amber" />
+        <ManagementKpi title="VAT" value={baht + money(summary.vat)} tone="blue" />
+        <ManagementKpi title={labels.profit} value={baht + money(summary.profit)} tone="emerald" />
+        <ManagementKpi title={labels.loss} value={baht + money(summary.loss)} tone="rose" />
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[1.2fr_.8fr]">
-        <ManagementPanel title="กราฟรายได้" action={<ChartPeriodTabs value={revenuePeriod} onChange={setRevenuePeriod} />}>
-          <div className="mb-4 grid gap-3 sm:grid-cols-3">
-            <ManagementMiniStat title="ยอดรวมช่วงนี้" value={`฿${money(rangeRevenue)}`} />
-            <ManagementMiniStat title="เทียบเดือนก่อน" value={`${revenueDiff >= 0 ? '+' : ''}฿${money(revenueDiff)}`} />
-            <ManagementMiniStat title="เปอร์เซ็นต์" value={`${revenuePercent >= 0 ? '+' : ''}${revenuePercent.toFixed(1)}%`} />
-          </div>
-          <div className="h-80">
+      <ManagementPanel title={labels.chart}>
+        {loading && <p className="mt-3 text-center font-bold text-slate-500">{labels.loading}</p>}
+        {!loading && chartRows.length === 0 && <p className="mt-3 text-center font-bold text-slate-500">{labels.empty}</p>}
+        {!loading && chartRows.length > 0 && (
+          <div className="w-full min-w-0 h-[320px] sm:h-[360px] lg:h-[420px] overflow-hidden">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={revenueRows}>
+              <BarChart data={chartRows}>
                 <CartesianGrid stroke="#e2e8f0" />
                 <XAxis dataKey="label" tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 12 }} />
-                <Tooltip formatter={(value) => `฿${money(value)}`} />
-                <Area type="monotone" dataKey="revenue" stroke="#2563eb" fill="#bfdbfe" strokeWidth={3} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </ManagementPanel>
-
-        <ManagementPanel title="กำไร / ขาดทุน">
-          <div className="grid gap-3">
-            <ProfitCard title="กำไรวันนี้" value={todayProfit} />
-            <ProfitCard title="กำไรเดือนนี้" value={monthProfit} />
-            <ProfitCard title="กำไรปีนี้" value={yearProfit} />
-          </div>
-        </ManagementPanel>
-      </div>
-
-      <ManagementPanel title="กราฟจำนวนรถเข้าซ่อม" action={<ChartPeriodTabs value={vehiclePeriod} onChange={setVehiclePeriod} />}>
-        <div className="h-96">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={statusRows}>
-              <CartesianGrid stroke="#e2e8f0" />
-              <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} />
-              <Tooltip formatter={(value) => `${value} คัน`} />
-              <Legend />
-              {STATUS_OPTIONS.map((status) => (
-                <Bar key={status} dataKey={status} stackId="cars" fill={CHART_STATUS_COLORS[status] || '#64748b'} radius={[4, 4, 0, 0]} />
-              ))}
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </ManagementPanel>
-
-      <div className="grid gap-5 xl:grid-cols-2">
-        <ManagementPanel title="กราฟสต็อกสินค้า">
-          <div className="mb-4 grid gap-3 sm:grid-cols-2">
-            <ManagementMiniStat title="มูลค่าสินค้าคงคลังรวม" value={`฿${money(stockSummary.totalValue)}`} />
-            <ManagementMiniStat title="จำนวนสินค้า" value={`${stockSummary.totalItems} รายการ`} />
-            <ManagementMiniStat title="สินค้าใกล้หมด" value={`${stockSummary.lowStock} รายการ`} />
-            <ManagementMiniStat title="สินค้าหมดสต็อก" value={`${stockSummary.outOfStock} รายการ`} />
-          </div>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={stockPieRows} dataKey="value" nameKey="name" innerRadius={55} outerRadius={100}>
-                  {stockPieRows.map((row) => <Cell key={row.name} fill={row.color} />)}
-                </Pie>
-                <Tooltip formatter={(value) => `${value} รายการ`} />
+                <Tooltip formatter={(value) => baht + money(value)} />
                 <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </ManagementPanel>
-
-        <ManagementPanel title="ยี่ห้อรถที่เข้าซ่อมมากที่สุด Top 10">
-          <div className="h-96">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={brandRows} layout="vertical" margin={{ left: 24 }}>
-                <CartesianGrid stroke="#e2e8f0" />
-                <XAxis type="number" tick={{ fontSize: 12 }} />
-                <YAxis dataKey="brand" type="category" tick={{ fontSize: 12 }} width={110} />
-                <Tooltip formatter={(value) => `${value} คัน`} />
-                <Bar dataKey="cars" fill="#0f766e" radius={[0, 4, 4, 0]} />
+                <Bar dataKey="income" name={labels.income} fill="#059669" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="expense" name={labels.expense} fill="#e11d48" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="cost" name={labels.cost} fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="vat" name="VAT" fill="#4f46e5" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="profit" name={labels.profit} fill="#10b981" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="loss" name={labels.loss} fill="#be123c" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
-        </ManagementPanel>
-      </div>
-
-      <ManagementPanel title="กราฟรายได้แยกตามยี่ห้อรถ">
-        <div className="h-96">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={brandRevenueRows}>
-              <CartesianGrid stroke="#e2e8f0" />
-              <XAxis dataKey="brand" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} />
-              <Tooltip formatter={(value) => `฿${money(value)}`} />
-              <Line type="monotone" dataKey="revenue" stroke="#7c3aed" strokeWidth={3} dot />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+        )}
       </ManagementPanel>
 
-      <div className="grid gap-5 xl:grid-cols-3">
-        <ManagementPanel title="สถานะรถในระบบทั้งหมด">
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={inShopPieRows} dataKey="value" nameKey="name" innerRadius={55} outerRadius={100}>
-                  {inShopPieRows.map((row) => <Cell key={row.name} fill={row.color} />)}
-                </Pie>
-                <Tooltip formatter={(value) => `${value} คัน`} />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </ManagementPanel>
-
-        <ManagementPanel title="สถานะพนักงาน">
-          <div className="h-72">
-            {employeeStatusRows.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={employeeStatusRows} dataKey="value" nameKey="name" innerRadius={55} outerRadius={100}>
-                    {employeeStatusRows.map((row) => <Cell key={row.name} fill={row.color} />)}
-                  </Pie>
-                  <Tooltip formatter={(value) => `${value} คน`} />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full flex items-center justify-center text-slate-400 font-bold">ยังไม่มีข้อมูลสำหรับแสดงกราฟ</div>
-            )}
-          </div>
-        </ManagementPanel>
-
-        <ManagementPanel title="สถานะลงเวลาเดือนนี้">
-          <div className="h-72">
-            {attendanceStatusRows.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={attendanceStatusRows} dataKey="value" nameKey="name" innerRadius={55} outerRadius={100}>
-                    {attendanceStatusRows.map((row) => <Cell key={row.name} fill={row.color} />)}
-                  </Pie>
-                  <Tooltip formatter={(value) => `${value} ครั้ง`} />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full flex items-center justify-center text-slate-400 font-bold">ยังไม่มีข้อมูลสำหรับแสดงกราฟ</div>
-            )}
-          </div>
-        </ManagementPanel>
+      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="mb-4 text-2xl font-extrabold text-slate-950">{labels.annual} {REPORT_YEAR_RANGE_LABEL}</h2>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {annualRows.map((row) => (
+            <div key={row.year} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xl font-extrabold text-slate-950">{row.year + 543}</p>
+              <p className="font-bold text-emerald-700">{labels.income} {baht}{money(row.income)}</p>
+              <p className="font-bold text-rose-700">{labels.expense} {baht}{money(row.expense)}</p>
+              <p className="font-bold text-amber-700">{labels.cost} {baht}{money(row.cost)}</p>
+              <p className="font-bold text-indigo-700">VAT {baht}{money(row.vat)}</p>
+              <p className="font-bold text-teal-700">{labels.profit} {baht}{money(row.profit)}</p>
+              <p className={row.balance < 0 ? 'font-extrabold text-rose-700' : 'font-extrabold text-blue-700'}>{labels.balance} {baht}{money(row.balance)}</p>
+            </div>
+          ))}
+        </div>
       </div>
     </section>
   );
@@ -6219,27 +6138,33 @@ function ChartPanel({ title, data, period, setPeriod, type }) {
           ))}
         </div>
       </div>
-      <div className="h-80">
-        <ResponsiveContainer width="100%" height="100%">
-          {type === 'revenue' ? (
-            <LineChart data={data}>
-              <CartesianGrid stroke="#e2e8f0" />
-              <XAxis dataKey="label" tick={{ fontSize: 14 }} />
-              <YAxis tick={{ fontSize: 14 }} />
-              <Tooltip formatter={(value) => `฿${money(value)}`} />
-              <Line type="monotone" dataKey="revenue" stroke={STATUS_THEME.revenue.chart} strokeWidth={3} dot />
-            </LineChart>
-          ) : (
-            <BarChart data={data}>
-              <CartesianGrid stroke="#e2e8f0" />
-              <XAxis dataKey="label" tick={{ fontSize: 14 }} />
-              <YAxis tick={{ fontSize: 14 }} />
-              <Tooltip formatter={(value) => `${value} คัน`} />
-              <Bar dataKey="cars" fill={STATUS_THEME.inShop.chart} radius={[4, 4, 0, 0]} />
-            </BarChart>
-          )}
-        </ResponsiveContainer>
-      </div>
+      {(!data || data.length === 0) ? (
+        <div className="flex h-[320px] sm:h-[360px] lg:h-[420px] items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50">
+          <p className="text-lg font-bold text-slate-500">ไม่มีข้อมูลแสดงผล</p>
+        </div>
+      ) : (
+        <div className="w-full min-w-0 h-[320px] sm:h-[360px] lg:h-[420px] overflow-hidden">
+          <ResponsiveContainer width="100%" height="100%">
+            {type === 'revenue' ? (
+              <LineChart data={data}>
+                <CartesianGrid stroke="#e2e8f0" />
+                <XAxis dataKey="label" tick={{ fontSize: 14 }} />
+                <YAxis tick={{ fontSize: 14 }} />
+                <Tooltip formatter={(value) => `฿${money(value)}`} />
+                <Line type="monotone" dataKey="revenue" stroke={STATUS_THEME.revenue.chart} strokeWidth={3} dot />
+              </LineChart>
+            ) : (
+              <BarChart data={data}>
+                <CartesianGrid stroke="#e2e8f0" />
+                <XAxis dataKey="label" tick={{ fontSize: 14 }} />
+                <YAxis tick={{ fontSize: 14 }} />
+                <Tooltip formatter={(value) => `${value} คัน`} />
+                <Bar dataKey="cars" fill={STATUS_THEME.inShop.chart} radius={[4, 4, 0, 0]} />
+              </BarChart>
+            )}
+          </ResponsiveContainer>
+        </div>
+      )}
     </section>
   );
 }
@@ -6306,7 +6231,7 @@ function VehicleForm({ initial, onSave, onCancel }) {
           </button>
         </div>
       </div>
-      
+
       {error && (
         <div className="mb-5 flex gap-2.5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-800 text-sm font-bold">
           <span>!</span>
@@ -6373,7 +6298,7 @@ function VehicleForm({ initial, onSave, onCancel }) {
               </div>
             </div>
           </FormSection>
-          
+
           <button className="lg:hidden mt-4 inline-flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-5 text-base font-extrabold text-white shadow-md hover:bg-blue-600 transition-all-300" type="submit">
             <Save className="h-5 w-5" />
             {saving ? 'กำลังบันทึก...' : 'บันทึกข้อมูล'}
@@ -6656,7 +6581,7 @@ function VehicleTable({
                       ) : (
                         <span className="text-xs font-semibold text-slate-400">ยังไม่มีรูปภาพ</span>
                       )}
-                      
+
                       <label className="inline-flex h-8 w-fit cursor-pointer items-center gap-1 rounded-lg border border-blue-200 bg-blue-50/50 px-2.5 text-xs font-extrabold text-blue-800 hover:bg-blue-100">
                         <ImagePlus className="h-3 w-3 stroke-[2]" />
                         {uploadingId === vehicle.id ? 'กำลังโหลด' : 'เพิ่มรูป'}
@@ -6830,9 +6755,13 @@ function FinancialAdmin({ headers, onOpenPaymentDebts, hasPermission = () => fal
     const today = dateInputValue(new Date());
     const selectedMonth = `${summaryMonthYear}-${summaryMonth}`;
     const calculate = (rows) => {
-      const income = rows.filter((row) => row.type === 'income').reduce((sum, row) => sum + Number(row.amount || 0), 0);
-      const expense = rows.filter((row) => row.type === 'expense').reduce((sum, row) => sum + Number(row.amount || 0), 0);
-      return { income, expense, balance: income - expense };
+      const income = rows.filter((row) => row.type === 'income').reduce((sum, row) => sum + moneyNumber(row.amount), 0);
+      const expense = rows.filter((row) => row.type === 'expense').reduce((sum, row) => sum + moneyNumber(row.amount), 0);
+      const cost = rows.reduce((sum, row) => sum + moneyNumber(row.cost_amount), 0);
+      const vat = rows.reduce((sum, row) => sum + moneyNumber(row.vat_amount), 0);
+      const profit = rows.reduce((sum, row) => sum + moneyNumber(row.profit_amount), 0);
+      const balance = income - expense - cost - vat;
+      return { income, expense, cost, vat, balance, profit, loss: balance < 0 ? Math.abs(balance) : 0 };
     };
 
     return {
@@ -6897,6 +6826,9 @@ function FinancialAdmin({ headers, onOpenPaymentDebts, hasPermission = () => fal
         { key: 'payment_method', label: 'ช่องทาง' },
         { key: 'description', label: 'รายละเอียด' },
         { key: 'amount', label: 'จำนวนเงิน' },
+        { key: 'cost_amount', label: 'ต้นทุน' },
+        { key: 'vat_amount', label: 'VAT' },
+        { key: 'profit_amount', label: 'กำไร' },
       ],
       transactions.map((transaction) => ({
         date: String(transaction.date || '').slice(0, 10),
@@ -6905,6 +6837,9 @@ function FinancialAdmin({ headers, onOpenPaymentDebts, hasPermission = () => fal
         payment_method: transaction.payment_method || '-',
         description: transaction.description || '-',
         amount: money(transaction.amount),
+        cost_amount: money(transaction.cost_amount),
+        vat_amount: money(transaction.vat_amount),
+        profit_amount: transaction.profit_amount != null && transaction.profit_amount !== '' ? money(transaction.profit_amount) : '-',
       })),
     );
   };
@@ -6941,10 +6876,13 @@ function FinancialAdmin({ headers, onOpenPaymentDebts, hasPermission = () => fal
           </div>
         </FinancialSummaryCard>
       </div>
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         <FinancialAmountCard title="รายรับ" value={summary.total.income} className="border-emerald-200 bg-emerald-50 text-emerald-800" icon={<Banknote />} />
         <FinancialAmountCard title="รายจ่าย" value={summary.total.expense} className="border-rose-200 bg-rose-50 text-rose-800" icon={<CreditCard />} />
-        <FinancialAmountCard title="ยอดคงเหลือ" value={summary.total.balance} className="border-blue-200 bg-blue-50 text-blue-800" icon={<Wallet />} />
+        <FinancialAmountCard title="ต้นทุน" value={summary.total.cost} className="border-amber-200 bg-amber-50 text-amber-800" icon={<Coins />} />
+        <FinancialAmountCard title="VAT" value={summary.total.vat} className="border-indigo-200 bg-indigo-50 text-indigo-800" icon={<ClipboardList />} />
+        <FinancialAmountCard title="กำไร" value={summary.total.profit} className="border-teal-200 bg-teal-50 text-teal-800" icon={<TrendingUp />} />
+        <FinancialAmountCard title="ยอดคงเหลือ" value={summary.total.balance} className={summary.total.balance < 0 ? 'border-rose-200 bg-rose-50 text-rose-800' : 'border-blue-200 bg-blue-50 text-blue-800'} icon={<Wallet />} />
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -6997,7 +6935,7 @@ function FinancialAdmin({ headers, onOpenPaymentDebts, hasPermission = () => fal
         {error && <p className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-lg font-bold text-rose-700">{error}</p>}
 
         <div className="max-w-full overflow-x-auto rounded-lg border border-slate-200">
-          <table className="w-full min-w-[840px] text-left text-base md:min-w-[1060px] md:text-lg">
+          <table className="w-full min-w-[1440px] text-left text-base md:text-lg">
             <thead className="bg-slate-100 text-base font-extrabold text-slate-600">
               <tr>
                 <th className="p-4">วันที่</th>
@@ -7005,7 +6943,12 @@ function FinancialAdmin({ headers, onOpenPaymentDebts, hasPermission = () => fal
                 <th className="p-4">ประเภท</th>
                 <th className="p-4">ช่องทาง</th>
                 <th className="p-4">รายละเอียด</th>
-                <th className="p-4 text-right">จำนวนเงิน</th>
+                <th className="p-4 text-right">รายรับ</th>
+                <th className="p-4 text-right">รายจ่าย</th>
+                <th className="p-4 text-right">ต้นทุน</th>
+                <th className="p-4 text-right">VAT</th>
+                <th className="p-4 text-right">กำไร</th>
+                <th className="p-4 text-right">ยอดคงเหลือ</th>
                 <th className="p-4 text-center">บิล</th>
                 <th className="p-4 text-right">จัดการ</th>
               </tr>
@@ -7018,7 +6961,12 @@ function FinancialAdmin({ headers, onOpenPaymentDebts, hasPermission = () => fal
                   <td className="p-4"><FinancialTypeBadge type={transaction.type} /></td>
                   <td className="p-4"><PaymentBadge method={transaction.payment_method} /></td>
                   <td className="p-4 font-bold text-slate-800">{transaction.description || '-'}</td>
-                  <td className={`p-4 text-right font-extrabold ${transaction.type === 'income' ? 'text-emerald-700' : 'text-rose-700'}`}>฿{money(transaction.amount)}</td>
+                  <td className="p-4 text-right font-extrabold text-emerald-700">{transaction.type === 'income' ? `${String.fromCharCode(3647)}${money(transaction.amount)}` : '-'}</td>
+                  <td className="p-4 text-right font-extrabold text-rose-700">{transaction.type === 'expense' ? `${String.fromCharCode(3647)}${money(transaction.amount)}` : '-'}</td>
+                  <td className="p-4 text-right font-extrabold text-amber-700">{String.fromCharCode(3647)}{money(transaction.cost_amount)}</td>
+                  <td className="p-4 text-right font-extrabold text-indigo-700">{String.fromCharCode(3647)}{money(transaction.vat_amount)}</td>
+                  <td className="p-4 text-right font-extrabold text-teal-700">{transaction.profit_amount != null && transaction.profit_amount !== '' ? `${String.fromCharCode(3647)}${money(transaction.profit_amount)}` : '-'}</td>
+                  <td className={`p-4 text-right font-extrabold ${(transaction.type === 'income' ? moneyNumber(transaction.amount) : 0) - (transaction.type === 'expense' ? moneyNumber(transaction.amount) : 0) - moneyNumber(transaction.cost_amount) - moneyNumber(transaction.vat_amount) < 0 ? 'text-rose-700' : 'text-blue-700'}`}>{String.fromCharCode(3647)}{money((transaction.type === 'income' ? moneyNumber(transaction.amount) : 0) - (transaction.type === 'expense' ? moneyNumber(transaction.amount) : 0) - moneyNumber(transaction.cost_amount) - moneyNumber(transaction.vat_amount))}</td>
                   <td className="p-4 text-center">
                     {transaction.receipt_image_url ? (
                       <a className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm font-extrabold text-blue-700 hover:bg-blue-100" href={transaction.receipt_image_url} target="_blank" rel="noopener noreferrer">
@@ -7039,23 +6987,9 @@ function FinancialAdmin({ headers, onOpenPaymentDebts, hasPermission = () => fal
                   </td>
                 </tr>
               ))}
-              {transactions.length === 0 && <tr><td className="p-8 text-center text-slate-500" colSpan={8}>{loading ? 'กำลังโหลดข้อมูลการเงิน' : 'ไม่พบรายการธุรกรรม'}</td></tr>}
+              {transactions.length === 0 && <tr><td className="p-8 text-center text-slate-500" colSpan={13}>{loading ? 'กำลังโหลดข้อมูลการเงิน' : 'ไม่พบรายการธุรกรรม'}</td></tr>}
             </tbody>
           </table>
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="mb-4 text-2xl font-extrabold text-slate-950">สรุปรายปี พ.ศ. {REPORT_YEAR_RANGE_LABEL}</h2>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {summary.byYear.map((row) => (
-            <div key={row.year} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xl font-extrabold text-slate-950">{row.year + 543}</p>
-              <p className="font-bold text-emerald-700">รับ ฿{money(row.income)}</p>
-              <p className="font-bold text-rose-700">จ่าย ฿{money(row.expense)}</p>
-              <p className="font-extrabold text-blue-700">คงเหลือ ฿{money(row.balance)}</p>
-            </div>
-          ))}
         </div>
       </div>
 
@@ -7088,6 +7022,9 @@ function FinancialSummaryCard({ title, summary, icon, tone, children }) {
       <div className="grid gap-2 text-lg font-bold">
         <p className="text-emerald-700">รายรับ ฿{money(summary.income)}</p>
         <p className="text-rose-700">รายจ่าย ฿{money(summary.expense)}</p>
+        <p className="text-amber-700">ต้นทุน {String.fromCharCode(3647)}{money(summary.cost)}</p>
+        <p className="text-indigo-700">VAT {String.fromCharCode(3647)}{money(summary.vat)}</p>
+        <p className="text-teal-700">กำไร {String.fromCharCode(3647)}{money(summary.profit)}</p>
         <p className="text-3xl font-extrabold">คงเหลือ ฿{money(summary.balance)}</p>
       </div>
     </div>
@@ -7163,11 +7100,27 @@ function FinancialFormModal({ initial, saving, onClose, onSave, headers }) {
       setError('กรุณาเลือกหรือกรอกช่องทางการเงิน');
       return;
     }
-    if (Number(form.amount) < 0 || !Number.isFinite(Number(form.amount))) {
+    const amount = normalizeMoneyInput(form.amount);
+    const costAmount = normalizeMoneyInput(form.cost_amount, { emptyAsNull: true });
+    const vatAmount = normalizeMoneyInput(form.vat_amount, { emptyAsNull: true });
+    const profitAmount = normalizeMoneyInput(form.profit_amount, { emptyAsNull: true });
+    if (amount === null || amount < 0) {
       setError('จำนวนเงินต้องเป็นตัวเลขไม่ติดลบ');
       return;
     }
-    await onSave({ ...form, time: form.time || null, amount: Number(form.amount) });
+    if (costAmount !== null && costAmount < 0) {
+      setError('ต้นทุนต้องเป็นตัวเลขไม่ติดลบ');
+      return;
+    }
+    if (vatAmount !== null && vatAmount < 0) {
+      setError('VAT ต้องเป็นตัวเลขไม่ติดลบ');
+      return;
+    }
+    if (profitAmount !== null && profitAmount < 0) {
+      setError('กำไรต้องเป็นตัวเลขไม่ติดลบ');
+      return;
+    }
+    await onSave({ ...form, time: form.time || null, amount, cost_amount: costAmount, vat_amount: vatAmount, profit_amount: profitAmount });
   };
 
   return (
@@ -7217,7 +7170,10 @@ function FinancialFormModal({ initial, saving, onClose, onSave, headers }) {
             <span className="text-xl font-extrabold text-slate-800">รายละเอียด</span>
             <textarea value={form.description || ''} onChange={(event) => update('description', event.target.value)} className="mt-2 min-h-32 w-full rounded-lg border border-slate-300 bg-white px-5 py-4 text-xl text-slate-950 outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-100" />
           </label>
-          <Field label="จำนวนเงิน" type="number" step="0.01" inputMode="decimal" value={form.amount} onChange={(value) => update('amount', value)} />
+          <Field label="ยอดขาย / จำนวนเงิน" type="text" inputMode="decimal" value={form.amount} onChange={(value) => update('amount', value)} placeholder="1,500.50" />
+          <Field label="ต้นทุน" type="text" inputMode="decimal" value={form.cost_amount} onChange={(value) => update('cost_amount', value)} placeholder="1200.50" />
+          <Field label="VAT" type="text" inputMode="decimal" value={form.vat_amount} onChange={(value) => update('vat_amount', value)} placeholder="210.00" />
+          <Field label="กำไร" type="text" inputMode="decimal" value={form.profit_amount} onChange={(value) => update('profit_amount', value)} placeholder="กำไร เช่น 1,500.75" />
           <label className="block md:col-span-2">
             <span className="text-xl font-extrabold text-slate-800">แนบรูปใบเสร็จ/สลิป (ถ้ามี)</span>
             <input className="mt-2 block w-full text-sm text-slate-500 file:mr-4 file:rounded-lg file:border-0 file:bg-blue-50 file:px-4 file:py-2 file:text-sm file:font-extrabold file:text-blue-700 hover:file:bg-blue-100" type="file" accept="image/*" onChange={uploadReceipt} disabled={saving || receiptUploading} />
@@ -7334,7 +7290,7 @@ function PaymentDebtAdmin({ headers, onBack, hasPermission = () => false }) {
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(null);
   const [recordingPayment, setRecordingPayment] = useState(null);
-  const [filters, setFilters] = useState({ search: '', status: 'all' });
+  const [filters, setFilters] = useState({ search: '', status: 'all', day: 'all', month: 'all', year: 'all' });
 
   const loadDebts = useCallback(async () => {
     setLoading(true);
@@ -7460,7 +7416,11 @@ function PaymentDebtAdmin({ headers, onBack, hasPermission = () => false }) {
     const s = filters.search.toLowerCase();
     const matchSearch = s === '' || (d.customer_name || '').toLowerCase().includes(s) || (d.customer_phone || '').includes(s) || (d.vehicle_info || '').toLowerCase().includes(s);
     const matchStatus = filters.status === 'all' || d.status === filters.status;
-    return matchSearch && matchStatus;
+    const dateKey = String(d.due_date || d.created_at || '').slice(0, 10);
+    const matchYear = filters.year === 'all' || dateKey.startsWith(filters.year);
+    const matchMonth = filters.month === 'all' || dateKey.slice(5, 7) === filters.month;
+    const matchDay = filters.day === 'all' || dateKey.slice(8, 10) === filters.day;
+    return matchSearch && matchStatus && matchYear && matchMonth && matchDay;
   });
 
   const totalSum = filteredDebts.reduce((sum, d) => sum + Number(d.total_amount || 0), 0);
@@ -7490,13 +7450,25 @@ function PaymentDebtAdmin({ headers, onBack, hasPermission = () => false }) {
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-4 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+        <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <input value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} className="min-h-12 rounded-lg border border-slate-300 px-3 text-lg" placeholder="ค้นหาชื่อ เบอร์โทร ทะเบียน" />
           <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })} className="min-h-12 rounded-lg border border-slate-300 px-3 text-lg">
             <option value="all">ทุกสถานะ</option>
             <option value="ค้างจ่าย">ค้างจ่าย</option>
             <option value="ชำระบางส่วน">ชำระบางส่วน</option>
             <option value="ชำระครบแล้ว">ชำระครบแล้ว</option>
+          </select>
+          <select value={filters.day} onChange={(e) => setFilters({ ...filters, day: e.target.value })} className="min-h-12 rounded-lg border border-slate-300 px-3 text-lg">
+            <option value="all">ทุกวัน</option>
+            {Array.from({ length: 31 }, (_, index) => String(index + 1).padStart(2, '0')).map((day) => <option key={day} value={day}>{day}</option>)}
+          </select>
+          <select value={filters.month} onChange={(e) => setFilters({ ...filters, month: e.target.value })} className="min-h-12 rounded-lg border border-slate-300 px-3 text-lg">
+            <option value="all">ทุกเดือน</option>
+            {MONTHS_TH.map((month, index) => <option key={month} value={String(index + 1).padStart(2, '0')}>{month}</option>)}
+          </select>
+          <select value={filters.year} onChange={(e) => setFilters({ ...filters, year: e.target.value })} className="min-h-12 rounded-lg border border-slate-300 px-3 text-lg">
+            <option value="all">ทุกปี</option>
+            {REPORT_YEARS.map((year) => <option key={year} value={String(year)}>{year + 543}</option>)}
           </select>
         </div>
 
@@ -7717,7 +7689,7 @@ function PaymentDebtFormModal({ initial = emptyPaymentDebt, onClose = () => {}, 
           </div>
           <div className="space-y-5 p-6">
             {error && <p className="rounded-lg bg-rose-50 px-4 py-3 font-bold text-rose-700">{error}</p>}
-            
+
             <div className="grid gap-5 md:grid-cols-2">
               <div>
                 <label className="mb-2 block font-extrabold text-slate-700">ชื่อลูกค้า <span className="text-rose-600">*</span></label>
@@ -7863,12 +7835,12 @@ function PaymentDebtPaymentModal({ debt = emptyPaymentDebt, onClose = () => {}, 
             </div>
 
             {error && <p className="rounded-lg bg-rose-50 px-4 py-3 font-bold text-rose-700">{error}</p>}
-            
+
             <div>
               <label className="mb-2 block font-extrabold text-slate-700">จำนวนเงินที่ชำระ <span className="text-rose-600">*</span></label>
               <input required type="number" step="0.01" inputMode="decimal" value={form.amount} onChange={(e) => update('amount', e.target.value)} className="min-h-12 w-full rounded-lg border border-slate-300 px-4 text-2xl font-extrabold text-emerald-700" placeholder="0.00" />
             </div>
-            
+
             <div>
               <label className="mb-2 block font-extrabold text-slate-700">ช่องทางชำระเงิน</label>
               {paymentMode === 'select' ? (
@@ -7994,7 +7966,7 @@ function CashReserveAdmin({ headers, hasPermission = () => false }) {
       const isNew = !editing.id;
       const url = isNew ? CASH_RESERVE_API_URL : `${CASH_RESERVE_API_URL}/${editing.id}`;
       const method = isNew ? 'POST' : 'PUT';
-      
+
       const payload = {
         ...editing,
         transaction_date: editing.transaction_date || cashReserveTodayDate(),

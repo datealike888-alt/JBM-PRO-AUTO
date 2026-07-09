@@ -88,6 +88,9 @@ CREATE TABLE IF NOT EXISTS financial_transactions (
   category VARCHAR(100) NULL,
   description TEXT NULL,
   amount DECIMAL(12,2) DEFAULT 0,
+  cost_amount DECIMAL(12,2) NULL DEFAULT NULL,
+  vat_amount DECIMAL(12,2) NULL DEFAULT NULL,
+  profit_amount DECIMAL(12,2) NULL DEFAULT NULL,
   payment_method VARCHAR(100) NULL,
   receipt_image_url TEXT NULL,
   related_vehicle_id VARCHAR(64) NULL,
@@ -216,6 +219,43 @@ CREATE TABLE IF NOT EXISTS employee_leaves (
   INDEX idx_employee_leaves_start_date (start_date),
   INDEX idx_employee_leaves_status (status),
   CONSTRAINT fk_employee_leaves_employee_id
+    FOREIGN KEY (employee_id) REFERENCES employees(id)
+    ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS employee_incomes (
+  id VARCHAR(64) PRIMARY KEY,
+  employee_id VARCHAR(64) NOT NULL,
+  type VARCHAR(100) NOT NULL,
+  custom_type VARCHAR(100) NULL,
+  work_date DATE NOT NULL,
+  title VARCHAR(255) NULL,
+  detail TEXT NULL,
+  note TEXT NULL,
+  amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  status VARCHAR(50) NOT NULL,
+  overtime_start_time TIME NULL,
+  overtime_end_time TIME NULL,
+  overtime_hours DECIMAL(6,2) NULL,
+  overtime_rate_type VARCHAR(50) NULL,
+  overtime_rate DECIMAL(8,2) NULL,
+  hourly_wage DECIMAL(10,2) NULL,
+  overtime_reason TEXT NULL,
+  repair_reference VARCHAR(255) NULL,
+  license_plate VARCHAR(100) NULL,
+  customer_name VARCHAR(255) NULL,
+  commission_base DECIMAL(12,2) NULL,
+  commission_percent DECIMAL(8,2) NULL,
+  calculation_note TEXT NULL,
+  source_type VARCHAR(100) NULL,
+  source_id VARCHAR(100) NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_employee_incomes_employee_id (employee_id),
+  INDEX idx_employee_incomes_work_date (work_date),
+  INDEX idx_employee_incomes_type (type),
+  INDEX idx_employee_incomes_status (status),
+  CONSTRAINT fk_employee_incomes_employee_id
     FOREIGN KEY (employee_id) REFERENCES employees(id)
     ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

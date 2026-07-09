@@ -32,8 +32,10 @@ function cleanTime(value) {
   return null;
 }
 
-function normalizeAmount(value) {
-  const amount = Number.parseFloat(String(value ?? '').replace(/,/g, '').replace(/[^0-9.-]/g, ''));
+function normalizeAmount(value, { optional = false } = {}) {
+  const text = String(value ?? '').trim();
+  if (!text && optional) return null;
+  const amount = Number.parseFloat(text.replace(/,/g, '').replace(/[^0-9.-]/g, ''));
   return Number.isFinite(amount) ? amount : null;
 }
 
@@ -100,6 +102,8 @@ async function ensureFinancialTransactionsTable() {
       category VARCHAR(100) NULL,
       description TEXT NULL,
       amount DECIMAL(12,2) DEFAULT 0,
+      cost_amount DECIMAL(12,2) NULL DEFAULT NULL,
+      vat_amount DECIMAL(12,2) NULL DEFAULT NULL,
       payment_method VARCHAR(100) NULL,
       receipt_image_url TEXT NULL,
       related_vehicle_id VARCHAR(64) NULL,
@@ -118,6 +122,9 @@ async function ensureFinancialTransactionsTable() {
   await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN payment_method VARCHAR(100) NULL');
   await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN description TEXT NULL');
   await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN amount DECIMAL(12,2) DEFAULT 0');
+  await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN cost_amount DECIMAL(12,2) NULL DEFAULT NULL');
+  await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN vat_amount DECIMAL(12,2) NULL DEFAULT NULL');
+  await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN profit_amount DECIMAL(12,2) NULL DEFAULT NULL');
   await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN receipt_image_url TEXT NULL');
 
   await query(`
@@ -140,6 +147,9 @@ function normalizeRow(row) {
     payment_method: row.payment_method || '',
     description: row.description || '',
     amount: Number(row.amount || 0),
+    cost_amount: row.cost_amount === null || row.cost_amount === undefined ? null : Number(row.cost_amount || 0),
+    vat_amount: row.vat_amount === null || row.vat_amount === undefined ? null : Number(row.vat_amount || 0),
+    profit_amount: row.profit_amount === null || row.profit_amount === undefined ? null : Number(row.profit_amount || 0),
     receipt_image_url: row.receipt_image_url || '',
     category: row.category || '',
     note: row.note || '',
@@ -165,7 +175,13 @@ function normalizeBody(body) {
   if (!description) return { error: 'กรุณาระบุรายละเอียด' };
 
   const amount = normalizeAmount(body.amount);
+  const costAmount = normalizeAmount(body.cost_amount ?? body.costAmount, { optional: true });
+  const vatAmount = normalizeAmount(body.vat_amount ?? body.vatAmount, { optional: true });
+  const profitAmount = normalizeAmount(body.profit_amount ?? body.profitAmount, { optional: true });
   if (amount === null || amount < 0) return { error: 'จำนวนเงินต้องเป็นตัวเลขไม่ติดลบ' };
+  if (costAmount !== null && costAmount < 0) return { error: 'cost_amount must be a number greater than or equal to zero' };
+  if (vatAmount !== null && vatAmount < 0) return { error: 'vat_amount must be a number greater than or equal to zero' };
+  if (profitAmount !== null && profitAmount < 0) return { error: 'กำไรต้องเป็นตัวเลขไม่ติดลบ' };
 
   const id = cleanString(body.id, 64) || `fin-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const receiptImageUrl = cleanReceiptUrl(body.receipt_image_url || body.receiptUrl || body.receipt_url);
@@ -181,6 +197,9 @@ function normalizeBody(body) {
       payment_method: paymentMethod,
       description,
       amount,
+      cost_amount: costAmount,
+      vat_amount: vatAmount,
+      profit_amount: profitAmount,
       receipt_image_url: receiptImageUrl,
       related_vehicle_id: cleanString(body.related_vehicle_id || body.relatedVehicleId, 64) || null,
       note: cleanString(body.note, 5000) || null,
@@ -275,8 +294,8 @@ export async function POST(request) {
     const beforeTransaction = Array.isArray(beforeRows) && beforeRows.length ? normalizeRow(beforeRows[0]) : null;
     await query(
       `INSERT INTO financial_transactions (
-        id, date, time, transaction_date, type, category, description, amount, payment_method, receipt_image_url, related_vehicle_id, note
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, date, time, transaction_date, type, category, description, amount, cost_amount, vat_amount, profit_amount, payment_method, receipt_image_url, related_vehicle_id, note
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
         date = VALUES(date),
         time = VALUES(time),
@@ -285,6 +304,9 @@ export async function POST(request) {
         category = VALUES(category),
         description = VALUES(description),
         amount = VALUES(amount),
+        cost_amount = VALUES(cost_amount),
+        vat_amount = VALUES(vat_amount),
+        profit_amount = VALUES(profit_amount),
         payment_method = VALUES(payment_method),
         receipt_image_url = VALUES(receipt_image_url),
         related_vehicle_id = VALUES(related_vehicle_id),
@@ -298,6 +320,9 @@ export async function POST(request) {
         transaction.category,
         transaction.description,
         transaction.amount,
+        transaction.cost_amount,
+        transaction.vat_amount,
+        transaction.profit_amount,
         transaction.payment_method,
         transaction.receipt_image_url,
         transaction.related_vehicle_id,

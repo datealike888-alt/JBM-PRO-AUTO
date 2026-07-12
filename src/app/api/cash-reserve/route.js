@@ -1,7 +1,9 @@
-import { isAuthorizedAdminRequest, getAuthorizedAdminFromRequest } from '../../../lib/adminAuth';
+
 import { requirePermission } from '../../../lib/adminPermissions';
 import { insertAuditLogSafe } from '../../../lib/auditLog';
 import { query } from '../../../lib/db';
+import { recalculateBalances } from '../../../lib/cashReserveStorage';
+import { assertSchemaReady, handleSchemaError } from '../../../lib/schemaReadiness';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const BASE_YEAR = 2023;
@@ -66,61 +68,6 @@ function formatSqlTime(value) {
   return String(value).slice(0, 5);
 }
 
-async function ensureCashReserveTable() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS cash_reserve_transactions (
-      id VARCHAR(64) PRIMARY KEY,
-      transaction_date DATE NOT NULL,
-      transaction_time TIME NULL,
-      type VARCHAR(50) NOT NULL,
-      detail TEXT NOT NULL,
-      vehicle_ref VARCHAR(255) NULL,
-      case_ref VARCHAR(255) NULL,
-      person_name VARCHAR(255) NULL,
-      payment_channel VARCHAR(100) NULL,
-      amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
-      direction VARCHAR(20) NOT NULL,
-      balance_after DECIMAL(12,2) NOT NULL DEFAULT 0.00,
-      receipt_image_url TEXT NULL,
-      note TEXT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
-}
-
-async function recalculateBalances() {
-  const rows = await query(`
-    SELECT id, direction, amount, balance_after 
-    FROM cash_reserve_transactions 
-    ORDER BY transaction_date ASC, COALESCE(transaction_time, '00:00:00') ASC, created_at ASC
-  `);
-  let currentBalanceCents = 0;
-  let totalInCents = 0;
-  let totalOutCents = 0;
-
-  for (const row of rows) {
-    const amountCents = toCents(row.amount);
-    if (row.direction === 'IN') {
-      currentBalanceCents += amountCents;
-      totalInCents += amountCents; 
-    } else if (row.direction === 'OUT') {
-      currentBalanceCents -= amountCents;
-      totalOutCents += amountCents;
-    } else if (row.direction === 'ADJUST') {
-      currentBalanceCents += amountCents;
-    }
-
-    const currentBalance = fromCents(currentBalanceCents);
-
-    if (Number(row.balance_after) !== currentBalance) {
-      await query('UPDATE cash_reserve_transactions SET balance_after = ? WHERE id = ?', [currentBalance, row.id]);
-    }
-  }
-
-  return { balance: fromCents(currentBalanceCents), totalIn: fromCents(totalInCents), totalOut: fromCents(totalOutCents) };
-}
-
 function normalizeRow(row) {
   return {
     id: row.id,
@@ -183,7 +130,8 @@ export async function GET(request) {
   try {
     const authResult = await requirePermission(request, 'cashReserve.view');
     if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
-    await ensureCashReserveTable();
+
+    await assertSchemaReady('financial');
 
     const url = new URL(request.url);
     const where = buildWhere(url);
@@ -195,16 +143,8 @@ export async function GET(request) {
       where.params
     );
 
-    // Get current actual balance from recalculate
-    const summary = await recalculateBalances();
-
-    // But wait, recalculating on every GET might be heavy if there are thousands of rows.
-    // However, it's safer to ensure consistency. 
-    // If it becomes too heavy we can just query the latest row's balance.
-    // Let's also compute exact summary from rows for the frontend.
+    await recalculateBalances();
     
-    // Actually, user wants "totalIn, totalOut, totalReturned" overall or just for the current view?
-    // Usually it's overall summary for the feature.
     const allRows = await query(`SELECT type, amount, direction FROM cash_reserve_transactions`);
     let calcTotalInCents = 0;
     let calcTotalOutCents = 0;
@@ -248,8 +188,10 @@ export async function GET(request) {
       }
     }, { status: 200, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[cash-reserve] GET failed', error);
-    return json({ error: 'ระบบเงินสำรองจ่ายไม่พร้อมใช้งาน กรุณาลองใหม่อีกครั้ง' }, { status: 503 });
+    return json({ error: 'ไม่สามารถดึงข้อมูลเงินสำรองจ่ายได้' }, { status: 503 });
   }
 }
 
@@ -258,6 +200,8 @@ export async function POST(request) {
     const authResult = await requirePermission(request, 'cashReserve.create');
     if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
     const admin = authResult.admin;
+
+    await assertSchemaReady('financial');
 
     let body;
     try {
@@ -284,9 +228,6 @@ export async function POST(request) {
 
     const id = cleanString(body.id, 64) || `cr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-    await ensureCashReserveTable();
-
-    // Check balance if OUT
     if (direction === 'OUT' && amount > 0) {
       const summary = await recalculateBalances();
       if (amount > summary.balance) {
@@ -331,7 +272,6 @@ export async function POST(request) {
       ]
     );
 
-    // Recalculate balances after insert/update
     await recalculateBalances();
 
     const savedRows = await query('SELECT * FROM cash_reserve_transactions WHERE id = ? LIMIT 1', [id]);
@@ -352,7 +292,9 @@ export async function POST(request) {
 
     return json({ success: true, transaction: savedTransaction }, { status: 200 });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[cash-reserve] POST failed', error);
-    return json({ error: 'บันทึกรายการเงินสำรองจ่ายไม่สำเร็จ กรุณาลองใหม่อีกครั้ง' }, { status: 503 });
+    return json({ error: 'ไม่สามารถบันทึกรายการเงินสำรองจ่ายได้' }, { status: 503 });
   }
 }

@@ -1,12 +1,10 @@
 import {
   cleanString,
   ensureStockProductsTable,
-  isAuthorizedStockRequest,
   normalizeStockProductInput,
   normalizeStockProductRow,
   query,
 } from '../../../../lib/stockStorage';
-import { getAuthorizedAdminFromRequest } from '../../../../lib/adminAuth';
 import { insertAuditLogSafe } from '../../../../lib/auditLog';
 import { requirePermission, requireAnyPermission, requireDashboardReadPermission } from '../../../../lib/adminPermissions';
 
@@ -30,17 +28,15 @@ function buildWhere(url) {
       OR LOWER(COALESCE(code, '')) LIKE ?
       OR LOWER(COALESCE(product_name, '')) LIKE ?
       OR LOWER(COALESCE(name, '')) LIKE ?
-      OR LOWER(COALESCE(product_number, '')) LIKE ?
       OR LOWER(COALESCE(part_no, '')) LIKE ?
-      OR LOWER(COALESCE(product_brand, '')) LIKE ?
       OR LOWER(COALESCE(brand, '')) LIKE ?
-      OR LOWER(COALESCE(car_model, '')) LIKE ?
       OR LOWER(COALESCE(car_models, '')) LIKE ?
+      OR LOWER(COALESCE(compatible_models, '')) LIKE ?
       OR LOWER(COALESCE(location, '')) LIKE ?
       OR LOWER(COALESCE(engine_number, '')) LIKE ?
       OR LOWER(COALESCE(supplier, '')) LIKE ?
     )`);
-    params.push(like, like, like, like, like, like, like, like, like, like, like, like, like);
+    params.push(like, like, like, like, like, like, like, like, like, like, like);
   }
   return {
     clause: where.length ? `WHERE ${where.join(' AND ')}` : '',

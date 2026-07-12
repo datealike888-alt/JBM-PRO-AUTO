@@ -1,7 +1,7 @@
-import { getAuthorizedAdminFromRequest, isAuthorizedAdminRequest } from '../../../../../lib/adminAuth';
 import { requirePermission } from '../../../../../lib/adminPermissions';
 import { insertAuditLogSafe } from '../../../../../lib/auditLog';
 import { addDebtPayment, cleanString, getPaymentDebtById } from '../../../../../lib/paymentDebtStorage';
+import { handleSchemaError } from '../../../../../lib/schemaReadiness';
 
 function json(data, init = {}) {
   return Response.json(data, init);
@@ -22,6 +22,8 @@ export async function GET(request, { params }) {
     if (!debt) return json({ error: 'Payment debt not found' }, { status: 404 });
     return json({ success: true, payments: debt.payments || [] }, { status: 200, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[payment-debts/[id]/payments] GET failed', error);
     return json({ error: 'Debt payments unavailable' }, { status: 503 });
   }
@@ -55,6 +57,8 @@ export async function POST(request, { params }) {
     });
     return json({ success: true, debt }, { status: 200 });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[payment-debts/[id]/payments] POST failed', error);
     return json({ error: 'Unable to save debt payment' }, { status: 503 });
   }

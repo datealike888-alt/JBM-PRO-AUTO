@@ -1,4 +1,5 @@
 import { query } from './db';
+import { assertSchemaReady } from './schemaReadiness';
 
 function cleanString(value, maxLength = 255) {
   if (value === null || value === undefined) return '';
@@ -27,24 +28,6 @@ function truncateUtf8(value, maxBytes = 60000) {
   return text.slice(0, low);
 }
 
-export async function ensureAuditLogsTable() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS audit_logs (
-      id VARCHAR(64) PRIMARY KEY,
-      action VARCHAR(100) NOT NULL,
-      module VARCHAR(100) NULL,
-      entity_type VARCHAR(100) NULL,
-      entity_id VARCHAR(64) NULL,
-      detail TEXT NULL,
-      created_by VARCHAR(100) NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      INDEX idx_audit_logs_created_at (created_at),
-      INDEX idx_audit_logs_module (module),
-      INDEX idx_audit_logs_entity_id (entity_id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
-}
-
 export function normalizeAuditLogInput(body = {}) {
   const rawDetail = body?.detail && typeof body.detail === 'object'
     ? JSON.stringify(body.detail)
@@ -63,7 +46,7 @@ export function normalizeAuditLogInput(body = {}) {
 }
 
 export async function insertAuditLog(input = {}) {
-  await ensureAuditLogsTable();
+  await assertSchemaReady('audit');
   const auditLog = normalizeAuditLogInput(input);
   await query(
     `INSERT INTO audit_logs (id, action, module, entity_type, entity_id, detail, created_by)

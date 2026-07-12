@@ -1,11 +1,11 @@
 import {
   buildYearMonthDayFilters,
   cleanString,
-  ensureEmployeeIncomesTable,
   normalizeEmployeeIncomeInput,
   normalizeEmployeeIncomeRow,
   query,
 } from '../../../lib/employeeStorage';
+import { assertSchemaReady, handleSchemaError } from '../../../lib/schemaReadiness';
 import { insertAuditLogSafe } from '../../../lib/auditLog';
 import { requireAnyPermission } from '../../../lib/adminPermissions';
 
@@ -134,7 +134,7 @@ const SELECT_SQL = `
 
 export async function GET(request) {
   try {
-    await ensureEmployeeIncomesTable();
+    await assertSchemaReady('employees');
     const authResult = await requireAnyPermission(request, ['employees.view', 'finance.view']);
     if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
 
@@ -149,6 +149,8 @@ export async function GET(request) {
 
     return json({ success: true, incomes: rows.map(normalizeEmployeeIncomeRow) }, { status: 200, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[employee-incomes] GET failed', error);
     return json({ error: 'เชื่อมต่อฐานข้อมูลไม่ได้ กรุณาลองใหม่' }, { status: 503 });
   }
@@ -170,7 +172,7 @@ export async function POST(request) {
     const { income, errors } = validateIncomeBody(body);
     if (errors.length > 0) return json({ error: errors[0], errors }, { status: 400 });
 
-    await ensureEmployeeIncomesTable();
+    await assertSchemaReady('employees');
     const beforeRows = await query(`${SELECT_SQL} WHERE ei.id = ? LIMIT 1`, [income.id]);
     const previousIncome = Array.isArray(beforeRows) && beforeRows.length ? normalizeEmployeeIncomeRow(beforeRows[0]) : null;
 
@@ -253,6 +255,8 @@ export async function POST(request) {
 
     return json({ success: true, income: savedIncome }, { status: 200 });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[employee-incomes] POST failed', error);
     return json({ error: 'เชื่อมต่อฐานข้อมูลไม่ได้ กรุณาลองใหม่' }, { status: 503 });
   }
@@ -274,7 +278,7 @@ export async function DELETE(request) {
     const id = cleanString(new URL(request.url).searchParams.get('id'), 64);
     if (!id) return json({ error: 'Missing id parameter' }, { status: 400 });
 
-    await ensureEmployeeIncomesTable();
+    await assertSchemaReady('employees');
     const rows = await query(`${SELECT_SQL} WHERE ei.id = ? LIMIT 1`, [id]);
     const previousIncome = Array.isArray(rows) && rows.length ? normalizeEmployeeIncomeRow(rows[0]) : null;
     await query('DELETE FROM employee_incomes WHERE id = ?', [id]);
@@ -294,6 +298,8 @@ export async function DELETE(request) {
     }
     return json({ success: true }, { status: 200 });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[employee-incomes] DELETE failed', error);
     return json({ error: 'เชื่อมต่อฐานข้อมูลไม่ได้ กรุณาลองใหม่' }, { status: 503 });
   }

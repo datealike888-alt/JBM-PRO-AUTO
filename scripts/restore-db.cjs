@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { getDbConfigFromDatabaseUrl } = require('./db-url-config.cjs');
 
 function parseArgs(argv = []) {
     const args = { file: '', force: false };
@@ -25,16 +26,6 @@ function parseArgs(argv = []) {
     return args;
 }
 
-function getDbConfig() {
-    return {
-        host: process.env.DB_HOST || '',
-        port: String(process.env.DB_PORT || '3306'),
-        user: process.env.DB_USER || '',
-        password: process.env.DB_PASSWORD || '',
-        database: process.env.DB_NAME || 'jbm_pro_auto',
-    };
-}
-
 function promptConfirm(message) {
     return new Promise((resolve) => {
         process.stdout.write(`${message} Type "YES" to continue: `);
@@ -47,10 +38,7 @@ function promptConfirm(message) {
 
 async function run() {
     const args = parseArgs(process.argv.slice(2));
-    const cfg = getDbConfig();
-    if (!cfg.host || !cfg.user) {
-        throw new Error('Missing DB_HOST or DB_USER');
-    }
+    const cfg = getDbConfigFromDatabaseUrl();
     const filePath = path.resolve(args.file || '');
     if (!args.file) {
         throw new Error('Usage: npm run restore:db -- --file ./backups/your-dump.sql');

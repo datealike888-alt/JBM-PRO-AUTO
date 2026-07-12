@@ -3,6 +3,7 @@ import { query } from '../../../lib/db';
 import { getAuthorizedAdminFromRequest } from '../../../lib/adminAuth';
 import { insertAuditLogSafe } from '../../../lib/auditLog';
 import { requirePermission, requireAnyPermission, requireDashboardReadPermission } from '../../../lib/adminPermissions';
+import { assertSchemaReady, handleSchemaError } from '../../../lib/schemaReadiness';
 import { v2 as cloudinary } from 'cloudinary';
 import fs from 'fs/promises';
 import path from 'path';
@@ -108,94 +109,6 @@ function formatSqlTime(value) {
   const text = String(value);
   const matched = text.match(/([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?/);
   return matched ? `${matched[1]}:${matched[2]}` : null;
-}
-
-async function ensureColumn(sql) {
-  try {
-    await query(sql);
-  } catch (error) {
-    if (Number(error?.errno || 0) !== 1060) throw error;
-  }
-}
-
-async function ensureIndex(sql) {
-  try {
-    await query(sql);
-  } catch (error) {
-    if (![1061, 1062].includes(Number(error?.errno || 0))) throw error;
-  }
-}
-
-async function ensureVehiclesTable() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS vehicles (
-      id VARCHAR(64) PRIMARY KEY,
-      invoice_number VARCHAR(100) NULL,
-      license_plate VARCHAR(64) NULL,
-      owner_name VARCHAR(255) NULL,
-      phone VARCHAR(64) NULL,
-      brand VARCHAR(128) NULL,
-      model VARCHAR(256) NULL,
-      color VARCHAR(128) NULL,
-      vin VARCHAR(128) NULL,
-      mileage INT NULL,
-      status VARCHAR(64) NULL DEFAULT 'จองคิว',
-      repair_cost DECIMAL(12,2) NULL DEFAULT 0,
-      booking_date DATE NULL,
-      booking_time TIME NULL,
-      estimated_completion_date DATE NULL,
-      status_detail TEXT NULL,
-      receipt_image MEDIUMTEXT NULL,
-      receipt_images MEDIUMTEXT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
-
-  const columns = [
-    'ALTER TABLE vehicles ADD COLUMN invoice_number VARCHAR(100) NULL',
-    'ALTER TABLE vehicles ADD COLUMN license_plate VARCHAR(64) NULL',
-    'ALTER TABLE vehicles ADD COLUMN owner_name VARCHAR(255) NULL',
-    'ALTER TABLE vehicles ADD COLUMN phone VARCHAR(64) NULL',
-    'ALTER TABLE vehicles ADD COLUMN brand VARCHAR(128) NULL',
-    'ALTER TABLE vehicles ADD COLUMN model VARCHAR(256) NULL',
-    'ALTER TABLE vehicles ADD COLUMN color VARCHAR(128) NULL',
-    'ALTER TABLE vehicles ADD COLUMN vin VARCHAR(128) NULL',
-    'ALTER TABLE vehicles ADD COLUMN mileage INT NULL',
-    "ALTER TABLE vehicles MODIFY COLUMN status VARCHAR(64) NULL DEFAULT 'จองคิว'",
-    'ALTER TABLE vehicles ADD COLUMN repair_cost DECIMAL(12,2) NULL DEFAULT 0',
-    'ALTER TABLE vehicles ADD COLUMN booking_date DATE NULL',
-    'ALTER TABLE vehicles ADD COLUMN booking_time TIME NULL',
-    'ALTER TABLE vehicles ADD COLUMN estimated_completion_date DATE NULL',
-    'ALTER TABLE vehicles ADD COLUMN status_detail TEXT NULL',
-    'ALTER TABLE vehicles ADD COLUMN receipt_image MEDIUMTEXT NULL',
-    'ALTER TABLE vehicles ADD COLUMN receipt_images MEDIUMTEXT NULL',
-    'ALTER TABLE vehicles ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
-    'ALTER TABLE vehicles ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
-  ];
-
-  for (const sql of columns) await ensureColumn(sql);
-
-  await query(`
-    UPDATE vehicles SET
-      status = CASE
-        WHEN status IN ('1', 'จองคิว') THEN 'จองคิว'
-        WHEN status IN ('2', 'เช็ครถ', 'กำลังตรวจเช็ค') THEN 'กำลังตรวจเช็ค'
-        WHEN status IN ('3', 'รออะไหล่') THEN 'รออะไหล่'
-        WHEN status IN ('4', 'กำลังซ่อม') THEN 'กำลังซ่อม'
-        WHEN status IN ('5', 'ซ่อมเสร็จรอส่ง') THEN 'ซ่อมเสร็จรอส่ง'
-        WHEN status IN ('6', 'ปิดงาน') THEN 'ปิดงาน'
-        ELSE COALESCE(NULLIF(status, ''), 'จองคิว')
-      END,
-      repair_cost = COALESCE(repair_cost, 0)
-  `);
-
-  await ensureIndex('CREATE INDEX idx_vehicles_license_plate ON vehicles(license_plate)');
-  await ensureIndex('CREATE INDEX idx_vehicles_phone ON vehicles(phone)');
-  await ensureIndex('CREATE INDEX idx_vehicles_invoice_number ON vehicles(invoice_number)');
-  await ensureIndex('CREATE INDEX idx_vehicles_status ON vehicles(status)');
-  await ensureIndex('CREATE INDEX idx_vehicles_booking_date ON vehicles(booking_date)');
-  await ensureIndex('CREATE INDEX idx_vehicles_vin ON vehicles(vin)');
 }
 
 function normalizeRow(row) {
@@ -371,7 +284,7 @@ async function saveReceiptImages(images, id) {
 
 export async function GET(request) {
   try {
-    await ensureVehiclesTable();
+    await assertSchemaReady('vehicles');
     const url = new URL(request.url);
     const wantsAdminData = url.searchParams.get('admin') === '1';
     const wantsDashboardData = url.searchParams.get('dashboard') === '1';
@@ -467,6 +380,8 @@ export async function GET(request) {
 
     return json(rows.map(normalizePublicRow), { status: 200, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[vehicles] GET failed', error);
     return json({ error: 'Vehicle service unavailable' }, { status: 503 });
   }
@@ -493,7 +408,7 @@ export async function POST(request) {
     vehicle.receipt_images = await saveReceiptImages(vehicle.receipt_images, vehicle.id);
     vehicle.receipt_image = vehicle.receipt_images[0] || vehicle.receipt_image || null;
 
-    await ensureVehiclesTable();
+    await assertSchemaReady('vehicles');
     const beforeRows = await query('SELECT * FROM vehicles WHERE id = ? LIMIT 1', [vehicle.id]);
     const beforeVehicle = Array.isArray(beforeRows) && beforeRows.length ? normalizeRow(beforeRows[0]) : null;
     await query(
@@ -558,6 +473,8 @@ export async function POST(request) {
 
     return json({ success: true, vehicle: savedVehicle }, { status: 200 });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[vehicles] POST failed', error);
     return json({ error: 'Vehicle service unavailable' }, { status: 503 });
   }
@@ -570,7 +487,7 @@ export async function DELETE(request) {
     const admin = authResult.admin;
     const id = cleanString(new URL(request.url).searchParams.get('id'), 64);
     if (!id) return json({ error: 'Missing id parameter' }, { status: 400 });
-    await ensureVehiclesTable();
+    await assertSchemaReady('vehicles');
     const rows = await query('SELECT * FROM vehicles WHERE id = ? LIMIT 1', [id]);
     const previousVehicle = Array.isArray(rows) && rows.length ? normalizeRow(rows[0]) : null;
     await query('DELETE FROM vehicles WHERE id = ?', [id]);
@@ -590,8 +507,9 @@ export async function DELETE(request) {
     }
     return json({ success: true }, { status: 200 });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[vehicles] DELETE failed', error);
     return json({ error: 'Vehicle service unavailable' }, { status: 503 });
   }
 }
-

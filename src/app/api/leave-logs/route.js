@@ -1,12 +1,12 @@
 import {
   buildYearMonthDayFilters,
   cleanString,
-  ensureLeaveLogsTable,
   isAuthorizedToken,
   normalizeLeaveLogInput,
   normalizeLeaveLogRow,
   query,
 } from '../../../lib/employeeStorage';
+import { assertSchemaReady, handleSchemaError } from '../../../lib/schemaReadiness';
 import { getAuthorizedAdminFromRequest } from '../../../lib/adminAuth';
 import { insertAuditLogSafe } from '../../../lib/auditLog';
 import { requirePermission } from '../../../lib/adminPermissions';
@@ -79,7 +79,7 @@ export async function GET(request) {
   try {
     const authResult = await requirePermission(request, 'employees.leave');
     if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
-    await ensureLeaveLogsTable();
+    await assertSchemaReady('employees');
 
     const where = buildWhere(new URL(request.url));
     const rows = await query(
@@ -95,6 +95,8 @@ export async function GET(request) {
 
     return json({ success: true, logs: rows.map(normalizeLeaveLogRow) }, { status: 200, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[leave-logs] GET failed', error);
     return json({ error: 'Leave service unavailable' }, { status: 503 });
   }
@@ -123,7 +125,7 @@ export async function POST(request) {
     log.leaveDays = duration.leaveDays;
     log.totalDays = duration.leaveDays;
 
-    await ensureLeaveLogsTable();
+    await assertSchemaReady('employees');
     const beforeRows = await query(
       `SELECT el.id, el.employee_id, e.employee_code, el.leave_type, el.start_date, el.end_date, el.total_days,
               el.leave_duration_type, el.leave_days, el.approver, el.reason, el.status, el.created_at, el.updated_at
@@ -191,6 +193,8 @@ export async function POST(request) {
 
     return json({ success: true, log: savedLog }, { status: 200 });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[leave-logs] POST failed', error);
     return json({ error: 'Unable to save leave log' }, { status: 503 });
   }
@@ -204,7 +208,7 @@ export async function DELETE(request) {
     const id = cleanString(new URL(request.url).searchParams.get('id'), 64);
     if (!id) return json({ error: 'Missing id parameter' }, { status: 400 });
 
-    await ensureLeaveLogsTable();
+    await assertSchemaReady('employees');
     const rows = await query(
       `SELECT el.id, el.employee_id, e.employee_code, el.leave_type, el.start_date, el.end_date, el.total_days,
               el.leave_duration_type, el.leave_days, el.approver, el.reason, el.status, el.created_at, el.updated_at
@@ -232,6 +236,8 @@ export async function DELETE(request) {
     }
     return json({ success: true }, { status: 200 });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[leave-logs] DELETE failed', error);
     return json({ error: 'Unable to delete leave log' }, { status: 503 });
   }

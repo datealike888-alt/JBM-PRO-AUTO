@@ -1,4 +1,5 @@
 import { query } from './db';
+import { assertSchemaReady } from './schemaReadiness';
 
 const toMoneyNumber = (value) => {
   if (value === '' || value === null || value === undefined) return 0;
@@ -9,30 +10,10 @@ const toMoneyNumber = (value) => {
 const toCents = (value) => Math.round(toMoneyNumber(value) * 100);
 const fromCents = (value) => Math.round(value) / 100;
 
-export async function ensureCashReserveTable() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS cash_reserve_transactions (
-      id VARCHAR(64) PRIMARY KEY,
-      transaction_date DATE NOT NULL,
-      transaction_time TIME NULL,
-      type VARCHAR(50) NOT NULL,
-      detail TEXT NOT NULL,
-      vehicle_ref VARCHAR(255) NULL,
-      case_ref VARCHAR(255) NULL,
-      person_name VARCHAR(255) NULL,
-      payment_channel VARCHAR(100) NULL,
-      amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
-      direction VARCHAR(20) NOT NULL,
-      balance_after DECIMAL(12,2) NOT NULL DEFAULT 0.00,
-      receipt_image_url TEXT NULL,
-      note TEXT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
-}
+
 
 export async function recalculateBalances() {
+  await assertSchemaReady('financial');
   const rows = await query(`
     SELECT id, direction, amount, balance_after 
     FROM cash_reserve_transactions 

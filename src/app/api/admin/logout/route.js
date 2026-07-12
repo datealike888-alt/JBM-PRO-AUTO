@@ -1,4 +1,4 @@
-import { getAdminTokenFromRequest, revokeAdminSession } from '../../../../lib/adminAuth';
+import { getAdminTokenFromRequest, revokeCurrentAdminSession } from '../../../../lib/adminAuth';
 import { SESSION_COOKIE_NAME } from '../../../../lib/session';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
@@ -13,7 +13,7 @@ function json(data, init = {}) {
 export async function POST(request) {
   try {
     const token = getAdminTokenFromRequest(request);
-    await revokeAdminSession(token);
+    await revokeCurrentAdminSession(token);
     return json({ success: true }, {
       status: 200,
       headers: {

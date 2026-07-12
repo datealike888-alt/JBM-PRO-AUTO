@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS financial_transactions (
   amount DECIMAL(12,2) DEFAULT 0,
   cost_amount DECIMAL(12,2) NULL DEFAULT NULL,
   vat_amount DECIMAL(12,2) NULL DEFAULT NULL,
+  before_vat_3_percent DECIMAL(12,2) NULL DEFAULT 0,
   profit_amount DECIMAL(12,2) NULL DEFAULT NULL,
   payment_method VARCHAR(100) NULL,
   receipt_image_url TEXT NULL,
@@ -103,9 +104,49 @@ CREATE TABLE IF NOT EXISTS financial_transactions (
   INDEX idx_financial_transactions_type (type),
   INDEX idx_financial_transactions_category (category),
   INDEX idx_financial_transactions_related_vehicle_id (related_vehicle_id),
+  INDEX idx_financial_transactions_payment_method (payment_method),
   CONSTRAINT fk_financial_transactions_related_vehicle_id
     FOREIGN KEY (related_vehicle_id) REFERENCES vehicles(id)
     ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS cash_reserve_transactions (
+  id VARCHAR(64) PRIMARY KEY,
+  transaction_date DATE NOT NULL,
+  transaction_time TIME NULL,
+  type VARCHAR(50) NOT NULL,
+  detail TEXT NOT NULL,
+  vehicle_ref VARCHAR(255) NULL,
+  case_ref VARCHAR(255) NULL,
+  person_name VARCHAR(255) NULL,
+  payment_channel VARCHAR(100) NULL,
+  amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  direction VARCHAR(20) NOT NULL,
+  balance_after DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  receipt_image_url TEXT NULL,
+  note TEXT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_cash_reserve_transactions_transaction_date (transaction_date),
+  INDEX idx_cash_reserve_transactions_type (type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS supplier_payables (
+  id VARCHAR(64) PRIMARY KEY,
+  transaction_date DATE NOT NULL,
+  company_name VARCHAR(255) NOT NULL,
+  outstanding_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  status VARCHAR(32) NOT NULL DEFAULT 'รอจ่าย',
+  paid_date DATE NULL,
+  slip_url TEXT NULL,
+  note TEXT NULL,
+  created_by VARCHAR(255) NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_supplier_payables_status (status),
+  INDEX idx_supplier_payables_company_name (company_name),
+  INDEX idx_supplier_payables_transaction_date (transaction_date),
+  INDEX idx_supplier_payables_updated_at (updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS payment_debts (
@@ -122,6 +163,7 @@ CREATE TABLE IF NOT EXISTS payment_debts (
   description TEXT NULL,
   note TEXT NULL,
   receipt_image_url TEXT NULL,
+  receipt_images TEXT NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_payment_debts_status (status),
@@ -138,6 +180,7 @@ CREATE TABLE IF NOT EXISTS payment_debt_payments (
   payment_method VARCHAR(100) NULL,
   note TEXT NULL,
   receipt_image_url TEXT NULL,
+  receipt_images TEXT NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_payment_debt_payments_debt_id (debt_id),
   INDEX idx_payment_debt_payments_date (payment_date),
@@ -287,47 +330,54 @@ CREATE TABLE IF NOT EXISTS stock_categories (
 
 CREATE TABLE IF NOT EXISTS stock_products (
   id VARCHAR(64) PRIMARY KEY,
+  code VARCHAR(100) NULL,
+  name VARCHAR(255) NULL,
   product_code VARCHAR(100) NULL,
-  product_name VARCHAR(255) NOT NULL,
-  product_number VARCHAR(100) NULL,
+  product_name VARCHAR(255) NULL,
+  part_no VARCHAR(100) NULL,
   category_id VARCHAR(64) NULL,
-  product_brand VARCHAR(100) NULL,
-  car_brand VARCHAR(100) NULL,
-  car_model VARCHAR(100) NULL,
+  category VARCHAR(255) NULL,
+  brand VARCHAR(100) NULL,
+  car_models VARCHAR(255) NULL,
+  compatible_models VARCHAR(255) NULL,
   engine_number VARCHAR(100) NULL,
+  engine_code VARCHAR(100) NULL,
   price DECIMAL(12,2) DEFAULT 0,
-  storage_location VARCHAR(255) NULL,
+  sale_price DECIMAL(12,2) DEFAULT 0,
+  cost_price DECIMAL(12,2) DEFAULT 0,
+  location VARCHAR(255) NULL,
   quantity INT DEFAULT 0,
   reorder_point INT DEFAULT 0,
+  min_stock INT DEFAULT 0,
   supplier VARCHAR(255) NULL,
   status VARCHAR(50) NULL,
   image_url TEXT NULL,
+  unit VARCHAR(50) NULL,
   note TEXT NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY idx_stock_products_code (product_code),
   INDEX idx_stock_products_name (product_name),
-  INDEX idx_stock_products_category_id (category_id),
-  CONSTRAINT fk_stock_products_category_id
-    FOREIGN KEY (category_id) REFERENCES stock_categories(id)
-    ON UPDATE CASCADE
+  INDEX idx_stock_products_category_id (category_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS stock_movements (
   id VARCHAR(64) PRIMARY KEY,
-  product_id VARCHAR(64) NOT NULL,
-  movement_type VARCHAR(50) NOT NULL,
-  quantity INT NOT NULL,
+  product_id VARCHAR(64) NULL,
+  code VARCHAR(100) NULL,
+  name VARCHAR(255) NULL,
+  type VARCHAR(50) NULL,
+  product_code VARCHAR(100) NULL,
+  product_name VARCHAR(255) NULL,
+  movement_type VARCHAR(50) NULL,
+  quantity_change INT NOT NULL DEFAULT 0,
   quantity_before INT DEFAULT 0,
   quantity_after INT DEFAULT 0,
   note TEXT NULL,
   created_by VARCHAR(100) NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_stock_movements_product_id (product_id),
-  INDEX idx_stock_movements_created_at (created_at),
-  CONSTRAINT fk_stock_movements_product_id
-    FOREIGN KEY (product_id) REFERENCES stock_products(id)
-    ON UPDATE CASCADE
+  INDEX idx_stock_movements_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS system_settings (

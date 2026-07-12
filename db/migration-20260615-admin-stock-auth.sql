@@ -10,16 +10,6 @@ CREATE TABLE IF NOT EXISTS admin_users (
   UNIQUE KEY idx_admin_users_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-INSERT IGNORE INTO admin_users (id, username, password_hash, display_name, role, is_active)
-VALUES (
-  'admin-default',
-  'admin',
-  '$2b$10$6rpKbC.rrjjMdh6QPq8G2uB0qShD1WElKrKNS7fR8ZILRbg8jpQGK',
-  'JBM Admin',
-  'admin',
-  1
-);
-
 CREATE TABLE IF NOT EXISTS stock_categories (
   id VARCHAR(64) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,

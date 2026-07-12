@@ -15,6 +15,8 @@
     "test:security": "npm audit --audit-level=moderate",
     "backup:db": "node scripts/backup-db.cjs",
     "restore:db": "node scripts/restore-db.cjs",
+    "admin:create": "node scripts/create-admin.cjs",
+    "admin:security": "node scripts/admin-security.cjs",
     "migrate:json-db": "node scripts/migrate-json-to-mysql.cjs",
     "test": "jest",
     "test:watch": "jest --watch",

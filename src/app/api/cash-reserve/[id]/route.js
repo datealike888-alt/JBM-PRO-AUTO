@@ -1,7 +1,8 @@
-import { isAuthorizedAdminRequest, getAuthorizedAdminFromRequest } from '../../../../lib/adminAuth';
+import { getAuthorizedAdminFromRequest } from '../../../../lib/adminAuth';
 import { insertAuditLogSafe } from '../../../../lib/auditLog';
 import { query } from '../../../../lib/db';
-import { ensureCashReserveTable, recalculateBalances } from '../../../../lib/cashReserveStorage';
+import { recalculateBalances } from '../../../../lib/cashReserveStorage';
+import { assertSchemaReady, handleSchemaError } from '../../../../lib/schemaReadiness';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
@@ -92,7 +93,7 @@ export async function PUT(request, { params }) {
       return json({ error: 'จำนวนเงินไม่สามารถติดลบได้' }, { status: 400 });
     }
 
-    await ensureCashReserveTable();
+    await assertSchemaReady('financial');
 
     const beforeRows = await query('SELECT * FROM cash_reserve_transactions WHERE id = ? LIMIT 1', [id]);
     if (!beforeRows || beforeRows.length === 0) {
@@ -158,6 +159,8 @@ export async function PUT(request, { params }) {
 
     return json({ success: true, transaction: savedTransaction }, { status: 200 });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[cash-reserve] PUT failed', error);
     return json({ error: 'แก้ไขรายการเงินสำรองจ่ายไม่สำเร็จ' }, { status: 503 });
   }
@@ -172,7 +175,7 @@ export async function DELETE(request, { params }) {
     const id = cleanString(resolvedParams?.id, 64);
     if (!id) return json({ error: 'กรุณาระบุ id ของรายการที่ต้องการลบ' }, { status: 400 });
 
-    await ensureCashReserveTable();
+    await assertSchemaReady('financial');
     
     const rows = await query('SELECT * FROM cash_reserve_transactions WHERE id = ? LIMIT 1', [id]);
     if (!rows || rows.length === 0) {
@@ -200,6 +203,8 @@ export async function DELETE(request, { params }) {
     }
     return json({ success: true }, { status: 200 });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[cash-reserve] DELETE failed', error);
     return json({ error: 'ลบรายการเงินสำรองจ่ายไม่สำเร็จ' }, { status: 503 });
   }

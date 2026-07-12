@@ -1,9 +1,17 @@
 import crypto from 'crypto';
 
-const SESSION_SECRET = process.env.SESSION_SECRET || 'jbm-dev-session-secret';
-
 export const SESSION_COOKIE_NAME = 'jbm_session';
 export const LOGOUT_MARKER_COOKIE_NAME = 'jbm_logout_marker';
+
+export function getSessionSecret() {
+  const secret = String(process.env.SESSION_SECRET || '').trim();
+  if (secret.length < 48) {
+    const error = new Error('Session configuration is unavailable');
+    error.code = 'SESSION_CONFIGURATION_ERROR';
+    throw error;
+  }
+  return secret;
+}
 
 function base64urlEncode(value) {
   return Buffer.from(value, 'utf8')
@@ -24,7 +32,7 @@ function base64urlDecode(value) {
 
 function signPayload(encodedPayload) {
   return base64urlEncode(
-    crypto.createHmac('sha256', SESSION_SECRET).update(encodedPayload).digest('base64')
+    crypto.createHmac('sha256', getSessionSecret()).update(encodedPayload).digest('base64')
   );
 }
 

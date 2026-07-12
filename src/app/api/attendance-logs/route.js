@@ -1,12 +1,12 @@
 import {
   buildYearMonthDayFilters,
   cleanString,
-  ensureAttendanceLogsTable,
   isAuthorizedToken,
   normalizeAttendanceLogInput,
   normalizeAttendanceLogRow,
   query,
 } from '../../../lib/employeeStorage';
+import { assertSchemaReady, handleSchemaError } from '../../../lib/schemaReadiness';
 import { getAuthorizedAdminFromRequest } from '../../../lib/adminAuth';
 import { insertAuditLogSafe } from '../../../lib/auditLog';
 import { requirePermission } from '../../../lib/adminPermissions';
@@ -49,7 +49,7 @@ export async function GET(request) {
   try {
     const authResult = await requirePermission(request, 'employees.attendance');
     if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
-    await ensureAttendanceLogsTable();
+    await assertSchemaReady('employees');
 
     const where = buildWhere(new URL(request.url));
     const rows = await query(
@@ -78,6 +78,8 @@ export async function GET(request) {
       })),
     }, { status: 200, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[attendance-logs] GET failed', error);
     return json({ error: 'Attendance service unavailable' }, { status: 503 });
   }
@@ -101,7 +103,7 @@ export async function POST(request) {
       return json({ error: 'employeeId and date are required' }, { status: 400 });
     }
 
-    await ensureAttendanceLogsTable();
+    await assertSchemaReady('employees');
     const beforeRows = await query(
       `SELECT ea.id, ea.employee_id, e.employee_code, ea.work_date, ea.check_in_time, ea.lunch_out_time, ea.lunch_in_time, ea.check_out_time,
               ea.status, ea.total_hours, ea.ot_hours, ea.note, ea.created_at, ea.updated_at
@@ -170,6 +172,8 @@ export async function POST(request) {
 
     return json({ success: true, log: savedLog }, { status: 200 });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[attendance-logs] POST failed', error);
     return json({ error: 'Unable to save attendance log' }, { status: 503 });
   }
@@ -191,7 +195,7 @@ export async function DELETE(request) {
     const id = cleanString(new URL(request.url).searchParams.get('id'), 64);
     if (!id) return json({ error: 'Missing id parameter' }, { status: 400 });
 
-    await ensureAttendanceLogsTable();
+    await assertSchemaReady('employees');
     const rows = await query(
       `SELECT ea.id, ea.employee_id, e.employee_code, ea.work_date, ea.check_in_time, ea.lunch_out_time, ea.lunch_in_time, ea.check_out_time,
               ea.status, ea.total_hours, ea.ot_hours, ea.note, ea.created_at, ea.updated_at
@@ -219,6 +223,8 @@ export async function DELETE(request) {
     }
     return json({ success: true }, { status: 200 });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[attendance-logs] DELETE failed', error);
     return json({ error: 'Unable to delete attendance log' }, { status: 503 });
   }

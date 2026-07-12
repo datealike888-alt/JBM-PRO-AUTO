@@ -1,11 +1,11 @@
 import {
   cleanString,
-  ensureAttendanceSettingsTable,
   isAuthorizedToken,
   normalizeAttendanceSettingsInput,
   normalizeAttendanceSettingsRow,
   query,
 } from '../../../lib/employeeStorage';
+import { assertSchemaReady, handleSchemaError } from '../../../lib/schemaReadiness';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
@@ -19,7 +19,7 @@ function json(data, init = {}) {
 export async function GET(request) {
   try {
     if (!(await isAuthorizedToken(request))) return json({ error: 'Forbidden' }, { status: 403 });
-    await ensureAttendanceSettingsTable();
+    await assertSchemaReady('employees');
 
     const url = new URL(request.url);
     const employeeId = cleanString(url.searchParams.get('employeeId'), 64);
@@ -36,6 +36,8 @@ export async function GET(request) {
 
     return json({ success: true, settings: rows[0] ? normalizeAttendanceSettingsRow(rows[0]) : null }, { status: 200, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[attendance-settings] GET failed', error);
     return json({ error: 'Attendance settings service unavailable' }, { status: 503 });
   }
@@ -52,7 +54,7 @@ export async function POST(request) {
       return json({ error: 'Invalid JSON body' }, { status: 400 });
     }
 
-    await ensureAttendanceSettingsTable();
+    await assertSchemaReady('employees');
     const settings = normalizeAttendanceSettingsInput(body);
 
     await query(
@@ -93,6 +95,8 @@ export async function POST(request) {
 
     return json({ success: true, settings: normalizeAttendanceSettingsRow(rows[0] || settings) }, { status: 200 });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[attendance-settings] POST failed', error);
     return json({ error: 'Unable to save attendance settings' }, { status: 503 });
   }
@@ -107,7 +111,7 @@ export async function DELETE(request) {
     const employeeId = cleanString(url.searchParams.get('employeeId'), 64);
     if (!id && !employeeId) return json({ error: 'Missing id or employeeId parameter' }, { status: 400 });
 
-    await ensureAttendanceSettingsTable();
+    await assertSchemaReady('employees');
     if (id) {
       await query('DELETE FROM attendance_settings WHERE id = ? AND id <> ?', [id, 'attendance-settings-default']);
     } else {
@@ -119,6 +123,8 @@ export async function DELETE(request) {
 
     return json({ success: true }, { status: 200 });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[attendance-settings] DELETE failed', error);
     return json({ error: 'Unable to delete attendance settings' }, { status: 503 });
   }

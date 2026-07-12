@@ -1,12 +1,10 @@
 import {
   cleanString,
   ensureStockMovementsTable,
-  isAuthorizedStockRequest,
   normalizeStockMovementInput,
   normalizeStockMovementRow,
   query,
 } from '../../../../lib/stockStorage';
-import { getAuthorizedAdminFromRequest } from '../../../../lib/adminAuth';
 import { insertAuditLogSafe } from '../../../../lib/auditLog';
 import { requirePermission } from '../../../../lib/adminPermissions';
 

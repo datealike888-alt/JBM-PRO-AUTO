@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { getDbConfigFromDatabaseUrl } = require('./db-url-config.cjs');
 
 function parseArgs(argv = []) {
     const args = { out: '', gzip: false };
@@ -32,25 +33,9 @@ function nowStamp() {
     return `${yyyy}${mm}${dd}-${hh}${mi}${ss}`;
 }
 
-function getDbConfig() {
-    return {
-        host: process.env.DB_HOST || '',
-        port: String(process.env.DB_PORT || '3306'),
-        user: process.env.DB_USER || '',
-        password: process.env.DB_PASSWORD || '',
-        database: process.env.DB_NAME || 'jbm_pro_auto',
-    };
-}
-
 function run() {
     const args = parseArgs(process.argv.slice(2));
-    const cfg = getDbConfig();
-    if (!cfg.host || !cfg.user) {
-        throw new Error('Missing DB_HOST or DB_USER');
-    }
-    if (!cfg.database) {
-        throw new Error('Missing DB_NAME');
-    }
+    const cfg = getDbConfigFromDatabaseUrl();
 
     const backupDir = path.join(process.cwd(), 'backups');
     if (!fs.existsSync(backupDir)) {
@@ -73,7 +58,7 @@ function run() {
         cfg.database,
     ];
 
-    console.log(`[backup] creating dump for "${cfg.database}" -> ${outFile}`);
+    console.log(`[backup] creating dump for "${cfg.database}" from configured remote database -> ${outFile}`);
     const child = spawn('mysqldump', dumpArgs, {
         env: {
             ...process.env,

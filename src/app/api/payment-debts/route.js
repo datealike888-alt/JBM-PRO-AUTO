@@ -1,12 +1,11 @@
-import { getAuthorizedAdminFromRequest, isAuthorizedAdminRequest } from '../../../lib/adminAuth';
 import { requireAnyPermission, requirePermission, requireDashboardReadPermission } from '../../../lib/adminPermissions';
 import { insertAuditLogSafe } from '../../../lib/auditLog';
 import {
   cleanString,
-  ensurePaymentDebtTables,
   getPaymentDebts,
   savePaymentDebt,
 } from '../../../lib/paymentDebtStorage';
+import { assertSchemaReady, handleSchemaError } from '../../../lib/schemaReadiness';
 
 function json(data, init = {}) {
   return Response.json(data, init);
@@ -20,11 +19,14 @@ export async function GET(request) {
       ? await requireDashboardReadPermission(request)
       : await requireAnyPermission(request, ['paymentDebts.view', 'finance.view']);
     if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
-    await ensurePaymentDebtTables();
+
+    await assertSchemaReady('financial');
+
     const debts = await getPaymentDebts({
       search: cleanString(url.searchParams.get('search'), 100),
       status: cleanString(url.searchParams.get('status'), 64),
     });
+
     const openDebts = debts.filter((debt) => Number(debt.balance_amount || 0) > 0);
     const today = new Date().toISOString().slice(0, 10);
     const summary = {
@@ -35,6 +37,7 @@ export async function GET(request) {
       due_today_count: openDebts.filter((debt) => debt.due_date === today).length,
       overdue_count: openDebts.filter((debt) => debt.due_date && debt.due_date < today).length,
     };
+
     if (wantsDashboardData) {
       const dashboardDebts = debts.map((debt) => ({
         id: debt.id,
@@ -47,8 +50,11 @@ export async function GET(request) {
       }));
       return json({ success: true, debts: dashboardDebts, summary }, { status: 200, headers: { 'Cache-Control': 'no-store' } });
     }
+
     return json({ success: true, debts, summary }, { status: 200, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[payment-debts] GET failed', error);
     return json({ error: 'Payment debts unavailable' }, { status: 503 });
   }
@@ -59,15 +65,21 @@ export async function POST(request) {
     const authResult = await requirePermission(request, 'paymentDebts.update'); // Using update as it covers both create and update for debts
     if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
     const admin = authResult.admin;
+
+    await assertSchemaReady('financial');
+
     let body;
     try {
       body = await request.json();
     } catch {
       return json({ error: 'Invalid JSON body' }, { status: 400 });
     }
+
     if (!cleanString(body.customer_name || body.customerName, 255)) return json({ error: 'customer_name is required' }, { status: 400 });
+
     const debt = await savePaymentDebt(body);
     if (debt.error) return json({ error: debt.error }, { status: 400 });
+
     await insertAuditLogSafe({
       action: body.id ? 'UPDATE' : 'CREATE',
       module: 'FINANCIAL',
@@ -79,8 +91,11 @@ export async function POST(request) {
         afterData: debt,
       },
     });
+
     return json({ success: true, debt }, { status: 200 });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[payment-debts] POST failed', error);
     return json({ error: 'Unable to save payment debt' }, { status: 503 });
   }

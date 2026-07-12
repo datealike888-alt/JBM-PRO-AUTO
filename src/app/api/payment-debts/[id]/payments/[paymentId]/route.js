@@ -1,6 +1,7 @@
 import { getAuthorizedAdminFromRequest } from '../../../../../../lib/adminAuth';
 import { insertAuditLogSafe } from '../../../../../../lib/auditLog';
 import { cleanString, deleteDebtPaymentById } from '../../../../../../lib/paymentDebtStorage';
+import { handleSchemaError } from '../../../../../../lib/schemaReadiness';
 
 function json(data, init = {}) {
   return Response.json(data, init);
@@ -34,6 +35,8 @@ export async function DELETE(request, { params }) {
 
     return json({ success: true, deleted_id: paymentId, debt: result.debt }, { status: 200 });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[payment-debts/[id]/payments/[paymentId]] DELETE failed', error);
     return json({ error: 'Unable to delete debt payment' }, { status: 503 });
   }

@@ -1,27 +1,59 @@
+import fs from 'fs';
 import { createPool } from 'mariadb';
 
+const FORBIDDEN_LOCAL_DATABASE_HOSTS = new Set([
+  'localhost',
+  '127.0.0.1',
+  '0.0.0.0',
+  '::1',
+  'db',
+  'mysql',
+  'mariadb',
+  'jbm-mysql',
+  'host.docker.internal',
+]);
+
+let pool;
+
+function envFlag(name) {
+  return String(process.env[name] || '').trim().toLowerCase() === 'true';
+}
+
+export function normalizeDatabaseHost(hostname = '') {
+  return String(hostname || '').trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+}
+
+export function isLocalDatabaseHost(hostname = '') {
+  return FORBIDDEN_LOCAL_DATABASE_HOSTS.has(normalizeDatabaseHost(hostname));
+}
+
+function databaseConfigurationError(message) {
+  const error = new Error(`Database configuration error: ${message}`);
+  error.code = 'DATABASE_CONFIGURATION_ERROR';
+  return error;
+}
+
 export function getDbConfig() {
-  const isDev = process.env.NODE_ENV === 'development';
   let config = null;
 
   if (process.env.DATABASE_URL) {
     try {
       const url = new URL(process.env.DATABASE_URL);
       config = {
-        host: url.hostname,
+        host: normalizeDatabaseHost(url.hostname),
         port: parseInt(url.port, 10) || 3306,
         user: decodeURIComponent(url.username) || process.env.DB_USER || '',
         password: decodeURIComponent(url.password) || process.env.DB_PASSWORD || '',
         database: url.pathname?.slice(1) || process.env.DB_NAME || 'jbm_pro_auto',
       };
-    } catch (error) {
-      console.warn('[db] DATABASE_URL parse failed', error);
+    } catch {
+      throw databaseConfigurationError('DATABASE_URL is invalid.');
     }
   }
 
   if (!config) {
     config = {
-      host: process.env.DB_HOST || '',
+      host: normalizeDatabaseHost(process.env.DB_HOST || ''),
       port: parseInt(process.env.DB_PORT, 10) || 3306,
       user: process.env.DB_USER || '',
       password: process.env.DB_PASSWORD || '',
@@ -29,9 +61,36 @@ export function getDbConfig() {
     };
   }
 
-  if (!isDev) {
-    if (!config.host || config.host === '127.0.0.1' || config.host === 'localhost' || config.host === '0.0.0.0') {
-      throw new Error('DATABASE_URL is required in production and must point to a real database server. Using a local database (127.0.0.1, localhost) is forbidden in production environments.');
+  if (!config.host) {
+    throw databaseConfigurationError('DATABASE host is required.');
+  }
+  if (!config.user) {
+    throw databaseConfigurationError('DATABASE user is required.');
+  }
+  if (!config.database) {
+    throw databaseConfigurationError('DATABASE name is required.');
+  }
+
+  const requireExternalDatabase = envFlag('REQUIRE_EXTERNAL_DATABASE');
+  const allowLocalDatabase = envFlag('ALLOW_LOCAL_DATABASE');
+  if (isLocalDatabaseHost(config.host) && (requireExternalDatabase || !allowLocalDatabase)) {
+    throw databaseConfigurationError('Local Database Host is forbidden. Configure DATABASE_URL with an external remote database host.');
+  }
+  if (requireExternalDatabase && String(config.user || '').trim().toLowerCase() === 'root') {
+    throw databaseConfigurationError('Production application database user cannot be root.');
+  }
+
+  let ssl = false;
+  if (process.env.DB_SSL_MODE && process.env.DB_SSL_MODE !== 'disabled') {
+    ssl = {
+      rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED === 'true'
+    };
+    if (process.env.DB_SSL_CA_PATH) {
+      try {
+        ssl.ca = fs.readFileSync(process.env.DB_SSL_CA_PATH, 'utf8');
+      } catch {
+        throw databaseConfigurationError('Database TLS CA certificate is unavailable.');
+      }
     }
   }
 
@@ -41,15 +100,19 @@ export function getDbConfig() {
     charset: 'utf8mb4',
     timezone: 'Z',
     connectTimeout: 10000,
-    allowPublicKeyRetrieval: true,
-    ssl: false,
+    allowPublicKeyRetrieval: process.env.DB_ALLOW_PUBLIC_KEY_RETRIEVAL === 'true',
+    ssl,
   };
 }
 
-const pool = createPool(getDbConfig());
+export function getPool() {
+  if (pool) return pool;
+  pool = createPool(getDbConfig());
+  return pool;
+}
 
 export async function query(sql, params = []) {
-  const conn = await pool.getConnection();
+  const conn = await getPool().getConnection();
   try {
     return await conn.query(sql, params);
   } finally {
@@ -58,7 +121,7 @@ export async function query(sql, params = []) {
 }
 
 export async function withTransaction(task) {
-  const conn = await pool.getConnection();
+  const conn = await getPool().getConnection();
   try {
     await conn.beginTransaction();
     const result = await task(conn);

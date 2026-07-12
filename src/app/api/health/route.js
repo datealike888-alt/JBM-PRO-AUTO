@@ -1,89 +1,39 @@
+import { NextResponse } from 'next/server';
 import { getDbConfig, query, testConnection } from '../../../lib/db';
-import { ensureAdminSessionsTable, ensureAdminUsersTable } from '../../../lib/adminAuth';
-import { ensureAuditLogsTable } from '../../../lib/auditLog';
-import { ensureEmployeeStorageTables } from '../../../lib/employeeStorage';
-import { ensureStockCategoriesTable, ensureStockMovementsTable, ensureStockProductsTable } from '../../../lib/stockStorage';
-import { ensurePaymentDebtTables } from '../../../lib/paymentDebtStorage';
 
-async function ensureVehiclesTable() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS vehicles (
-      id VARCHAR(64) PRIMARY KEY,
-      invoice_number VARCHAR(100) NULL,
-      license_plate VARCHAR(100) NULL,
-      owner_name VARCHAR(255) NULL,
-      phone VARCHAR(50) NULL,
-      brand VARCHAR(100) NULL,
-      model VARCHAR(100) NULL,
-      car_brand VARCHAR(100) NULL,
-      car_model VARCHAR(100) NULL,
-      color VARCHAR(100) NULL,
-      vin VARCHAR(100) NULL,
-      mileage INT NULL,
-      status VARCHAR(100) NULL,
-      status_detail TEXT NULL,
-      repair_cost DECIMAL(12,2) DEFAULT 0,
-      booking_date DATE NULL,
-      estimated_completion_date DATE NULL,
-      entry_date DATE NULL,
-      booking_time VARCHAR(50) NULL,
-      estimated_completion DATE NULL,
-      receipt_image MEDIUMTEXT NULL,
-      receipt_images MEDIUMTEXT NULL,
-      receipt_name VARCHAR(255) NULL,
-      receipt_url TEXT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
+function healthJson(data, status) {
+  return NextResponse.json(data, {
+    status,
+    headers: {
+      'Cache-Control': 'no-store',
+    },
+  });
 }
 
-async function ensureFinancialTransactionsTable() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS financial_transactions (
-      id VARCHAR(64) PRIMARY KEY,
-      date DATE NULL,
-      time TIME NULL,
-      transaction_date DATE NOT NULL,
-      type VARCHAR(50) NOT NULL,
-      category VARCHAR(100) NULL,
-      description TEXT NULL,
-      amount DECIMAL(12,2) DEFAULT 0,
-      payment_method VARCHAR(100) NULL,
-      receipt_image_url TEXT NULL,
-      related_vehicle_id VARCHAR(64) NULL,
-      note TEXT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
-}
+function classifyHealthError(error) {
+  if (error?.code === 'DATABASE_CONFIGURATION_ERROR') {
+    return {
+      status: 503,
+      body: {
+        success: false,
+        status: 'error',
+        database: 'not_configured',
+        error: 'ระบบฐานข้อมูลยังไม่พร้อม',
+        code: 'DATABASE_CONFIGURATION_ERROR',
+      },
+    };
+  }
 
-async function ensureVehicleReceiptsTable() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS vehicle_receipts (
-      id VARCHAR(64) PRIMARY KEY,
-      vehicle_id VARCHAR(64) NOT NULL,
-      file_name VARCHAR(255) NULL,
-      file_url TEXT NULL,
-      mime_type VARCHAR(100) NULL,
-      file_size INT NULL,
-      uploaded_by VARCHAR(100) NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
-}
-
-async function ensureSystemSettingsTable() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS system_settings (
-      setting_key VARCHAR(100) PRIMARY KEY,
-      setting_value TEXT NULL,
-      setting_type VARCHAR(50) NULL,
-      description TEXT NULL,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
+  return {
+    status: 503,
+    body: {
+      success: false,
+      status: 'error',
+      database: 'disconnected',
+      error: 'เชื่อมต่อฐานข้อมูลไม่ได้',
+      code: 'DATABASE_CONNECTION_ERROR',
+    },
+  };
 }
 
 export async function GET() {
@@ -108,25 +58,8 @@ export async function GET() {
   };
 
   let charset = '';
-  let status = 200;
-  let database = 'disconnected';
-
   try {
-    await ensureAdminUsersTable();
-    await ensureAdminSessionsTable();
-    await ensureVehiclesTable();
-    await ensureVehicleReceiptsTable();
-    await ensureFinancialTransactionsTable();
-    await ensureEmployeeStorageTables();
-    await ensureStockCategoriesTable();
-    await ensureStockProductsTable();
-    await ensureStockMovementsTable();
-    await ensurePaymentDebtTables();
-    await ensureAuditLogsTable();
-    await ensureSystemSettingsTable();
-
     await testConnection();
-    database = 'connected';
 
     const rows = await query(`
       SELECT TABLE_NAME, TABLE_COLLATION
@@ -140,24 +73,31 @@ export async function GET() {
       if (!charset && row.TABLE_COLLATION) charset = String(row.TABLE_COLLATION);
     }
   } catch (error) {
-    console.error('[health] GET failed', error);
-    status = 503;
+    console.error('[health] GET failed', { code: error?.code || 'DATABASE_CONNECTION_ERROR' });
+    const result = classifyHealthError(error);
+    return healthJson(result.body, result.status);
   }
 
-  const ok = database === 'connected' && Object.values(tableChecks).every(Boolean);
-  if (!ok) status = 503;
+  const tablesReady = Object.values(tableChecks).every(Boolean);
+  if (!tablesReady) {
+    return healthJson({
+      success: false,
+      status: 'degraded',
+      database: 'connected',
+      error: 'โครงสร้างฐานข้อมูลยังไม่พร้อม',
+      code: 'DATABASE_SCHEMA_NOT_READY',
+      tables: tableChecks,
+    }, 503);
+  }
 
-  return Response.json({
-    ok,
+  return healthJson({
+    success: true,
+    status: 'ok',
+    database: 'connected',
+    ok: true,
     server: 'running',
-    database,
     charset: charset || 'unknown',
     utf8mb4: charset.includes('utf8mb4'),
     tables: tableChecks,
-  }, {
-    status,
-    headers: {
-      'Cache-Control': 'no-store',
-    },
-  });
+  }, 200);
 }

@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { query } from './db';
-import { getAuthorizedAdminFromRequest } from './adminAuth';
+import { getAuthorizedAdminFromRequest, revokeAllAdminSessions } from './adminAuth';
 
 // ---------------------------------------------------------------------------
 // Permission Keys
@@ -238,6 +238,7 @@ export const MENU_PERMISSION_MAP = {
   all: 'vehicles.view',
   productStock: 'stock.view',
   finance: 'finance.view',
+  suppliers: 'finance.view',
   cashReserve: 'cashReserve.view',
   paymentDebts: 'paymentDebts.view',
   charts: 'reports.view',
@@ -264,12 +265,11 @@ function uniqueCleanIds(values, maxLength = 64) {
   return [...new Set(values.map((value) => cleanString(value, maxLength)).filter(Boolean))];
 }
 
-async function ensureColumn(sql) {
-  try {
-    await query(sql);
-  } catch (error) {
-    if (Number(error?.errno || 0) !== 1060) throw error;
-  }
+function assertStrongAdminPassword(password) {
+  const passwordStr = String(password || '');
+  const weakPasswords = new Set(['admin', 'admin123', 'password', 'password123', '123456']);
+  if (passwordStr.length < 12) throw new Error('รหัสผ่านต้องมีอย่างน้อย 12 ตัวอักษร');
+  if (weakPasswords.has(passwordStr.toLowerCase())) throw new Error('รหัสผ่านไม่ปลอดภัยเพียงพอ');
 }
 
 async function assertExistingRoleIds(roleIds = []) {
@@ -315,56 +315,11 @@ let _tablesEnsured = false;
 export async function ensureAdminRoleTables() {
   if (_tablesEnsured) return;
 
-  await query(`
-    CREATE TABLE IF NOT EXISTS admin_roles (
-      id VARCHAR(64) PRIMARY KEY,
-      role_key VARCHAR(100) NOT NULL UNIQUE,
-      role_name VARCHAR(255) NOT NULL,
-      description TEXT NULL,
-      is_system TINYINT(1) NOT NULL DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
-
-  await query(`
-    CREATE TABLE IF NOT EXISTS admin_permissions (
-      id VARCHAR(64) PRIMARY KEY,
-      permission_key VARCHAR(150) NOT NULL UNIQUE,
-      permission_name VARCHAR(255) NOT NULL,
-      group_name VARCHAR(100) NULL,
-      description TEXT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
-
-  await query(`
-    CREATE TABLE IF NOT EXISTS admin_role_permissions (
-      id VARCHAR(64) PRIMARY KEY,
-      role_id VARCHAR(64) NOT NULL,
-      permission_id VARCHAR(64) NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE KEY unique_role_permission (role_id, permission_id),
-      INDEX idx_rp_role_id (role_id),
-      INDEX idx_rp_permission_id (permission_id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
-
-  await query(`
-    CREATE TABLE IF NOT EXISTS admin_user_roles (
-      id VARCHAR(64) PRIMARY KEY,
-      user_id VARCHAR(64) NOT NULL,
-      role_id VARCHAR(64) NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE KEY unique_user_role (user_id, role_id),
-      INDEX idx_ur_user_id (user_id),
-      INDEX idx_ur_role_id (role_id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
-
-  // Add email column to admin_users if not exists
-  await ensureColumn('ALTER TABLE admin_users ADD COLUMN email VARCHAR(255) NULL');
+  await query('SELECT 1 FROM admin_roles LIMIT 0');
+  await query('SELECT 1 FROM admin_permissions LIMIT 0');
+  await query('SELECT 1 FROM admin_role_permissions LIMIT 0');
+  await query('SELECT 1 FROM admin_user_roles LIMIT 0');
+  await query('SELECT email FROM admin_users LIMIT 0');
 
   _tablesEnsured = true;
 }
@@ -591,6 +546,7 @@ export async function createAdminUser({ username, password, display_name, email,
   const usernameClean = cleanString(username, 100).toLowerCase();
   const passwordStr = String(password || '');
   if (!usernameClean || !passwordStr) throw new Error('กรุณากรอกชื่อผู้ใช้และรหัสผ่าน');
+  assertStrongAdminPassword(passwordStr);
 
   const USERNAME_PATTERN = /^[a-zA-Z0-9._-]{3,50}$/;
   if (!USERNAME_PATTERN.test(usernameClean)) {
@@ -686,6 +642,10 @@ export async function updateAdminUser(userId, { username, display_name, email, r
     await query(`UPDATE admin_users SET ${sets.join(', ')} WHERE id = ?`, params);
   }
 
+  if (is_active === false || is_active === 0) {
+    await revokeAllAdminSessions(userIdStr);
+  }
+
   // Update roles if provided
   if (Array.isArray(roleIds)) {
     const cleanRoleIds = await assertExistingRoleIds(roleIds);
@@ -714,12 +674,14 @@ export async function changeAdminPassword(userId, newPassword) {
   const userIdStr = cleanString(userId, 64);
   const passwordStr = String(newPassword || '');
   if (!userIdStr || !passwordStr) throw new Error('Invalid data');
+  assertStrongAdminPassword(passwordStr);
 
   const passwordHash = await bcrypt.hash(passwordStr, 10);
   await query(
     `UPDATE admin_users SET password_hash = ? WHERE id = ?`,
     [passwordHash, userIdStr]
   );
+  await revokeAllAdminSessions(userIdStr);
 }
 
 export async function deleteAdminUser(userId) {

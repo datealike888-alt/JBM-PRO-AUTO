@@ -41,9 +41,11 @@ export async function GET(request, { params }) {
       },
     });
   } catch {
-    return new Response(JSON.stringify({ error: 'Not found' }), {
+    return new Response(JSON.stringify({ error: 'File not found' }), {
       status: 404,
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+      },
     });
   }
 }

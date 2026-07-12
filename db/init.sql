@@ -43,16 +43,6 @@ CREATE TABLE IF NOT EXISTS admin_users (
   UNIQUE KEY idx_admin_users_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-INSERT IGNORE INTO admin_users (id, username, password_hash, display_name, role, is_active)
-VALUES (
-  'admin-default',
-  'admin',
-  '$2b$10$6rpKbC.rrjjMdh6QPq8G2uB0qShD1WElKrKNS7fR8ZILRbg8jpQGK',
-  'JBM Admin',
-  'admin',
-  1
-);
-
 CREATE TABLE IF NOT EXISTS employees (
   id VARCHAR(64) PRIMARY KEY,
   code VARCHAR(255) NOT NULL,
@@ -92,43 +82,48 @@ INSERT IGNORE INTO employee_positions (id, name, sort_order, active) VALUES
   ('position-stock', 'พนักงานสต็อก', 4, 1),
   ('position-mechanic', 'ช่าง', 5, 1);
 
-CREATE TABLE IF NOT EXISTS attendance_logs (
+CREATE TABLE IF NOT EXISTS employee_attendance (
   id VARCHAR(64) PRIMARY KEY,
   employee_id VARCHAR(64) NOT NULL,
-  employee_code VARCHAR(255) NULL,
-  date DATE NOT NULL,
-  morning_in TIME NULL,
-  lunch_out TIME NULL,
-  afternoon_in TIME NULL,
-  evening_out TIME NULL,
-  method VARCHAR(100) NULL,
+  work_date DATE NOT NULL,
+  check_in_time TIME NULL,
+  lunch_out_time TIME NULL,
+  lunch_in_time TIME NULL,
+  check_out_time TIME NULL,
   status VARCHAR(100) NULL,
-  hours DECIMAL(10,2) NOT NULL DEFAULT 0,
-  source VARCHAR(32) NOT NULL DEFAULT 'api',
-  createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_attendance_logs_employee_id (employee_id),
-  INDEX idx_attendance_logs_date (date),
-  INDEX idx_attendance_logs_status (status)
+  total_hours DECIMAL(5,2) DEFAULT 0,
+  ot_hours DECIMAL(5,2) DEFAULT 0,
+  note TEXT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY idx_employee_attendance_unique (employee_id, work_date),
+  INDEX idx_employee_attendance_work_date (work_date),
+  INDEX idx_employee_attendance_status (status),
+  CONSTRAINT fk_employee_attendance_employee_id
+    FOREIGN KEY (employee_id) REFERENCES employees(id)
+    ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS leave_logs (
+CREATE TABLE IF NOT EXISTS employee_leaves (
   id VARCHAR(64) PRIMARY KEY,
   employee_id VARCHAR(64) NOT NULL,
-  employee_code VARCHAR(255) NULL,
-  type VARCHAR(100) NOT NULL,
-  start_date DATE NOT NULL,
-  end_date DATE NOT NULL,
-  total_days DECIMAL(10,2) NOT NULL DEFAULT 0,
-  approver VARCHAR(255) NULL,
+  leave_type VARCHAR(100) NULL,
+  start_date DATE NULL,
+  end_date DATE NULL,
+  total_days DECIMAL(5,2) DEFAULT 0,
+  leave_duration_type VARCHAR(50) NOT NULL DEFAULT 'full_day',
+  leave_days DECIMAL(5,2) NOT NULL DEFAULT 1.00,
   reason TEXT NULL,
-  submitted_at DATE NULL,
-  source VARCHAR(32) NOT NULL DEFAULT 'api',
-  createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_leave_logs_employee_id (employee_id),
-  INDEX idx_leave_logs_date (start_date),
-  INDEX idx_leave_logs_end_date (end_date)
+  approver VARCHAR(255) NULL,
+  status VARCHAR(50) DEFAULT 'รออนุมัติ',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_employee_leaves_employee_id (employee_id),
+  INDEX idx_employee_leaves_start_date (start_date),
+  INDEX idx_employee_leaves_status (status),
+  CONSTRAINT fk_employee_leaves_employee_id
+    FOREIGN KEY (employee_id) REFERENCES employees(id)
+    ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 
@@ -179,8 +174,8 @@ CREATE TABLE IF NOT EXISTS attendance_settings (
   afternoon_late_after TIME NULL,
   work_end TIME NULL,
   source VARCHAR(32) NOT NULL DEFAULT 'api',
-  createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_attendance_settings_employee_id (employee_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -200,65 +195,167 @@ INSERT IGNORE INTO attendance_settings (
 
 CREATE TABLE IF NOT EXISTS financial_transactions (
   id VARCHAR(64) PRIMARY KEY,
-  date DATE NOT NULL,
+  date DATE NULL,
   time TIME NULL,
-  type ENUM('income','expense') NOT NULL,
-  payment_method VARCHAR(100) NOT NULL,
-  description TEXT NOT NULL,
-  amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  transaction_date DATE NOT NULL,
+  type VARCHAR(50) NOT NULL,
+  category VARCHAR(100) NULL,
+  description TEXT NULL,
+  amount DECIMAL(12,2) DEFAULT 0,
   cost_amount DECIMAL(12,2) NULL DEFAULT NULL,
   vat_amount DECIMAL(12,2) NULL DEFAULT NULL,
+  before_vat_3_percent DECIMAL(12,2) NULL DEFAULT 0,
   profit_amount DECIMAL(12,2) NULL DEFAULT NULL,
+  payment_method VARCHAR(100) NULL,
+  receipt_image_url TEXT NULL,
+  related_vehicle_id VARCHAR(64) NULL,
+  note TEXT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_financial_transactions_date (date),
+  INDEX idx_financial_transactions_transaction_date (transaction_date),
   INDEX idx_financial_transactions_type (type),
+  INDEX idx_financial_transactions_category (category),
+  INDEX idx_financial_transactions_related_vehicle_id (related_vehicle_id),
   INDEX idx_financial_transactions_payment_method (payment_method)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS cash_reserve_transactions (
+  id VARCHAR(64) PRIMARY KEY,
+  transaction_date DATE NOT NULL,
+  transaction_time TIME NULL,
+  type VARCHAR(50) NOT NULL,
+  detail TEXT NOT NULL,
+  vehicle_ref VARCHAR(255) NULL,
+  case_ref VARCHAR(255) NULL,
+  person_name VARCHAR(255) NULL,
+  payment_channel VARCHAR(100) NULL,
+  amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  direction VARCHAR(20) NOT NULL,
+  balance_after DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  receipt_image_url TEXT NULL,
+  note TEXT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_cash_reserve_transactions_transaction_date (transaction_date),
+  INDEX idx_cash_reserve_transactions_type (type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS supplier_payables (
+  id VARCHAR(64) PRIMARY KEY,
+  transaction_date DATE NOT NULL,
+  company_name VARCHAR(255) NOT NULL,
+  outstanding_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  status VARCHAR(32) NOT NULL DEFAULT 'รอจ่าย',
+  paid_date DATE NULL,
+  slip_url TEXT NULL,
+  note TEXT NULL,
+  created_by VARCHAR(255) NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_supplier_payables_status (status),
+  INDEX idx_supplier_payables_company_name (company_name),
+  INDEX idx_supplier_payables_transaction_date (transaction_date),
+  INDEX idx_supplier_payables_updated_at (updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS payment_debts (
+  id VARCHAR(64) PRIMARY KEY,
+  customer_name VARCHAR(255) NOT NULL,
+  phone VARCHAR(64) NULL,
+  case_reference VARCHAR(255) NULL,
+  total_amount DECIMAL(12,2) DEFAULT 0,
+  paid_amount DECIMAL(12,2) DEFAULT 0,
+  balance_amount DECIMAL(12,2) DEFAULT 0,
+  status VARCHAR(64) NULL,
+  due_date DATE NULL,
+  payment_method VARCHAR(100) NULL,
+  description TEXT NULL,
+  note TEXT NULL,
+  receipt_image_url TEXT NULL,
+  receipt_images TEXT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_payment_debts_status (status),
+  INDEX idx_payment_debts_due_date (due_date),
+  INDEX idx_payment_debts_customer_name (customer_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS payment_debt_payments (
+  id VARCHAR(64) PRIMARY KEY,
+  debt_id VARCHAR(64) NOT NULL,
+  payment_date DATE NOT NULL,
+  payment_time TIME NULL,
+  amount DECIMAL(12,2) DEFAULT 0,
+  payment_method VARCHAR(100) NULL,
+  note TEXT NULL,
+  receipt_image_url TEXT NULL,
+  receipt_images TEXT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_payment_debt_payments_debt_id (debt_id),
+  INDEX idx_payment_debt_payments_date (payment_date),
+  CONSTRAINT fk_payment_debt_payments_debt_id
+    FOREIGN KEY (debt_id) REFERENCES payment_debts(id)
+    ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS stock_categories (
   id VARCHAR(64) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
-  is_active TINYINT(1) NOT NULL DEFAULT 1,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  description TEXT NULL,
+  is_active TINYINT(1) DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY idx_stock_categories_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS stock_products (
   id VARCHAR(64) PRIMARY KEY,
   code VARCHAR(100) NULL,
-  name VARCHAR(255) NOT NULL,
-  part_no VARCHAR(255) NULL,
+  name VARCHAR(255) NULL,
+  product_code VARCHAR(100) NULL,
+  product_name VARCHAR(255) NULL,
+  part_no VARCHAR(100) NULL,
+  category_id VARCHAR(64) NULL,
   category VARCHAR(255) NULL,
-  brand VARCHAR(255) NULL,
-  car_models TEXT NULL,
-  price DECIMAL(12,2) NOT NULL DEFAULT 0,
+  brand VARCHAR(100) NULL,
+  car_models VARCHAR(255) NULL,
+  compatible_models VARCHAR(255) NULL,
+  engine_number VARCHAR(100) NULL,
+  engine_code VARCHAR(100) NULL,
+  price DECIMAL(12,2) DEFAULT 0,
+  sale_price DECIMAL(12,2) DEFAULT 0,
+  cost_price DECIMAL(12,2) DEFAULT 0,
   location VARCHAR(255) NULL,
-  quantity INT NOT NULL DEFAULT 0,
-  reorder_point INT NOT NULL DEFAULT 0,
+  quantity INT DEFAULT 0,
+  reorder_point INT DEFAULT 0,
+  min_stock INT DEFAULT 0,
   supplier VARCHAR(255) NULL,
-  engine_number VARCHAR(255) NULL,
+  status VARCHAR(50) NULL,
   image_url TEXT NULL,
+  unit VARCHAR(50) NULL,
   note TEXT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY idx_stock_products_code (code),
-  INDEX idx_stock_products_name (name),
-  INDEX idx_stock_products_category (category)
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY idx_stock_products_code (product_code),
+  INDEX idx_stock_products_name (product_name),
+  INDEX idx_stock_products_category_id (category_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS stock_movements (
   id VARCHAR(64) PRIMARY KEY,
-  product_id VARCHAR(64) NOT NULL,
+  product_id VARCHAR(64) NULL,
   code VARCHAR(100) NULL,
   name VARCHAR(255) NULL,
-  type VARCHAR(100) NOT NULL,
+  type VARCHAR(50) NULL,
+  product_code VARCHAR(100) NULL,
+  product_name VARCHAR(255) NULL,
+  movement_type VARCHAR(50) NULL,
   quantity_change INT NOT NULL DEFAULT 0,
-  quantity_before INT NOT NULL DEFAULT 0,
-  quantity_after INT NOT NULL DEFAULT 0,
+  quantity_before INT DEFAULT 0,
+  quantity_after INT DEFAULT 0,
   note TEXT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  created_by VARCHAR(100) NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_stock_movements_product_id (product_id),
   INDEX idx_stock_movements_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

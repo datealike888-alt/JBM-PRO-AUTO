@@ -55,22 +55,16 @@ Behavior:
 
 ## Security notes
 
-- `CRON_SECRET` is required for `/api/cron/enrollment-expiry-reminders`.
-  - If missing, endpoint returns `503` and will not run.
-- `ALLOW_AUTH_SEED=true` now requires both:
-  - `AUTH_SEED_TOKEN` (send via `x-seed-token` header)
-  - `AUTH_SEED_ADMIN_PASSWORD` (minimum 12 chars)
+- Production does not run the stale enrollment reminder cron service.
+- Admin accounts are not created automatically during login/runtime.
+- Bootstrap the first admin only with `npm run admin:create` from a trusted server shell.
 - `POST /api/auth/forgot-password` always returns a generic success payload to reduce account enumeration risk.
 
 ## 4) Backup/restore
 
-Use DB env variables:
+Use the remote database connection string from the runtime environment:
 
-- `DB_HOST`
-- `DB_PORT`
-- `DB_USER`
-- `DB_PASSWORD`
-- `DB_NAME`
+- `DATABASE_URL`
 
 Commands:
 
@@ -91,7 +85,7 @@ Notes:
 Command:
 
 ```bash
-E2E_BASE_URL=http://127.0.0.1:8080 \
+E2E_BASE_URL=https://your-domain.example \
 E2E_USERNAME=administrator \
 E2E_PASSWORD=your_password \
 npm run e2e:click

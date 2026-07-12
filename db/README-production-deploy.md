@@ -1,23 +1,21 @@
-# JBM PRO AUTO Production Clean DB + Final Deploy Checklist
+# JBM PRO AUTO Remote DB Production Checklist
 
-This runbook is for a fresh production database only. Do not point it at an old test/smoke database.
+This runbook is for deploying the app against an external remote MySQL/MariaDB database. Do not point production runtime at a local Docker database, localhost, the Docker service name `db`, or phpMyAdmin-backed local containers.
 
 ## 1. Pre-flight
 
-- Confirm you are using a brand-new database, for example `jbm_pro_auto_prod`.
-- Do not import any old test, smoke, or mojibake-corrupted data.
-- Keep real passwords and secrets only in `.env`, never in tracked source files.
-- Keep phpMyAdmin off the public domain by default. Only open it temporarily through localhost plus SSH tunnel, VPN, or equivalent private access.
+- Confirm the remote database host, username, password, and database name are provided by the VPS environment or secret manager.
+- Keep real passwords and secrets out of tracked source files.
+- Back up the old local database before any migration.
+- Do not delete local containers or volumes until the remote import has been verified.
 
-## 2. Clean Database Import in phpMyAdmin
+## 2. Remote Database Import
 
-1. Open phpMyAdmin.
-2. Click `New`.
-3. Create database `jbm_pro_auto_prod`.
-4. Set collation to `utf8mb4_unicode_ci`.
-5. Select `jbm_pro_auto_prod`.
-6. Import [jbm-pro-auto-full-schema.sql](/D:/lms-main/JBM-MAIN/next-JBM/db/jbm-pro-auto-full-schema.sql).
-7. Import [jbm-pro-auto-seed.sql](/D:/lms-main/JBM-MAIN/next-JBM/db/jbm-pro-auto-seed.sql).
+1. Export the old database with `mysqldump` after confirming the source host.
+2. Create the remote database with collation `utf8mb4_unicode_ci`.
+3. Import the dump into the remote database.
+4. If this is a fresh install, import [jbm-pro-auto-full-schema.sql](/D:/lms-main/JBM-MAIN/next-JBM/db/jbm-pro-auto-full-schema.sql), then [jbm-pro-auto-seed.sql](/D:/lms-main/JBM-MAIN/next-JBM/db/jbm-pro-auto-seed.sql).
+5. Verify table counts and important row counts before switching runtime traffic.
 
 Expected tables after import:
 
@@ -50,7 +48,7 @@ The clean seed is intentionally limited.
 - No demo vehicle queue
 - No financial test transactions
 - No customer repair history
-- Admin user stored as bcrypt hash only
+- Admin users are created explicitly by an administrator and stored as bcrypt hashes only
 - `system_settings` seeded with JBM PRO AUTO shop info
 
 Seeded shop info:
@@ -62,103 +60,53 @@ Seeded shop info:
 - `Instagram: JBM.PRO.AUTO`
 - `616/1 ซอยพัฒนาการ 30 แขวงสวนหลวง เขตสวนหลวง กรุงเทพมหานคร 10250`
 
-## 4. Production `.env`
+## 4. Production Environment
 
-Copy [`.env.example`](/D:/lms-main/JBM-MAIN/next-JBM/.env.example) to `.env` and set real secrets there.
-
-Production VPS / Docker Compose:
+Set the real `DATABASE_URL` in the VPS environment or secret manager. Tracked files must keep placeholders only.
 
 ```env
-DB_HOST=db
-DB_PORT=3306
-DB_USER=root
-DB_PASSWORD=your-mysql-root-password
-DB_NAME=jbm_pro_auto_prod
-DATABASE_URL=mysql://root:your-mysql-root-password@db:3306/jbm_pro_auto_prod
+DATABASE_URL=mysql://<DB_USER>:<DB_PASSWORD>@<REMOTE_DB_HOST>:3306/<DB_NAME>
 NEXT_PUBLIC_APP_URL=https://your-domain.example
 APP_URL=https://your-domain.example
 SESSION_SECRET=change-me-to-a-long-random-secret
 SESSION_COOKIE_SECURE=true
-VEHICLE_ADMIN_TOKEN=change-me-admin-token
-ADMIN_DEFAULT_USERNAME=admin
-ADMIN_DEFAULT_PASSWORD_HASH=<bcrypt-hash>
 ```
 
-Windows local Next.js against Docker local DB:
-
-```env
-DB_HOST=127.0.0.1
-DB_PORT=3307
-DB_USER=root
-DB_PASSWORD=root
-DB_NAME=jbm_pro_auto
-DATABASE_URL=mysql://root:root@127.0.0.1:3307/jbm_pro_auto
-```
-
-Do not hardcode `localhost` or `127.0.0.1` inside production code paths.
+Runtime rejects local database hosts including `localhost`, `127.0.0.1`, `db`, `mysql`, `mariadb`, `postgres`, `host.docker.internal`, and `jbm-mysql`.
 
 ## 5. Docker / VPS Review
 
 Current compose expectations:
 
-- `web` connects to DB with `DB_HOST=db`
-- internal MySQL port is `3306`
-- DB data uses a dedicated volume
+- `web` receives `DATABASE_URL` from the external environment
+- compose does not start MySQL, MariaDB, PostgreSQL, or phpMyAdmin services
+- compose does not use `depends_on: db`
 - uploads/content/data have persistent volumes
 - restart policy is `unless-stopped`
-- `phpmyadmin` is started only through the optional `admin` compose profile
-- when started, `phpmyadmin` binds only to `127.0.0.1:${PHPMYADMIN_PORT:-8083}`
-- Caddy does not reverse proxy phpMyAdmin by default
 
 Before real domain cutover:
 
 - confirm production `.env` provides real secrets outside the repo
-- confirm phpMyAdmin is not publicly reachable
 - confirm the domain and cookie security settings are correct
-
-To open phpMyAdmin only when needed:
-
-```bash
-docker compose -f docker-compose.prod.yml --profile admin up -d phpmyadmin
-```
-
-Then access it from the server itself or through an SSH tunnel to:
-
-```text
-http://127.0.0.1:8083
-```
-
-When finished, stop it again:
-
-```bash
-docker compose -f docker-compose.prod.yml --profile admin stop phpmyadmin
-```
 
 ## 6. First Admin Login
 
-- Username: `admin`
-- Documented initial password: `ChangeMe123!`
-
-Warnings:
-
-- change the admin password immediately after first login
-- do not keep the default password on production
-- `password_hash` must always remain a bcrypt hash
-
-To generate a replacement bcrypt hash:
+No default admin is created automatically. Bootstrap the first administrator explicitly from a trusted server shell:
 
 ```powershell
 cd D:\lms-main\JBM-MAIN\next-JBM
-node .\scripts\generate-admin-hash.cjs "NewStrongPasswordHere"
+$env:ADMIN_USERNAME="your-admin-username"
+$env:ADMIN_DISPLAY_NAME="Your Admin Name"
+$env:ADMIN_PASSWORD="use-a-strong-password-of-at-least-12-chars"
+npm run admin:create
 ```
 
-Then update `ADMIN_DEFAULT_PASSWORD_HASH` in `.env`, or update `admin_users.password_hash` directly in the production database.
+After login, use normal admin user management for future password changes. Password changes revoke existing sessions for that account.
 
 ## 7. Restart and Health Check
 
-After configuring `.env`, restart the app stack and open:
+After configuring the remote `DATABASE_URL`, restart the app stack and open:
 
-- local Docker web: [http://localhost:8080/api/health](http://localhost:8080/api/health)
 - real domain: [https://your-domain.example/api/health](https://your-domain.example/api/health)
 
 Expected response:
@@ -210,4 +158,4 @@ Complete these before pointing the production domain:
 - CRUD smoke test passes
 - audit log write confirmed
 - session revoke confirmed
-- phpMyAdmin protection confirmed
+- remote database backup confirmed

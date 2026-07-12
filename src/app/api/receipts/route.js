@@ -1,5 +1,6 @@
 import { isAuthorizedAdminRequest } from '../../../lib/adminAuth';
 import { query } from '../../../lib/db';
+import { assertSchemaReady, handleSchemaError } from '../../../lib/schemaReadiness';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
@@ -15,26 +16,11 @@ function cleanString(value, maxLength = 255) {
   return String(value).trim().slice(0, maxLength);
 }
 
-async function ensureVehicleReceiptsTable() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS vehicle_receipts (
-      id VARCHAR(64) PRIMARY KEY,
-      vehicle_id VARCHAR(64) NOT NULL,
-      file_name VARCHAR(255) NULL,
-      file_url TEXT NULL,
-      mime_type VARCHAR(100) NULL,
-      file_size INT NULL,
-      uploaded_by VARCHAR(100) NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      INDEX idx_vehicle_receipts_vehicle_id (vehicle_id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
-}
 
 export async function GET(request) {
   try {
     if (!(await isAuthorizedAdminRequest(request))) return json({ error: 'Forbidden' }, { status: 403 });
-    await ensureVehicleReceiptsTable();
+    await assertSchemaReady('vehicles');
     const vehicleId = cleanString(new URL(request.url).searchParams.get('vehicleId'), 64);
     const rows = await query(
       `SELECT * FROM vehicle_receipts ${vehicleId ? 'WHERE vehicle_id = ?' : ''} ORDER BY created_at DESC`,
@@ -42,6 +28,8 @@ export async function GET(request) {
     );
     return json({ success: true, receipts: rows }, { status: 200, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[receipts] GET failed', error);
     return json({ error: 'Receipt service unavailable' }, { status: 503 });
   }
@@ -50,7 +38,7 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     if (!(await isAuthorizedAdminRequest(request))) return json({ error: 'Forbidden' }, { status: 403 });
-    await ensureVehicleReceiptsTable();
+    await assertSchemaReady('vehicles');
     const body = await request.json();
     const id = cleanString(body.id, 64) || `receipt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const vehicleId = cleanString(body.vehicle_id || body.vehicleId, 64);
@@ -77,6 +65,8 @@ export async function POST(request) {
     const rows = await query('SELECT * FROM vehicle_receipts WHERE id = ? LIMIT 1', [id]);
     return json({ success: true, receipt: rows[0] || null }, { status: 200 });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[receipts] POST failed', error);
     return json({ error: 'Unable to save receipt' }, { status: 503 });
   }
@@ -85,12 +75,14 @@ export async function POST(request) {
 export async function DELETE(request) {
   try {
     if (!(await isAuthorizedAdminRequest(request))) return json({ error: 'Forbidden' }, { status: 403 });
-    await ensureVehicleReceiptsTable();
+    await assertSchemaReady('vehicles');
     const id = cleanString(new URL(request.url).searchParams.get('id'), 64);
     if (!id) return json({ error: 'Missing id parameter' }, { status: 400 });
     await query('DELETE FROM vehicle_receipts WHERE id = ?', [id]);
     return json({ success: true }, { status: 200 });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[receipts] DELETE failed', error);
     return json({ error: 'Unable to delete receipt' }, { status: 503 });
   }

@@ -1,6 +1,5 @@
 import {
   createAdminSession,
-  ensureAdminUsersTable,
   getAuthorizedAdminFromRequest,
   validateAdminCredentials,
 } from '../../../../lib/adminAuth';
@@ -15,6 +14,44 @@ function json(data, init = {}) {
     ...init,
     headers: { ...JSON_HEADERS, ...(init.headers || {}) },
   });
+}
+
+function errorJson(error, fallbackStatus = 500) {
+  if (error?.code === 'DATABASE_CONFIGURATION_ERROR') {
+    return json({
+      success: false,
+      authenticated: false,
+      error: 'ระบบฐานข้อมูลยังไม่พร้อม กรุณาตรวจสอบการตั้งค่าเซิร์ฟเวอร์',
+      code: 'DATABASE_CONFIGURATION_ERROR',
+    }, { status: 503 });
+  }
+
+  if (error?.code === 'SESSION_CONFIGURATION_ERROR') {
+    return json({
+      success: false,
+      authenticated: false,
+      error: 'ระบบยืนยันตัวตนยังไม่พร้อม กรุณาตรวจสอบการตั้งค่าเซิร์ฟเวอร์',
+      code: 'SESSION_CONFIGURATION_ERROR',
+    }, { status: 503 });
+  }
+
+  if (error?.code === 'ADMIN_AUTH_SCHEMA_NOT_READY') {
+    return json({
+      success: false,
+      authenticated: false,
+      error: 'ระบบผู้ดูแลยังไม่พร้อมใช้งาน กรุณาติดต่อผู้ดูแลระบบ',
+      code: 'ADMIN_AUTH_SCHEMA_NOT_READY',
+    }, { status: 503 });
+  }
+
+  return json({
+    success: false,
+    authenticated: false,
+    error: fallbackStatus >= 500
+      ? 'ระบบเกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง'
+      : 'ไม่สามารถดำเนินการได้',
+    code: 'UNEXPECTED_ERROR',
+  }, { status: fallbackStatus });
 }
 
 function getContentLength(request) {
@@ -54,11 +91,12 @@ async function loadUserPermissions(adminId) {
 export async function GET(request) {
   try {
     const admin = await getAuthorizedAdminFromRequest(request);
-    if (!admin) return json({ authenticated: false }, { status: 401 });
+    if (!admin) return json({ success: false, authenticated: false, error: 'ยังไม่ได้เข้าสู่ระบบ' }, { status: 401 });
 
     const { roles, roleKeys, permissions } = await loadUserPermissions(admin.id);
 
     return json({
+      success: true,
       authenticated: true,
       admin: {
         id: admin.id,
@@ -71,42 +109,33 @@ export async function GET(request) {
       },
     }, { status: 200, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
-    console.error('[admin/validate] GET failed', error);
-    return json({ authenticated: false }, { status: 401 });
+    console.error('[admin/validate] GET failed', { code: error?.code || 'UNEXPECTED_ERROR' });
+    return errorJson(error, 500);
   }
 }
 
 export async function POST(request) {
   if (getContentLength(request) > MAX_REQUEST_BYTES) {
-    return json({ error: 'Request body too large' }, { status: 413 });
+    return json({ success: false, error: 'Request body too large' }, { status: 413 });
   }
 
   let body;
   try {
     body = await request.json();
   } catch {
-    return json({ error: 'Invalid JSON body' }, { status: 400 });
+    return json({ success: false, error: 'Invalid JSON body' }, { status: 400 });
   }
 
   const username = String(body?.username || '').trim();
   const password = String(body?.password || '');
   if (!username || !password) {
-    return json({ error: 'Username and password are required' }, { status: 400 });
+    return json({ success: false, error: 'Username and password are required' }, { status: 400 });
   }
 
   try {
-    await ensureAdminUsersTable();
     const admin = await validateAdminCredentials(username, password);
-    if (!admin) return json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' }, { status: 403 });
-
-    // Check if user is active
-    const { query: dbQuery } = await import('../../../../lib/db');
-    const activeCheck = await dbQuery(
-      'SELECT is_active FROM admin_users WHERE id = ? LIMIT 1',
-      [admin.id]
-    );
-    if (Array.isArray(activeCheck) && activeCheck.length > 0 && Number(activeCheck[0].is_active) === 0) {
-      return json({ error: 'บัญชีนี้ถูกปิดใช้งาน' }, { status: 403 });
+    if (!admin) {
+      return json({ success: false, error: 'ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง' }, { status: 401 });
     }
 
     const { roles, roleKeys, permissions } = await loadUserPermissions(admin.id);
@@ -130,7 +159,7 @@ export async function POST(request) {
       },
     });
   } catch (error) {
-    console.error('[admin/validate] POST failed', error);
-    return json({ error: error?.message || 'เกิดข้อผิดพลาดภายในระบบ' }, { status: 500 });
+    console.error('[admin/validate] POST failed', { code: error?.code || 'UNEXPECTED_ERROR' });
+    return errorJson(error, 500);
   }
 }

@@ -1,4 +1,4 @@
-import { ensureEmployeeStorageTables } from '../../../../../lib/employeeStorage';
+import { assertSchemaReady, handleSchemaError } from '../../../../../lib/schemaReadiness';
 import { withTransaction } from '../../../../../lib/db';
 import { insertAuditLogSafe } from '../../../../../lib/auditLog';
 import { requirePermission } from '../../../../../lib/adminPermissions';
@@ -21,7 +21,7 @@ export async function DELETE(request) {
     const authResult = await requirePermission(request, 'employees.delete');
     if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
 
-    await ensureEmployeeStorageTables();
+    await assertSchemaReady('employees');
 
     const deleted = await withTransaction(async (conn) => {
       const employeeIncomesResult = await conn.query('DELETE FROM employee_incomes');
@@ -61,6 +61,8 @@ export async function DELETE(request) {
 
     return json({ ok: true, success: true, deleted }, { status: 200 });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[employees/stats/clear-history] DELETE failed', error);
     return json({ error: 'Unable to clear employee stats history' }, { status: 503 });
   }

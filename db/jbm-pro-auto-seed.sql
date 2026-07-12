@@ -2,9 +2,6 @@
 -- Import this file into the database you already selected in phpMyAdmin.
 SET NAMES utf8mb4;
 
-INSERT IGNORE INTO admin_users (id, username, password_hash, display_name, role, is_active)
-VALUES ('admin-default', 'admin', '$2b$10$Q.j8aoN2.6Zc6kgCYv082uw7k1IUQUW.TLGNnRc73o5P1zZgHEbGa', 'JBM Admin', 'admin', 1);
-
 INSERT IGNORE INTO employee_positions (id, name, sort_order, active) VALUES
 ('position-owner', 'เจ้าของอู่', 1, 1),
 ('position-manager', 'ผู้จัดการ', 2, 1),

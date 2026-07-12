@@ -1,4 +1,5 @@
 import { query } from './db';
+import { assertSchemaReady } from './schemaReadiness';
 
 export const DEBT_STATUS_PENDING = 'ค้างจ่าย';
 export const DEBT_STATUS_PARTIAL = 'ชำระบางส่วน';
@@ -43,6 +44,8 @@ function cleanTime(value) {
   const text = cleanString(value, 8);
   if (!text) return null;
   if (/^\d{2}:\d{2}$/.test(text)) return `${text}:00`;
+
+
   if (/^\d{2}:\d{2}:\d{2}$/.test(text)) return text;
   return null;
 }
@@ -90,22 +93,6 @@ function cleanReceiptImages(value) {
   return null;
 }
 
-async function ensureColumn(sql) {
-  try {
-    await query(sql);
-  } catch (error) {
-    if (Number(error?.errno || 0) !== 1060) throw error;
-  }
-}
-
-async function ensureIndex(sql) {
-  try {
-    await query(sql);
-  } catch (error) {
-    if (![1061, 1062].includes(Number(error?.errno || 0))) throw error;
-  }
-}
-
 export function calculateDebtStatus(totalAmount, paidAmount) {
   const total = normalizeMoney(totalAmount, 0);
   const paid = Math.min(normalizeMoney(paidAmount, 0), total);
@@ -120,61 +107,6 @@ export function normalizeDebtStatus(status, totalAmount, paidAmount) {
   if (DEBT_STATUS_ALIASES.has(text)) return DEBT_STATUS_ALIASES.get(text);
   if (DEBT_STATUS_VALUES.has(text)) return text;
   return calculateDebtStatus(totalAmount, paidAmount);
-}
-
-export async function ensurePaymentDebtTables() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS payment_debts (
-      id VARCHAR(64) PRIMARY KEY,
-      customer_name VARCHAR(255) NOT NULL,
-      phone VARCHAR(64) NULL,
-      case_reference VARCHAR(255) NULL,
-      total_amount DECIMAL(12,2) DEFAULT 0,
-      paid_amount DECIMAL(12,2) DEFAULT 0,
-      balance_amount DECIMAL(12,2) DEFAULT 0,
-      status VARCHAR(64) NULL,
-      due_date DATE NULL,
-      payment_method VARCHAR(100) NULL,
-      description TEXT NULL,
-      note TEXT NULL,
-      receipt_image_url TEXT NULL,
-      receipt_images TEXT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      INDEX idx_payment_debts_status (status),
-      INDEX idx_payment_debts_due_date (due_date),
-      INDEX idx_payment_debts_customer_name (customer_name)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
-
-  await query(`
-    CREATE TABLE IF NOT EXISTS payment_debt_payments (
-      id VARCHAR(64) PRIMARY KEY,
-      debt_id VARCHAR(64) NOT NULL,
-      payment_date DATE NOT NULL,
-      payment_time TIME NULL,
-      amount DECIMAL(12,2) DEFAULT 0,
-      payment_method VARCHAR(100) NULL,
-      note TEXT NULL,
-      receipt_image_url TEXT NULL,
-      receipt_images TEXT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      INDEX idx_payment_debt_payments_debt_id (debt_id),
-      INDEX idx_payment_debt_payments_date (payment_date),
-      CONSTRAINT fk_payment_debt_payments_debt_id
-        FOREIGN KEY (debt_id) REFERENCES payment_debts(id)
-        ON UPDATE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
-
-  await ensureColumn('ALTER TABLE payment_debts ADD COLUMN phone VARCHAR(64) NULL');
-  await ensureColumn('ALTER TABLE payment_debts ADD COLUMN case_reference VARCHAR(255) NULL');
-  await ensureColumn('ALTER TABLE payment_debts ADD COLUMN receipt_image_url TEXT NULL');
-  await ensureColumn('ALTER TABLE payment_debts ADD COLUMN receipt_images TEXT NULL');
-  await ensureColumn('ALTER TABLE payment_debt_payments ADD COLUMN receipt_image_url TEXT NULL');
-  await ensureColumn('ALTER TABLE payment_debt_payments ADD COLUMN receipt_images TEXT NULL');
-  await ensureIndex('CREATE INDEX idx_payment_debts_status ON payment_debts(status)');
-  await ensureIndex('CREATE INDEX idx_payment_debts_due_date ON payment_debts(due_date)');
 }
 
 export function normalizePaymentDebtInput(body = {}) {
@@ -241,15 +173,13 @@ export function normalizePaymentDebtRow(row = {}, payments = []) {
     paid_amount: Number(row.paid_amount || 0),
     balance_amount: Number(row.balance_amount || 0),
     status: normalizeDebtStatus(row.status, row.total_amount, row.paid_amount),
-    due_date: formatSqlDate(row.due_date),
+    due_date: row.due_date ? row.due_date.toISOString().slice(0, 10) : null,
     payment_method: row.payment_method || '',
     description: row.description || '',
     note: row.note || '',
-    receipt_image_url: row.receipt_image_url || '',
+    receipt_image_url: row.receipt_image_url || null,
     receipt_images: parsedImages,
-    payments,
-    created_at: row.created_at || null,
-    updated_at: row.updated_at || null,
+    payments: payments
   };
 }
 
@@ -263,19 +193,18 @@ export function normalizeDebtPaymentRow(row = {}) {
   return {
     id: row.id,
     debt_id: row.debt_id,
-    payment_date: formatSqlDate(row.payment_date),
-    payment_time: formatSqlTime(row.payment_time),
+    payment_date: row.payment_date ? row.payment_date.toISOString().slice(0, 10) : null,
+    payment_time: row.payment_time ? row.payment_time.slice(0, 5) : null,
     amount: Number(row.amount || 0),
     payment_method: row.payment_method || '',
     note: row.note || '',
-    receipt_image_url: row.receipt_image_url || '',
+    receipt_image_url: row.receipt_image_url || null,
     receipt_images: parsedImages,
-    created_at: row.created_at || null,
   };
 }
 
 export async function getPaymentDebts(filters = {}) {
-  await ensurePaymentDebtTables();
+  await assertSchemaReady('financial');
   const where = [];
   const params = [];
   if (filters.search) {
@@ -319,7 +248,7 @@ export async function getPaymentDebts(filters = {}) {
 }
 
 export async function getPaymentDebtById(id) {
-  await ensurePaymentDebtTables();
+  await assertSchemaReady('financial');
   const rows = await query('SELECT * FROM payment_debts WHERE id = ? LIMIT 1', [id]);
   if (!rows.length) return null;
   const paymentRows = await query('SELECT * FROM payment_debt_payments WHERE debt_id = ? ORDER BY payment_date DESC, created_at DESC', [id]);
@@ -327,7 +256,7 @@ export async function getPaymentDebtById(id) {
 }
 
 export async function savePaymentDebt(body = {}) {
-  await ensurePaymentDebtTables();
+  await assertSchemaReady('financial');
   const debt = normalizePaymentDebtInput(body);
   if (debt.error) return debt;
   await query(
@@ -370,7 +299,7 @@ export async function savePaymentDebt(body = {}) {
 }
 
 export async function addDebtPayment(debtId, body = {}) {
-  await ensurePaymentDebtTables();
+  await assertSchemaReady('financial');
   const debt = await getPaymentDebtById(debtId);
   if (!debt) return { error: 'Payment debt not found' };
   const payment = normalizeDebtPaymentInput(body, debtId);
@@ -409,7 +338,7 @@ export async function addDebtPayment(debtId, body = {}) {
 }
 
 export async function recalculatePaymentDebtTotals(debtId) {
-  await ensurePaymentDebtTables();
+  await assertSchemaReady('financial');
   const rows = await query('SELECT total_amount FROM payment_debts WHERE id = ? LIMIT 1', [debtId]);
   if (!rows.length) return { error: 'Payment debt not found' };
   const totalAmount = normalizeMoney(rows[0].total_amount, 0);
@@ -432,7 +361,7 @@ export async function recalculatePaymentDebtTotals(debtId) {
 }
 
 export async function deleteDebtPaymentById(debtId, paymentId) {
-  await ensurePaymentDebtTables();
+  await assertSchemaReady('financial');
   const rows = await query(
     'SELECT * FROM payment_debt_payments WHERE id = ? AND debt_id = ? LIMIT 1',
     [paymentId, debtId]

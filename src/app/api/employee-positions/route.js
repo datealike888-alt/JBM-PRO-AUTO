@@ -1,11 +1,11 @@
 import {
   cleanString,
-  ensureEmployeePositionsTable,
   isAuthorizedToken,
   normalizeEmployeePositionInput,
   normalizeEmployeePositionRow,
   query,
 } from '../../../lib/employeeStorage';
+import { assertSchemaReady, handleSchemaError } from '../../../lib/schemaReadiness';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
@@ -19,7 +19,7 @@ function json(data, init = {}) {
 export async function GET(request) {
   try {
     if (!(await isAuthorizedToken(request))) return json({ error: 'Forbidden' }, { status: 403 });
-    await ensureEmployeePositionsTable();
+    await assertSchemaReady('employees');
 
     const rows = await query(
       `SELECT id, name, sort_order, active, created_at, updated_at
@@ -29,6 +29,8 @@ export async function GET(request) {
 
     return json({ success: true, positions: rows.map(normalizeEmployeePositionRow) }, { status: 200, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[employee-positions] GET failed', error);
     return json({ error: 'Employee positions service unavailable' }, { status: 503 });
   }
@@ -45,7 +47,7 @@ export async function POST(request) {
       return json({ error: 'Invalid JSON body' }, { status: 400 });
     }
 
-    await ensureEmployeePositionsTable();
+    await assertSchemaReady('employees');
     const position = normalizeEmployeePositionInput(body);
     if (!position.name) return json({ error: 'Position name is required' }, { status: 400 });
 
@@ -76,6 +78,8 @@ export async function POST(request) {
 
     return json({ success: true, position: normalizeEmployeePositionRow(rows[0] || { ...position, id }) }, { status: 200 });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[employee-positions] POST failed', error);
     return json({ error: 'Unable to save employee position' }, { status: 503 });
   }
@@ -87,10 +91,12 @@ export async function DELETE(request) {
     const id = cleanString(new URL(request.url).searchParams.get('id'), 64);
     if (!id) return json({ error: 'Missing id parameter' }, { status: 400 });
 
-    await ensureEmployeePositionsTable();
+    await assertSchemaReady('employees');
     await query('DELETE FROM employee_positions WHERE id = ?', [id]);
     return json({ success: true }, { status: 200 });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[employee-positions] DELETE failed', error);
     return json({ error: 'Unable to delete employee position' }, { status: 503 });
   }

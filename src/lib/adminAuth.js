@@ -3,9 +3,8 @@ import crypto from 'crypto';
 import { query } from './db';
 import { createSessionToken, SESSION_COOKIE_NAME, verifySessionToken } from './session';
 
-const DEFAULT_ADMIN_USERNAME = process.env.ADMIN_DEFAULT_USERNAME || 'admin';
-const DEFAULT_ADMIN_PASSWORD_HASH = process.env.ADMIN_DEFAULT_PASSWORD_HASH || '$2b$10$/vsf/Rer2dsOFi5Qzapp8evzKAmkP9MnPjQrQUJySrAzOfl6NNnoq';
 const SESSION_DURATION_DAYS = 7;
+const AUTH_SCHEMA_ERROR_CODE = 'ADMIN_AUTH_SCHEMA_NOT_READY';
 
 function cleanString(value, maxLength = 255) {
   if (value === null || value === undefined) return '';
@@ -16,68 +15,27 @@ function sha256(value) {
   return crypto.createHash('sha256').update(String(value || ''), 'utf8').digest('hex');
 }
 
-async function ensureColumn(sql) {
-  try {
-    await query(sql);
-  } catch (error) {
-    if (Number(error?.errno || 0) !== 1060) throw error;
-  }
+function authSchemaError(tableName, cause) {
+  const error = new Error(`Admin authentication schema is not ready: ${tableName}`);
+  error.code = AUTH_SCHEMA_ERROR_CODE;
+  error.cause = cause;
+  return error;
 }
 
-async function ensureIndex(sql) {
+async function assertTableReadable(tableName) {
   try {
-    await query(sql);
+    await query(`SELECT 1 FROM ${tableName} LIMIT 0`);
   } catch (error) {
-    if (![1061, 1062].includes(Number(error?.errno || 0))) throw error;
+    throw authSchemaError(tableName, error);
   }
 }
 
 export async function ensureAdminUsersTable() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS admin_users (
-      id VARCHAR(64) PRIMARY KEY,
-      username VARCHAR(100) NOT NULL,
-      password_hash VARCHAR(255) NOT NULL,
-      display_name VARCHAR(255) NULL,
-      role VARCHAR(50) DEFAULT 'admin',
-      is_active TINYINT(1) DEFAULT 1,
-      last_login_at DATETIME NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      UNIQUE KEY idx_admin_users_username (username)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
-
-  await ensureColumn('ALTER TABLE admin_users ADD COLUMN display_name VARCHAR(255) NULL');
-  await ensureColumn('ALTER TABLE admin_users ADD COLUMN last_login_at DATETIME NULL');
-  await ensureColumn("ALTER TABLE admin_users ADD COLUMN role VARCHAR(50) DEFAULT 'admin'");
-  await ensureColumn('ALTER TABLE admin_users ADD COLUMN is_active TINYINT(1) DEFAULT 1');
-  await ensureIndex('ALTER TABLE admin_users ADD UNIQUE KEY idx_admin_users_username (username)');
-
-  await query(
-    `INSERT IGNORE INTO admin_users (id, username, password_hash, display_name, role, is_active)
-     VALUES (?, ?, ?, ?, 'admin', 1)`,
-    ['admin-default', DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD_HASH, 'JBM Admin']
-  );
+  await assertTableReadable('admin_users');
 }
 
 export async function ensureAdminSessionsTable() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS admin_sessions (
-      id VARCHAR(128) PRIMARY KEY,
-      user_id VARCHAR(64) NOT NULL,
-      token_hash VARCHAR(255) NOT NULL,
-      expires_at DATETIME NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      revoked_at DATETIME NULL,
-      INDEX idx_admin_sessions_user_id (user_id),
-      INDEX idx_admin_sessions_expires_at (expires_at),
-      INDEX idx_admin_sessions_revoked_at (revoked_at),
-      CONSTRAINT fk_admin_sessions_user_id
-        FOREIGN KEY (user_id) REFERENCES admin_users(id)
-        ON UPDATE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
+  await assertTableReadable('admin_sessions');
 }
 
 export async function validateAdminCredentials(username, password) {
@@ -113,14 +71,24 @@ export async function createAdminSession(admin) {
   await ensureAdminUsersTable();
   await ensureAdminSessionsTable();
 
+  const adminRows = await query(
+    `SELECT id, username, role
+     FROM admin_users
+     WHERE id = ? AND LOWER(username) = ? AND is_active = 1
+     LIMIT 1`,
+    [String(admin.id), cleanString(admin.username, 100).toLowerCase()]
+  );
+  const activeAdmin = Array.isArray(adminRows) && adminRows.length ? adminRows[0] : null;
+  if (!activeAdmin) throw new Error('Admin account is not active');
+
   const sessionId = `session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   const expiresAt = new Date(Date.now() + (SESSION_DURATION_DAYS * 24 * 60 * 60 * 1000));
   const token = createSessionToken({
     type: 'admin',
     sessionId,
-    adminId: String(admin.id),
-    username: admin.username,
-    role: admin.role || 'admin',
+    adminId: String(activeAdmin.id),
+    username: activeAdmin.username,
+    role: activeAdmin.role || 'admin',
     exp: expiresAt.toISOString(),
   });
 
@@ -133,7 +101,7 @@ export async function createAdminSession(admin) {
   return token;
 }
 
-export async function revokeAdminSession(token) {
+export async function revokeCurrentAdminSession(token) {
   const suppliedToken = cleanString(token, 4000);
   if (!suppliedToken) return false;
 
@@ -159,32 +127,23 @@ export async function revokeAdminSession(token) {
   return Number(result?.affectedRows || 0) > 0;
 }
 
-async function findLegacyEmployeeByCode(code) {
-  const normalizedCode = cleanString(code, 255);
-  if (!normalizedCode) return null;
+export async function revokeAdminSession(token) {
+  return revokeCurrentAdminSession(token);
+}
 
-  const rows = await query(
-    `SELECT id, employee_code, first_name, last_name, nickname, position
-     FROM employees
-     WHERE employee_code = ? AND status <> 'ลาออก'
-     LIMIT 1`,
-    [normalizedCode]
-  ).catch(() => []);
+export async function revokeAllAdminSessions(userId) {
+  const userIdStr = cleanString(userId, 64);
+  if (!userIdStr) return 0;
 
-  const employee = Array.isArray(rows) && rows.length ? rows[0] : null;
-  if (!employee) return null;
+  await ensureAdminSessionsTable();
+  const result = await query(
+    `UPDATE admin_sessions
+     SET revoked_at = COALESCE(revoked_at, NOW())
+     WHERE user_id = ? AND revoked_at IS NULL`,
+    [userIdStr]
+  );
 
-  const displayName = `${employee.first_name || ''} ${employee.last_name || ''}`.trim()
-    || employee.nickname
-    || employee.employee_code;
-
-  return {
-    id: String(employee.id),
-    username: employee.employee_code,
-    displayName,
-    role: employee.position || 'admin',
-    source: 'employee-code',
-  };
+  return Number(result?.affectedRows || 0);
 }
 
 export async function resolveAuthorizedAdmin(token) {
@@ -192,7 +151,8 @@ export async function resolveAuthorizedAdmin(token) {
   if (!suppliedToken) return null;
 
   const configuredToken = cleanString(process.env.VEHICLE_ADMIN_TOKEN, 2000);
-  if (configuredToken && suppliedToken === configuredToken) {
+  const allowTestToken = process.env.NODE_ENV === 'test' && String(process.env.ADMIN_AUTH_ALLOW_TEST_TOKEN || '').toLowerCase() === 'true';
+  if (allowTestToken && configuredToken && suppliedToken === configuredToken) {
     return {
       id: 'env-admin-token',
       username: 'env-admin',
@@ -206,6 +166,8 @@ export async function resolveAuthorizedAdmin(token) {
   if (session?.type === 'admin' && session?.username && session?.sessionId) {
     await ensureAdminUsersTable();
     await ensureAdminSessionsTable();
+
+    if (session.exp && new Date(session.exp).getTime() <= Date.now()) return null;
 
     const sessionRows = await query(
       `SELECT id, user_id, expires_at, revoked_at
@@ -237,7 +199,7 @@ export async function resolveAuthorizedAdmin(token) {
     }
   }
 
-  return findLegacyEmployeeByCode(suppliedToken);
+  return null;
 }
 
 function readCookieToken(request) {

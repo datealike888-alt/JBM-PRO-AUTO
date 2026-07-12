@@ -1,7 +1,8 @@
-import { isAuthorizedAdminRequest, getAuthorizedAdminFromRequest } from '../../../lib/adminAuth';
+
 import { requirePermission } from '../../../lib/adminPermissions';
 import { insertAuditLogSafe } from '../../../lib/auditLog';
 import { query } from '../../../lib/db';
+import { assertSchemaReady, handleSchemaError } from '../../../lib/schemaReadiness';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const TYPE_OPTIONS = new Set(['income', 'expense']);
@@ -75,69 +76,6 @@ function formatSqlTime(value) {
   return String(value).slice(0, 5);
 }
 
-async function ensureIndex(sql) {
-  try {
-    await query(sql);
-  } catch (error) {
-    if (![1061, 1062].includes(Number(error?.errno || 0))) throw error;
-  }
-}
-
-async function ensureColumn(sql) {
-  try {
-    await query(sql);
-  } catch (error) {
-    if (Number(error?.errno || 0) !== 1060) throw error;
-  }
-}
-
-async function ensureFinancialTransactionsTable() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS financial_transactions (
-      id VARCHAR(64) PRIMARY KEY,
-      date DATE NULL,
-      time TIME NULL,
-      transaction_date DATE NOT NULL,
-      type VARCHAR(50) NOT NULL,
-      category VARCHAR(100) NULL,
-      description TEXT NULL,
-      amount DECIMAL(12,2) DEFAULT 0,
-      cost_amount DECIMAL(12,2) NULL DEFAULT NULL,
-      vat_amount DECIMAL(12,2) NULL DEFAULT NULL,
-      payment_method VARCHAR(100) NULL,
-      receipt_image_url TEXT NULL,
-      related_vehicle_id VARCHAR(64) NULL,
-      note TEXT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
-
-  await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN date DATE NULL');
-  await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN time TIME NULL');
-  await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN transaction_date DATE NULL');
-  await ensureColumn("ALTER TABLE financial_transactions ADD COLUMN category VARCHAR(100) NULL");
-  await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN related_vehicle_id VARCHAR(64) NULL');
-  await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN note TEXT NULL');
-  await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN payment_method VARCHAR(100) NULL');
-  await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN description TEXT NULL');
-  await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN amount DECIMAL(12,2) DEFAULT 0');
-  await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN cost_amount DECIMAL(12,2) NULL DEFAULT NULL');
-  await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN vat_amount DECIMAL(12,2) NULL DEFAULT NULL');
-  await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN profit_amount DECIMAL(12,2) NULL DEFAULT NULL');
-  await ensureColumn('ALTER TABLE financial_transactions ADD COLUMN receipt_image_url TEXT NULL');
-
-  await query(`
-    UPDATE financial_transactions
-    SET transaction_date = COALESCE(transaction_date, date)
-    WHERE transaction_date IS NULL
-  `).catch(() => {});
-
-  await ensureIndex('CREATE INDEX idx_financial_transactions_date ON financial_transactions(transaction_date)');
-  await ensureIndex('CREATE INDEX idx_financial_transactions_type ON financial_transactions(type)');
-  await ensureIndex('CREATE INDEX idx_financial_transactions_payment_method ON financial_transactions(payment_method)');
-}
-
 function normalizeRow(row) {
   return {
     id: row.id,
@@ -149,6 +87,7 @@ function normalizeRow(row) {
     amount: Number(row.amount || 0),
     cost_amount: row.cost_amount === null || row.cost_amount === undefined ? null : Number(row.cost_amount || 0),
     vat_amount: row.vat_amount === null || row.vat_amount === undefined ? null : Number(row.vat_amount || 0),
+    before_vat_3_percent: row.before_vat_3_percent === null || row.before_vat_3_percent === undefined ? 0 : Number(row.before_vat_3_percent || 0),
     profit_amount: row.profit_amount === null || row.profit_amount === undefined ? null : Number(row.profit_amount || 0),
     receipt_image_url: row.receipt_image_url || '',
     category: row.category || '',
@@ -177,10 +116,12 @@ function normalizeBody(body) {
   const amount = normalizeAmount(body.amount);
   const costAmount = normalizeAmount(body.cost_amount ?? body.costAmount, { optional: true });
   const vatAmount = normalizeAmount(body.vat_amount ?? body.vatAmount, { optional: true });
+  const beforeVat3Percent = normalizeAmount(body.before_vat_3_percent ?? body.beforeVat3Percent ?? body.withholding_3_percent, { optional: true });
   const profitAmount = normalizeAmount(body.profit_amount ?? body.profitAmount, { optional: true });
   if (amount === null || amount < 0) return { error: 'จำนวนเงินต้องเป็นตัวเลขไม่ติดลบ' };
   if (costAmount !== null && costAmount < 0) return { error: 'cost_amount must be a number greater than or equal to zero' };
   if (vatAmount !== null && vatAmount < 0) return { error: 'vat_amount must be a number greater than or equal to zero' };
+  if (beforeVat3Percent !== null && beforeVat3Percent < 0) return { error: 'before_vat_3_percent must be a number greater than or equal to zero' };
   if (profitAmount !== null && profitAmount < 0) return { error: 'กำไรต้องเป็นตัวเลขไม่ติดลบ' };
 
   const id = cleanString(body.id, 64) || `fin-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -199,6 +140,7 @@ function normalizeBody(body) {
       amount,
       cost_amount: costAmount,
       vat_amount: vatAmount,
+      before_vat_3_percent: beforeVat3Percent ?? 0,
       profit_amount: profitAmount,
       receipt_image_url: receiptImageUrl,
       related_vehicle_id: cleanString(body.related_vehicle_id || body.relatedVehicleId, 64) || null,
@@ -253,7 +195,7 @@ export async function GET(request) {
   try {
     const authResult = await requirePermission(request, 'finance.view');
     if (authResult.error) return json({ error: authResult.error }, { status: authResult.status });
-    await ensureFinancialTransactionsTable();
+    await assertSchemaReady('financial');
 
     const url = new URL(request.url);
     const where = buildWhere(url);
@@ -267,6 +209,8 @@ export async function GET(request) {
 
     return json({ success: true, transactions: rows.map(normalizeRow) }, { status: 200, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[financial-transactions] GET failed', error);
     return json({ error: 'ระบบการเงินยังไม่พร้อมใช้งาน กรุณาลองใหม่อีกครั้ง' }, { status: 503 });
   }
@@ -289,13 +233,13 @@ export async function POST(request) {
     if (normalized.error) return json({ error: normalized.error }, { status: 400 });
     const { transaction } = normalized;
 
-    await ensureFinancialTransactionsTable();
+    await assertSchemaReady('financial');
     const beforeRows = await query('SELECT * FROM financial_transactions WHERE id = ? LIMIT 1', [transaction.id]);
     const beforeTransaction = Array.isArray(beforeRows) && beforeRows.length ? normalizeRow(beforeRows[0]) : null;
     await query(
       `INSERT INTO financial_transactions (
-        id, date, time, transaction_date, type, category, description, amount, cost_amount, vat_amount, profit_amount, payment_method, receipt_image_url, related_vehicle_id, note
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, date, time, transaction_date, type, category, description, amount, cost_amount, vat_amount, before_vat_3_percent, profit_amount, payment_method, receipt_image_url, related_vehicle_id, note
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
         date = VALUES(date),
         time = VALUES(time),
@@ -306,6 +250,7 @@ export async function POST(request) {
         amount = VALUES(amount),
         cost_amount = VALUES(cost_amount),
         vat_amount = VALUES(vat_amount),
+        before_vat_3_percent = VALUES(before_vat_3_percent),
         profit_amount = VALUES(profit_amount),
         payment_method = VALUES(payment_method),
         receipt_image_url = VALUES(receipt_image_url),
@@ -322,6 +267,7 @@ export async function POST(request) {
         transaction.amount,
         transaction.cost_amount,
         transaction.vat_amount,
+        transaction.before_vat_3_percent,
         transaction.profit_amount,
         transaction.payment_method,
         transaction.receipt_image_url,
@@ -347,6 +293,8 @@ export async function POST(request) {
 
     return json({ success: true, transaction: savedTransaction }, { status: 200 });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[financial-transactions] POST failed', error);
     return json({ error: 'บันทึกรายการการเงินไม่สำเร็จ กรุณาลองใหม่อีกครั้ง' }, { status: 503 });
   }
@@ -360,7 +308,7 @@ export async function DELETE(request) {
     const id = cleanString(new URL(request.url).searchParams.get('id'), 64);
     if (!id) return json({ error: 'กรุณาระบุ id ของรายการที่ต้องการลบ' }, { status: 400 });
 
-    await ensureFinancialTransactionsTable();
+    await assertSchemaReady('financial');
     const rows = await query('SELECT * FROM financial_transactions WHERE id = ? LIMIT 1', [id]);
     const previousTransaction = Array.isArray(rows) && rows.length ? normalizeRow(rows[0]) : null;
     await query('DELETE FROM financial_transactions WHERE id = ?', [id]);
@@ -380,6 +328,8 @@ export async function DELETE(request) {
     }
     return json({ success: true }, { status: 200 });
   } catch (error) {
+    const schemaErrorResponse = handleSchemaError(error);
+    if (schemaErrorResponse) return schemaErrorResponse;
     console.error('[financial-transactions] DELETE failed', error);
     return json({ error: 'ลบรายการการเงินไม่สำเร็จ กรุณาลองใหม่อีกครั้ง' }, { status: 503 });
   }

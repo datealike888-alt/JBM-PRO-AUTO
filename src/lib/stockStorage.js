@@ -39,12 +39,6 @@ function normalizeNumber(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
-function wait(ms) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
 function fallbackStockMovementType(quantityChange, body = {}) {
   const deleteHint = cleanString(body.action || body.intent || body.note, 100).toLowerCase();
   if (deleteHint.includes('delete') || deleteHint.includes('remove') || deleteHint.includes('ลบสินค้า')) return 'ลบสินค้า';
@@ -53,223 +47,92 @@ function fallbackStockMovementType(quantityChange, body = {}) {
   return 'ปรับปรุง';
 }
 
-async function ensureIndex(sql) {
-  try {
-    await query(sql);
-  } catch (error) {
-    if (![1061, 1062].includes(Number(error?.errno || 0))) throw error;
-  }
+function schemaError(message) {
+  const error = new Error(message);
+  error.code = 'STOCK_SCHEMA_NOT_READY';
+  return error;
 }
 
-async function ensureColumn(sql) {
-  try {
-    await query(sql);
-  } catch (error) {
-    if ([1205, 1213].includes(Number(error?.errno || 0))) {
-      await wait(150);
-      try {
-        await query(sql);
-        return;
-      } catch (retryError) {
-        if (![1005, 1060, 1061, 1062, 1091, 1205, 1213, 1215, 1826].includes(Number(retryError?.errno || 0))) throw retryError;
-        return;
-      }
-    }
-    if (![1005, 1060, 1061, 1062, 1091, 1215, 1826].includes(Number(error?.errno || 0))) throw error;
+async function assertTableColumns(tableName, requiredColumns) {
+  const rows = await query(
+    `SELECT COLUMN_NAME
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?`,
+    [tableName]
+  );
+  const columnNames = new Set(rows.map((row) => row.COLUMN_NAME));
+  if (columnNames.size === 0) {
+    throw schemaError(`Missing stock table: ${tableName}. Run db/migration-20260711-stock-canonical-schema.sql before using stock APIs.`);
   }
-}
-
-async function ensureStockMovementQuantityChangeColumn() {
-  const columns = await query(`
-    SELECT COLUMN_NAME
-    FROM information_schema.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'stock_movements'
-  `);
-  const columnNames = new Set(columns.map((column) => column.COLUMN_NAME));
-  const hasQuantity = columnNames.has('quantity');
-  const hasQuantityChange = columnNames.has('quantity_change');
-
-  if (hasQuantity && !hasQuantityChange) {
-    try {
-      await query('ALTER TABLE stock_movements CHANGE COLUMN quantity quantity_change INT NOT NULL');
-    } catch (error) {
-      if (!['ER_BAD_FIELD_ERROR', 'ER_DUP_FIELDNAME'].includes(error?.code)) {
-        throw error;
-      }
-      console.warn('[stockStorage] Rename quantity to quantity_change skipped because schema is already migrated', error.message);
-    }
-    return;
-  }
-
-  if (!hasQuantity && !hasQuantityChange) {
-    await ensureColumn('ALTER TABLE stock_movements ADD COLUMN quantity_change INT NOT NULL DEFAULT 0');
+  const missingColumns = requiredColumns.filter((column) => !columnNames.has(column));
+  if (missingColumns.length > 0) {
+    throw schemaError(`Stock table ${tableName} is missing columns: ${missingColumns.join(', ')}. Run db/migration-20260711-stock-canonical-schema.sql.`);
   }
 }
 
 export async function ensureStockCategoriesTable() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS stock_categories (
-      id VARCHAR(64) PRIMARY KEY,
-      name VARCHAR(255) NOT NULL,
-      description TEXT NULL,
-      is_active TINYINT(1) DEFAULT 1,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      UNIQUE KEY idx_stock_categories_name (name)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
-
-  await ensureColumn('ALTER TABLE stock_categories ADD COLUMN description TEXT NULL');
-  await ensureColumn('ALTER TABLE stock_categories ADD COLUMN is_active TINYINT(1) DEFAULT 1');
-  await ensureColumn('ALTER TABLE stock_categories ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP');
-  await ensureColumn('ALTER TABLE stock_categories ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
-  await ensureIndex('ALTER TABLE stock_categories ADD UNIQUE KEY idx_stock_categories_name (name)');
+  await assertTableColumns('stock_categories', [
+    'id',
+    'name',
+    'description',
+    'is_active',
+    'created_at',
+    'updated_at',
+  ]);
 }
 
 export async function ensureStockProductsTable() {
   await ensureStockCategoriesTable();
-  await query(`
-    CREATE TABLE IF NOT EXISTS stock_products (
-      id VARCHAR(64) PRIMARY KEY,
-      code VARCHAR(100) NULL,
-      name VARCHAR(255) NULL,
-      product_code VARCHAR(100) NULL,
-      product_name VARCHAR(255) NULL,
-      part_no VARCHAR(100) NULL,
-      category_id VARCHAR(64) NULL,
-      category VARCHAR(255) NULL,
-      brand VARCHAR(100) NULL,
-      car_models VARCHAR(255) NULL,
-      compatible_models VARCHAR(255) NULL,
-      engine_number VARCHAR(100) NULL,
-      engine_code VARCHAR(100) NULL,
-      price DECIMAL(12,2) DEFAULT 0,
-      sale_price DECIMAL(12,2) DEFAULT 0,
-      cost_price DECIMAL(12,2) DEFAULT 0,
-      location VARCHAR(255) NULL,
-      quantity INT DEFAULT 0,
-      reorder_point INT DEFAULT 0,
-      min_stock INT DEFAULT 0,
-      supplier VARCHAR(255) NULL,
-      status VARCHAR(50) NULL,
-      image_url TEXT NULL,
-      unit VARCHAR(50) NULL,
-      note TEXT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      UNIQUE KEY idx_stock_products_code (product_code),
-      INDEX idx_stock_products_name (product_name),
-      INDEX idx_stock_products_category_id (category_id),
-      CONSTRAINT fk_stock_products_category_id
-        FOREIGN KEY (category_id) REFERENCES stock_categories(id)
-        ON UPDATE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
-
-  await ensureColumn('ALTER TABLE stock_products ADD COLUMN code VARCHAR(100) NULL');
-  await ensureColumn('ALTER TABLE stock_products ADD COLUMN name VARCHAR(255) NULL');
-  await ensureColumn('ALTER TABLE stock_products ADD COLUMN product_code VARCHAR(100) NULL');
-  await ensureColumn('ALTER TABLE stock_products ADD COLUMN product_name VARCHAR(255) NULL');
-  await ensureColumn('ALTER TABLE stock_products ADD COLUMN part_no VARCHAR(100) NULL');
-  await ensureColumn('ALTER TABLE stock_products ADD COLUMN category_id VARCHAR(64) NULL');
-  await ensureColumn('ALTER TABLE stock_products ADD COLUMN category VARCHAR(255) NULL');
-  await ensureColumn('ALTER TABLE stock_products ADD COLUMN brand VARCHAR(100) NULL');
-  await ensureColumn('ALTER TABLE stock_products ADD COLUMN car_models VARCHAR(255) NULL');
-  await ensureColumn('ALTER TABLE stock_products ADD COLUMN compatible_models VARCHAR(255) NULL');
-  await ensureColumn('ALTER TABLE stock_products ADD COLUMN engine_number VARCHAR(100) NULL');
-  await ensureColumn('ALTER TABLE stock_products ADD COLUMN engine_code VARCHAR(100) NULL');
-  await ensureColumn('ALTER TABLE stock_products ADD COLUMN price DECIMAL(12,2) DEFAULT 0');
-  await ensureColumn('ALTER TABLE stock_products ADD COLUMN sale_price DECIMAL(12,2) DEFAULT 0');
-  await ensureColumn('ALTER TABLE stock_products ADD COLUMN cost_price DECIMAL(12,2) DEFAULT 0');
-  await ensureColumn('ALTER TABLE stock_products ADD COLUMN location VARCHAR(255) NULL');
-  await ensureColumn('ALTER TABLE stock_products ADD COLUMN quantity INT DEFAULT 0');
-  await ensureColumn('ALTER TABLE stock_products ADD COLUMN reorder_point INT DEFAULT 0');
-  await ensureColumn('ALTER TABLE stock_products ADD COLUMN min_stock INT DEFAULT 0');
-  await ensureColumn('ALTER TABLE stock_products ADD COLUMN supplier VARCHAR(255) NULL');
-  await ensureColumn('ALTER TABLE stock_products ADD COLUMN status VARCHAR(50) NULL');
-  await ensureColumn('ALTER TABLE stock_products ADD COLUMN image_url TEXT NULL');
-  await ensureColumn('ALTER TABLE stock_products ADD COLUMN unit VARCHAR(50) NULL');
-  await ensureColumn('ALTER TABLE stock_products ADD COLUMN note TEXT NULL');
+  await assertTableColumns('stock_products', [
+    'id',
+    'code',
+    'name',
+    'product_code',
+    'product_name',
+    'part_no',
+    'category_id',
+    'category',
+    'brand',
+    'car_models',
+    'compatible_models',
+    'engine_number',
+    'engine_code',
+    'price',
+    'sale_price',
+    'cost_price',
+    'location',
+    'quantity',
+    'reorder_point',
+    'min_stock',
+    'supplier',
+    'status',
+    'image_url',
+    'unit',
+    'note',
+    'created_at',
+    'updated_at',
+  ]);
 }
 
 export async function ensureStockMovementsTable() {
   await ensureStockProductsTable();
-  await query(`
-    CREATE TABLE IF NOT EXISTS stock_movements (
-      id VARCHAR(64) PRIMARY KEY,
-      product_id VARCHAR(64) NULL,
-      code VARCHAR(100) NULL,
-      name VARCHAR(255) NULL,
-      type VARCHAR(50) NOT NULL,
-      product_code VARCHAR(100) NULL,
-      product_name VARCHAR(255) NULL,
-      movement_type VARCHAR(50) NOT NULL,
-      quantity_change INT NOT NULL,
-      quantity_before INT DEFAULT 0,
-      quantity_after INT DEFAULT 0,
-      note TEXT NULL,
-      created_by VARCHAR(100) NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      INDEX idx_stock_movements_product_id (product_id),
-      INDEX idx_stock_movements_created_at (created_at),
-      CONSTRAINT fk_stock_movements_product_id
-        FOREIGN KEY (product_id) REFERENCES stock_products(id)
-        ON UPDATE CASCADE
-        ON DELETE SET NULL
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-  `);
-  await ensureColumn('ALTER TABLE stock_movements ADD COLUMN code VARCHAR(100) NULL');
-  await ensureColumn('ALTER TABLE stock_movements ADD COLUMN name VARCHAR(255) NULL');
-  await ensureColumn('ALTER TABLE stock_movements ADD COLUMN type VARCHAR(50) NULL');
-  await ensureColumn('ALTER TABLE stock_movements ADD COLUMN product_code VARCHAR(100) NULL');
-  await ensureColumn('ALTER TABLE stock_movements ADD COLUMN product_name VARCHAR(255) NULL');
-  await ensureColumn('ALTER TABLE stock_movements ADD COLUMN movement_type VARCHAR(50) NULL');
-  await ensureColumn('ALTER TABLE stock_movements ADD COLUMN created_by VARCHAR(100) NULL');
-  await ensureStockMovementQuantityChangeColumn();
-  try {
-    await query(`
-      UPDATE stock_movements sm
-      LEFT JOIN stock_products sp ON sp.id = sm.product_id
-      SET
-        sm.code = COALESCE(NULLIF(sm.code, ''), NULLIF(sm.product_code, ''), sp.code, sp.product_code),
-        sm.name = COALESCE(NULLIF(sm.name, ''), NULLIF(sm.product_name, ''), sp.name, sp.product_name),
-        sm.product_code = COALESCE(NULLIF(sm.product_code, ''), sp.product_code),
-        sm.product_name = COALESCE(NULLIF(sm.product_name, ''), sp.product_name),
-        sm.type = COALESCE(NULLIF(sm.type, ''), NULLIF(sm.movement_type, ''), ?),
-        sm.movement_type = COALESCE(NULLIF(sm.movement_type, ''), NULLIF(sm.type, ''), ?)
-      WHERE sm.product_id IS NOT NULL
-        AND (
-          sm.code IS NULL OR sm.code = ''
-          OR sm.name IS NULL OR sm.name = ''
-          OR sm.product_code IS NULL OR sm.product_code = ''
-          OR sm.product_name IS NULL OR sm.product_name = ''
-          OR sm.type IS NULL OR sm.type = ''
-          OR sm.movement_type IS NULL OR sm.movement_type = ''
-        )
-    `, ['ปรับปรุง', 'ปรับปรุง']);
-  } catch (e) {
-    console.warn('[stockStorage] Migration update for stock_movements skipped due to schema mismatch', e.message);
-  }
-  try {
-    const checkFk = await query(`
-      SELECT CONSTRAINT_NAME
-      FROM information_schema.KEY_COLUMN_USAGE
-      WHERE TABLE_NAME = 'stock_movements'
-        AND CONSTRAINT_NAME = 'fk_stock_movements_product_id'
-        AND TABLE_SCHEMA = DATABASE()
-    `);
-    if (checkFk.length > 0) {
-      await ensureColumn('ALTER TABLE stock_movements DROP FOREIGN KEY fk_stock_movements_product_id');
-    }
-  } catch (e) {
-    console.warn('[stockStorage] Failed to check/drop FK', e.message);
-  }
-  await ensureColumn('ALTER TABLE stock_movements MODIFY product_id VARCHAR(64) NULL');
-  await ensureColumn(`ALTER TABLE stock_movements ADD CONSTRAINT fk_stock_movements_product_id
-    FOREIGN KEY (product_id) REFERENCES stock_products(id)
-    ON UPDATE CASCADE
-    ON DELETE SET NULL`);
+  await assertTableColumns('stock_movements', [
+    'id',
+    'product_id',
+    'code',
+    'name',
+    'type',
+    'product_code',
+    'product_name',
+    'movement_type',
+    'quantity_change',
+    'quantity_before',
+    'quantity_after',
+    'note',
+    'created_by',
+    'created_at',
+  ]);
 }
 
 export async function ensureStockTables() {
@@ -422,4 +285,4 @@ export function normalizeStockMovementRow(row) {
   };
 }
 
-export { cleanString, ensureIndex, query };
+export { cleanString, query };

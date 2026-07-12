@@ -9,6 +9,11 @@ README.md
 .tmp
 reports
 data
+*.before-*
+*.patch
+coverage
+scripts/temp-scan*.js
+scripts/tmp-*.js
 
 # Runtime-mounted content should not be baked into image
 public/content
@@ -25,3 +30,5 @@ temp_update.js
 # Prevent leaking local env files into image context
 .env
 .env.*
+!.env.example
+!.env.production.example

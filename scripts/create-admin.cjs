@@ -49,6 +49,10 @@ function validatePassword(password) {
 async function promptForMissing(input) {
   if (input.username && input.displayName && input.password) return input;
 
+  if (!process.stdin.isTTY) {
+    throw new Error('ADMIN_USERNAME, ADMIN_DISPLAY_NAME, and ADMIN_PASSWORD are required when admin:create is not run interactively');
+  }
+
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
     return {

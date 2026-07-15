@@ -9,28 +9,6 @@ INSERT IGNORE INTO employee_positions (id, name, sort_order, active) VALUES
 ('position-stock', 'พนักงานสต๊อก', 4, 1),
 ('position-mechanic', 'ช่าง', 5, 1);
 
-INSERT IGNORE INTO employees (id, employee_code, first_name, last_name, nickname, position, phone, status, start_date, note) VALUES
-('emp-owner', 'EMP001', 'JBM', 'Owner', 'เจบีเอ็ม', 'เจ้าของอู่', '0992651133', 'ทำงานอยู่', '2024-01-01', 'ผู้ดูแลระบบ'),
-('emp-manager', 'EMP002', 'Somchai', 'Manager', 'ชาย', 'ผู้จัดการ', '0811111111', 'ทำงานอยู่', '2024-01-10', NULL),
-('emp-accounting', 'EMP003', 'Suda', 'Accounting', 'ดา', 'พนักงานบัญชี', '0822222222', 'ทำงานอยู่', '2024-02-01', NULL),
-('emp-stock', 'EMP004', 'Narin', 'Stock', 'นรินทร์', 'พนักงานสต๊อก', '0833333333', 'ทำงานอยู่', '2024-02-15', NULL),
-('emp-mechanic-1', 'EMP005', 'Anan', 'Mechanic', 'อนันต์', 'ช่าง', '0844444444', 'ทำงานอยู่', '2024-03-01', NULL),
-('emp-mechanic-2', 'EMP006', 'Prasit', 'Technician', 'สิทธิ์', 'ช่าง', '0855555555', 'ทำงานอยู่', '2024-03-15', NULL);
-
-INSERT IGNORE INTO attendance_settings (
-  id, employee_id, morning_start, morning_late_after, lunch_out, afternoon_start, afternoon_late_after, work_end, source
-) VALUES (
-  'attendance-settings-default',
-  NULL,
-  '09:00:00',
-  '09:06:00',
-  '12:30:00',
-  '13:30:00',
-  '13:31:00',
-  '18:00:00',
-  'seed'
-);
-
 INSERT IGNORE INTO stock_categories (id, name, description, is_active) VALUES
 ('cat-engine-oil', 'น้ำมันเครื่อง', 'ของเหลวสำหรับบำรุงรักษาเครื่องยนต์', 1),
 ('cat-filter', 'กรอง', 'ไส้กรองและอุปกรณ์กรอง', 1),
